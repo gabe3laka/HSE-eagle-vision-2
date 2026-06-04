@@ -69,10 +69,7 @@ export function CameraView({
             <p className={`text-xs font-bold uppercase tracking-wide ${topSev.text}`}>
               {topSev.label} · {HAZARDS[topAlert.hazardType].label}
             </p>
-            <p
-              dir={isRTL(language) ? "rtl" : "ltr"}
-              className="truncate text-sm font-medium"
-            >
+            <p dir={isRTL(language) ? "rtl" : "ltr"} className="truncate text-sm font-medium">
               {localizedMessage(topAlert.hazardType, language)}
             </p>
           </div>
@@ -98,10 +95,12 @@ export function CameraView({
           ) : (
             <>
               <div>
-                <p className="font-display text-lg font-semibold">Use this phone as a safety camera</p>
+                <p className="font-display text-lg font-semibold">
+                  Use this phone as a safety camera
+                </p>
                 <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-                  Point the rear camera at the work area. SafeLens watches for hazards and alerts you
-                  the moment one appears.
+                  Point the rear camera at the work area. SafeLens watches for hazards and alerts
+                  you the moment one appears.
                 </p>
               </div>
               <Button onClick={onEnable} disabled={starting} size="lg">

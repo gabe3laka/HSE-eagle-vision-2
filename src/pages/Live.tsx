@@ -31,12 +31,13 @@ export default function Live() {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
   }, [queryClient]);
 
-  const { running, alerts, liveBoxes, stats, debug, start, stop, dismissAlert } = useDetectionSession({
-    video: videoRef.current,
-    config,
-    captureSnapshot,
-    onIncidentSaved,
-  });
+  const { running, alerts, liveBoxes, stats, debug, start, stop, dismissAlert } =
+    useDetectionSession({
+      video: videoRef.current,
+      config,
+      captureSnapshot,
+      onIncidentSaved,
+    });
 
   // most recent high/critical alert drives the on-camera banner
   const topAlert = useMemo(() => alerts.find((a) => a.isIncident) ?? null, [alerts]);
@@ -51,8 +52,8 @@ export default function Live() {
       <header>
         <h1 className="font-display text-2xl font-bold">Live monitoring</h1>
         <p className="text-sm text-muted-foreground">
-          The phone is the camera. Hazards are detected on-device and surfaced instantly — nothing is
-          recorded unless an incident is saved.
+          The phone is the camera. Hazards are detected on-device and surfaced instantly — nothing
+          is recorded unless an incident is saved.
         </p>
       </header>
 
@@ -80,7 +81,12 @@ export default function Live() {
         </div>
 
         <aside className="glass-panel rounded-2xl border p-4 lg:sticky lg:top-6 lg:h-[calc(100vh-9rem)]">
-          <AlertFeed alerts={alerts} running={running} language={config.language} onDismiss={dismissAlert} />
+          <AlertFeed
+            alerts={alerts}
+            running={running}
+            language={config.language}
+            onDismiss={dismissAlert}
+          />
         </aside>
       </div>
     </div>

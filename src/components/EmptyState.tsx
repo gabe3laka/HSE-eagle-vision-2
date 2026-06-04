@@ -11,7 +11,14 @@ interface EmptyStateProps {
   actionHref?: string;
 }
 
-export function EmptyState({ icon: Icon, title, description, actionLabel, onAction, actionHref }: EmptyStateProps) {
+export function EmptyState({
+  icon: Icon,
+  title,
+  description,
+  actionLabel,
+  onAction,
+  actionHref,
+}: EmptyStateProps) {
   return (
     <div className="flex flex-col items-center justify-center py-16 px-6 text-center animate-fade-in-up glass-subtle rounded-xl">
       <div className="relative rounded-2xl bg-primary/10 p-5 mb-5">
@@ -20,13 +27,14 @@ export function EmptyState({ icon: Icon, title, description, actionLabel, onActi
       </div>
       <h3 className="font-display text-lg font-semibold mb-1.5">{title}</h3>
       <p className="text-sm text-muted-foreground max-w-sm mb-6">{description}</p>
-      {actionLabel && (actionHref ? (
-        <Button asChild>
-          <Link to={actionHref}>{actionLabel}</Link>
-        </Button>
-      ) : onAction ? (
-        <Button onClick={onAction}>{actionLabel}</Button>
-      ) : null)}
+      {actionLabel &&
+        (actionHref ? (
+          <Button asChild>
+            <Link to={actionHref}>{actionLabel}</Link>
+          </Button>
+        ) : onAction ? (
+          <Button onClick={onAction}>{actionLabel}</Button>
+        ) : null)}
     </div>
   );
 }

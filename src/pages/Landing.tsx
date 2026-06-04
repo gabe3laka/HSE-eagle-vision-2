@@ -63,7 +63,10 @@ export default function Landing() {
           Real-time safety coaching
         </div>
 
-        <h1 className="display-text mx-auto mb-6 max-w-3xl animate-fade-in-up" style={{ animationDelay: "0.1s" }}>
+        <h1
+          className="display-text mx-auto mb-6 max-w-3xl animate-fade-in-up"
+          style={{ animationDelay: "0.1s" }}
+        >
           See the hazard
           <br className="hidden sm:block" /> before it happens
         </h1>
@@ -109,9 +112,12 @@ export default function Landing() {
       {/* Features */}
       <section className="relative z-10 mx-auto max-w-5xl px-6 pb-24">
         <div className="mb-12 text-center">
-          <h2 className="mb-3 font-display text-2xl font-bold">A safety layer, not another gadget</h2>
+          <h2 className="mb-3 font-display text-2xl font-bold">
+            A safety layer, not another gadget
+          </h2>
           <p className="text-muted-foreground">
-            Five precise detections, multilingual coaching, and an alert that lands in under a second.
+            Five precise detections, multilingual coaching, and an alert that lands in under a
+            second.
           </p>
         </div>
 

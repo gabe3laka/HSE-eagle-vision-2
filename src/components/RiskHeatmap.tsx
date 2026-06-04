@@ -51,7 +51,8 @@ export function RiskHeatmap({ detections }: { detections: Det[] }) {
                 key={i}
                 className="border border-white/5"
                 style={{
-                  backgroundColor: v > 0 ? `rgba(239,68,68,${0.12 + intensity * 0.78})` : "transparent",
+                  backgroundColor:
+                    v > 0 ? `rgba(239,68,68,${0.12 + intensity * 0.78})` : "transparent",
                 }}
               />
             );
@@ -64,7 +65,9 @@ export function RiskHeatmap({ detections }: { detections: Det[] }) {
         )}
       </div>
       <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>Camera frame · {total} detection{total === 1 ? "" : "s"}</span>
+        <span>
+          Camera frame · {total} detection{total === 1 ? "" : "s"}
+        </span>
         <span className="flex items-center gap-1.5">
           low
           <span

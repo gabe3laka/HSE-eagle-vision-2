@@ -34,7 +34,7 @@ and builds (client + SSR). No DB migration was required for Sprint 1–2.5.
 | 11 | Persistence (detections/incidents/snapshot) + heatmap | ✅ |
 | 12 | Tests (all required scenarios) | ✅ 33/33 |
 | 13 | Docs | ✅ created this audit |
-| 14 | Commands | tests ✅ · build ✅ · lint ⚠️ (formatting) · tsc ✅ |
+| 14 | Commands | tests ✅ · build ✅ · tsc ✅ · lint ✅ (green after hardening) |
 
 ## Tests — 33/33 pass (3 files)
 `poseGeometry.test.ts` (16), `personProximity.test.ts` (11), `riskEngine.test.ts` (6).
@@ -53,22 +53,30 @@ all rules" — cosmetic; move it to the top of `styles.css` to silence.
 ## Type check — pass
 `npx tsc --noEmit` exit 0. No broken imports, no type errors.
 
-## Lint — fails on formatting (pre-existing, not Sprint regressions)
-`npm run lint` exits 1: **177 problems (168 errors, 9 warnings)**.
-- **162** `prettier/prettier` — pure formatting, auto-fixable (`eslint . --fix` /
-  `npm run format`). Concentrated in migrated pages (`Landing`, `Live`, `Overview`,
-  `Settings`, `__root`).
-- **5** `@typescript-eslint/ban-ts-comment` — `@ts-ignore` in **auto-managed**
-  Supabase integration files (`auth-attacher`, `auth-middleware`, `client.server`,
-  `types.ts`) — must not be hand-edited per project rules.
-- **1** `@typescript-eslint/no-explicit-any` — the intentional cast in `db.ts`.
-- **9** `react-refresh/only-export-components` — Fast-Refresh hints (shadcn/ui +
-  a few modules); cosmetic.
+## Lint — green (resolved in the post-audit hardening pass)
+At audit time `npm run lint` exited 1 with **177 problems (168 errors, 9 warnings)** —
+all pre-existing (migration formatting + intentional/managed code), none Sprint
+regressions. The hardening pass made lint **green (exit 0)** without hand-editing
+any auto-managed file:
+- **162 `prettier/prettier`** → fixed by `eslint . --fix` (linted app files only).
+- **5 `@typescript-eslint/ban-ts-comment`** (`@ts-ignore`) → these turned out to be
+  in **`src/lib/router-shim.tsx`** (intentional react-router-dom→TanStack bridges,
+  e.g. "Link accepts plain strings at runtime"), not the Supabase files; the rule is
+  relaxed for that one router file via an override.
+- **1 `@typescript-eslint/no-explicit-any`** → the deliberate bridge cast in
+  `db.ts`; relaxed for `db.ts` via an override.
+- **`react-refresh/only-export-components`** → disabled for `src/components/ui/**`
+  (shadcn) and `router-shim.tsx`.
 
-The Sprint **detection** code is clean apart from formatting (`poseGeometry.ts`).
-Lint cannot be fully greened by `--fix` alone (6 non-formatting errors remain, some
-in files the Lovable rules forbid editing) — greening it is an eslint-config
-decision (ignore managed files / relax rules), out of scope for this audit.
+The 5 auto-managed Supabase files (`client.ts`, `client.server.ts`,
+`auth-middleware.ts`, `auth-attacher.ts`, `types.ts`) are now in eslint `ignores`,
+so they are neither linted nor reformatted by `--fix`.
+
+**Residual (documented, intentional): 1 warning** — `react-refresh/only-export-components`
+in `src/contexts/AuthContext.tsx`, which exports the `AuthProvider` component plus the
+`useAuth` hook (a standard context pattern). Warning only — `npm run lint` exits 0. Left
+as-is rather than restructuring the context or widening the override beyond the
+sanctioned shadcn/ui + router scope.
 
 ## Notes / deltas vs the handoff
 - Repo uses **Bun** (`bun.lock`, `bunfig.toml`) as well as npm; commands work
@@ -77,10 +85,21 @@ decision (ignore managed files / relax rules), out of scope for this audit.
 - Old repo reported 34 tests at Sprint 2.5; this repo has **33** — all required
   scenarios are still covered (the missing one is not in the audit list).
 
-## Recommended next step before Sprint 4
-A short hardening pass (not new features):
-1. Tracker → return `{ id, box, sourceIndex }` to remove the index-coupling in
-   `realPoseDetector` before a heavier tracker/YOLO lands.
-2. Decide the lint policy (ignore auto-managed files + run `--fix`) so `npm run
-   lint` is green.
-Then Sprint 4 (RunPod YOLO) behind the existing `Detector`/`trackKey`/`source` seam.
+## Post-audit hardening pass — done
+Both recommended items are complete (no new features, no DB migration, no new
+hazard types):
+1. **Tracker decoupling** — `TrackedPerson` now carries `sourceIndex`, and
+   `RealPoseDetector` maps each tracked person to its own pose analysis via
+   `analyses[sourceIndex]` instead of assuming `tracked[i] ↔ analyses[i]`.
+   Detection behaviour is unchanged (the indices coincide today); the coupling
+   that would have bitten a heavier tracker/YOLO is removed.
+2. **Lint policy** — green (see "Lint" above).
+
+Tests went **33 → 36**: added two `PersonTracker` `sourceIndex` tests (one asserts
+`boxes[sourceIndex]` round-trips; one asserts a person keeps its own box when input
+order changes) and one `SimulatedDetector` guard confirming the simulated path stays
+`trackKey`/`source`-free.
+
+## Next: Sprint 4
+RunPod YOLO (PPE / forklift / objects / blocked-exit) behind the existing
+`Detector`/`trackKey`/`source` seam — needs the RunPod endpoint URL + API key.

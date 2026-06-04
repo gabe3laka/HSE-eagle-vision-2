@@ -47,7 +47,9 @@ export function useAlertSettings() {
             ? cfg.enabledHazards
             : DEFAULT_ALERT_CONFIG.enabledHazards,
           sensitivity:
-            typeof cfg.sensitivity === "number" ? cfg.sensitivity : DEFAULT_ALERT_CONFIG.sensitivity,
+            typeof cfg.sensitivity === "number"
+              ? cfg.sensitivity
+              : DEFAULT_ALERT_CONFIG.sensitivity,
           language: data.preferred_language ?? "en",
           voiceEnabled: data.voice_enabled ?? false,
           notificationsEnabled:
