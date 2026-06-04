@@ -1,7 +1,5 @@
 import { useMemo } from "react";
-import type { Database } from "@/integrations/supabase/types";
-
-type Severity = Database["public"]["Enums"]["severity"];
+import type { Severity } from "@/integrations/supabase/db";
 
 interface Det {
   bbox: unknown;
