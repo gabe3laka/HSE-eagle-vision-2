@@ -40,4 +40,3 @@ export function useNavigate() {
 }
 
 export type _UnusedLink = AnyLink;
-export type _UnusedRawLink = typeof RawLink;
