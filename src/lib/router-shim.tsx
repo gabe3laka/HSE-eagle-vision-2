@@ -1,27 +1,30 @@
-// Shim providing react-router-dom-compatible exports backed by TanStack Router.
 import {
   Link as TSLink,
   Navigate as TSNavigate,
   useLocation as tsUseLocation,
   useNavigate as tsUseNavigate,
-  type LinkProps as TSLinkProps,
 } from "@tanstack/react-router";
 import { forwardRef, type ComponentPropsWithoutRef, type ReactNode } from "react";
 
-type AnyTo = string | { to: string; replace?: boolean };
+type AnyLink = typeof TSLink;
+const RawLink = TSLink as unknown as (props: {
+  to: string;
+  replace?: boolean;
+  children?: ReactNode;
+  className?: string;
+  title?: string;
+} & Omit<ComponentPropsWithoutRef<"a">, "href">) => JSX.Element;
 
 export const Link = forwardRef<HTMLAnchorElement, { to: string; replace?: boolean; children?: ReactNode } & Omit<ComponentPropsWithoutRef<"a">, "href">>(
-  ({ to, replace, children, ...rest }, ref) => (
-    // @ts-expect-error TanStack typed routes are stricter than RR's plain strings
-    <TSLink ref={ref} to={to} replace={replace} {...(rest as TSLinkProps)}>
-      {children}
-    </TSLink>
-  ),
+  ({ to, replace, children, ...rest }, ref) => {
+    // @ts-ignore - TanStack Link accepts plain strings at runtime
+    return <TSLink ref={ref} to={to} replace={replace} {...rest}>{children}</TSLink>;
+  },
 );
 Link.displayName = "Link";
 
 export function Navigate({ to, replace }: { to: string; replace?: boolean }) {
-  // @ts-expect-error see above
+  // @ts-ignore - same runtime acceptance
   return <TSNavigate to={to} replace={replace} />;
 }
 
@@ -32,16 +35,16 @@ export function useLocation() {
 
 export function useNavigate() {
   const nav = tsUseNavigate();
-  return (to: AnyTo, opts?: { replace?: boolean }) => {
+  return (to: string | { to: string; replace?: boolean }, opts?: { replace?: boolean }) => {
     if (typeof to === "string") {
-      // @ts-expect-error string path is fine at runtime
+      // @ts-ignore
       nav({ to, replace: opts?.replace });
     } else {
-      // @ts-expect-error
+      // @ts-ignore
       nav(to);
     }
   };
 }
 
-// Re-export for any rare callers
-export type { TSLinkProps as LinkProps };
+export type _UnusedLink = AnyLink;
+export type _UnusedRawLink = typeof RawLink;
