@@ -1,85 +1,28 @@
 ## Goal
 
-Make every file in this project match the uploaded `HSE-eagle-vision-main` source — pages, components, hooks, detection lib, styles, dependencies — and bring the Supabase backend (`pigisgebfcbfvvflxkdw`) to match the upload's two migrations.
+Fix the 6 TypeScript errors by populating `src/integrations/supabase/types.ts` with the real schema of the external backend (`pigisgebfcbfvvflxkdw`), since Lovable cannot auto-generate types for an external Supabase project.
 
-Two unavoidable deviations (both already agreed):
-- **Routing layer stays TanStack Router** (upload uses `react-router-dom`). Page/component code is copied verbatim; `useNavigate`/`Link`/`Navigate` are imported from the existing `@/lib/router-shim` instead of `react-router-dom`. Behavior identical.
-- **Backend stays on `pigisgebfcbfvvflxkdw`**. The upload's `.env` (project `yuasablnurgxmabgxngm`) is ignored; `own-client.ts` stays pointed at yours.
+## Source of truth
 
-## Frontend
+The uploaded `HSE-eagle-vision-main-3.zip` contains a fully-generated `src/integrations/supabase/types.ts` (421 lines) produced from the same schema that was applied to `pigisgebfcbfvvflxkdw`. Tables: `profiles`, `alert_settings`, `monitoring_sessions`, `hazard_zones`, `detections`, `incidents`. Enums: `hazard_type`, `severity`, `session_status`, `zone_kind`. This file is the exact shape `RiskHeatmap.tsx`, `useIncidents.ts`, and `lib/detection/types.ts` are written against.
 
-### 1. Dependencies
+## Steps
 
-Install everything the upload uses that isn't already in `package.json`:
+1. **Overwrite `src/integrations/supabase/types.ts`** with the verbatim contents of the uploaded project's `types.ts`. Despite the standard "never edit types.ts" rule (which protects Lovable-managed regeneration), Option B explicitly requires manual maintenance because Lovable's introspection points at the empty managed project, not the external one.
 
-- `@mediapipe/tasks-vision` (pose detection)
-- `@xyflow/react` (zone editor UI)
-- `jszip`, `xlsx` (export)
-- `react-markdown` (docs viewer)
-- `react-day-picker`, `embla-carousel-react`, `input-otp`, `vaul`, `cmdk` (UI bits — install only if missing after audit)
+2. **Verify the 6 errors resolve** by re-checking:
+   - `RiskHeatmap.tsx:4` — `Database["public"]["Enums"]["severity"]` ✓
+   - `useIncidents.ts:6,7,43` — `Tables["incidents"|"monitoring_sessions"|"detections"]["Row"]` ✓
+   - `lib/detection/types.ts:3,4` — `Enums["hazard_type"|"severity"]` ✓
 
-### 2. Port every source file verbatim from the upload
+3. **Do not touch anything else.** Leave `own-client.ts`, `db.ts`, `client.ts`, and all hooks unchanged. No migrations against the Lovable-managed project. No edits to `.env`. No changes to other components.
 
-Overwrite the current versions of:
+## Caveat to flag to the user
 
-- `src/pages/*` — Auth, Landing, Live, Incidents, Overview, Settings, NotFound
-- `src/components/*` — AppLayout, ProtectedRoute, ConfidenceBadge, EmptyState, RiskHeatmap, NavLink
-- `src/components/live/*` — AlertCard, AlertFeed, CameraView, DetectionOverlay, PoseDebugPanel, SessionControls, hazardIcons
-- `src/contexts/AuthContext.tsx`
-- `src/hooks/useAlertSettings.ts`, `useCamera.ts`, `useDetectionSession.ts`, `useIncidents.ts`
-- `src/lib/detection/*` — every file including `.test.ts` files
-- `src/lib/chartTheme.ts`, `src/lib/utils.ts`
-
-Two automated rewrites applied during the copy:
-- `from "react-router-dom"` → `from "@/lib/router-shim"`
-- `from "@/integrations/supabase/client"` → `from "@/integrations/supabase/own-client"`
-
-Everything else (component bodies, prop shapes, classNames, business logic) byte-for-byte identical to the upload.
-
-### 3. Styles
-
-Port the upload's `src/index.css` design tokens (HSL semantic vars: `--background`, `--primary`, etc.) into the current `src/styles.css` using the Tailwind v4 `@theme` syntax so existing class names (`bg-background`, `text-primary`, etc.) keep working. Keep current `mesh-gradient`/`dotted-grid`/`glass-strong` utilities if absent in upload, otherwise replace with upload's versions.
-
-### 4. Routes
-
-Keep current `src/routes/{__root,index,landing,auth,incidents,overview,settings}.tsx`. Add:
-- `src/routes/$.tsx` (splat) → renders `NotFound` (upload has `path="*"`)
-- Redirects: `/live` → `/`, `/dashboard` → `/overview` (implement as small route components calling `Navigate`)
-
-`src/routes/index.tsx` renders `Live`. `_authenticated/` layout already gates protected pages.
-
-## Backend (Supabase — `pigisgebfcbfvvflxkdw`)
-
-### 5. Schema migration
-
-Run one migration that brings the DB to match the upload's two migrations combined:
-
-- Add enum `zone_kind` (`restricted`, `exit`, `walkway`) — missing from current `migration.sql`
-- Add table `hazard_zones` (owner-scoped, references `monitoring_sessions`) with RLS + GRANTs — missing
-- Apply hardening from migration 2: `alter function public.set_updated_at() set search_path = ''`; revoke execute on `handle_new_user()` from anon/authenticated/public
-
-The other tables (`profiles`, `alert_settings`, `monitoring_sessions`, `detections`, `incidents`), enums, triggers, and `incident-snapshots` storage bucket are already in the prepared `migration.sql` you reviewed — they'll be combined into this one migration so the database matches the upload exactly. Idempotent (`IF NOT EXISTS` / `on conflict`) so re-running is safe.
-
-GRANTs added per Lovable Cloud requirement (the upload omits them; PostgREST needs them):
-- `GRANT SELECT, INSERT, UPDATE, DELETE` to `authenticated` on every public table
-- `GRANT ALL` to `service_role`
-
-### 6. Test user
-
-The user `0@test.com` / `000000` already exists. After the migration runs, insert a matching `profiles` row for that user_id so the app's `fetchProfile` finds them on first sign-in.
+`types.ts` will NOT auto-regenerate while you stay on the external backend. Any future schema change in `pigisgebfcbfvvflxkdw` must be mirrored here by hand (or by pasting in a freshly generated file from the Supabase dashboard's TypeScript types page for that project). If Lovable's automation ever overwrites this file with the empty stub, the same 6 errors will return and the fix is to paste the contents back.
 
 ## Out of scope
 
-- Not switching to plain Vite + react-router-dom (you chose to keep TanStack).
-- Not repointing to `yuasablnurgxmabgxngm`.
-- Google OAuth (upload doesn't enable it either).
-- Email confirmation (Supabase default stays on; test user is pre-confirmed).
-
-## Verification
-
-1. App loads, sign in as `0@test.com` / `000000`.
-2. Live page renders camera + detection overlay.
-3. Trigger a hazard → row appears in `detections`; high/critical also in `incidents`.
-4. Incidents page lists rows, snapshot loads from `incident-snapshots` bucket.
-5. Settings page reads/writes `alert_settings`.
-6. `supabase--linter` clean for the new objects.
+- Switching to the Lovable-managed backend (Option A).
+- Running migrations, adding RLS, or touching auth.
+- Any UI / business-logic changes.
