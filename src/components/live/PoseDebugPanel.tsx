@@ -35,11 +35,27 @@ export function PoseDebugPanel({ debug }: { debug: PoseDebug }) {
         <Row label="torso °" value={debug.torsoAngle.toFixed(0)} score={debug.torsoBendScore} />
         <Row label="knee °" value={debug.kneeAngle.toFixed(0)} score={debug.kneeStraightScore} />
         <Row label="wrist low" value={debug.wristLowScore.toFixed(2)} score={debug.wristLowScore} />
-        <Row label="reach" value={debug.forwardReachScore.toFixed(2)} score={debug.forwardReachScore} />
-        <Row label="twist" value={debug.twistAsymmetryScore.toFixed(2)} score={debug.twistAsymmetryScore} />
-        <Row label="overhead" value={debug.overheadReachScore.toFixed(2)} score={debug.overheadReachScore} />
+        <Row
+          label="reach"
+          value={debug.forwardReachScore.toFixed(2)}
+          score={debug.forwardReachScore}
+        />
+        <Row
+          label="twist"
+          value={debug.twistAsymmetryScore.toFixed(2)}
+          score={debug.twistAsymmetryScore}
+        />
+        <Row
+          label="overhead"
+          value={debug.overheadReachScore.toFixed(2)}
+          score={debug.overheadReachScore}
+        />
         <Row label="visibility" value={debug.visibility.toFixed(2)} score={debug.visibility} />
-        <Row label="hold ms" value={Math.round(debug.staticHoldMs).toString()} score={debug.staticScore} />
+        <Row
+          label="hold ms"
+          value={Math.round(debug.staticHoldMs).toString()}
+          score={debug.staticScore}
+        />
         <Row label="bends/min" value={debug.bendsPerMin.toString()} score={debug.repetitionScore} />
       </div>
       {debug.ergonomicFactors.length > 0 && (
@@ -57,7 +73,11 @@ export function PoseDebugPanel({ debug }: { debug: PoseDebug }) {
             {debug.proximityEmitted ? "TOO CLOSE" : "ok"} · {debug.personCount} ppl
           </span>
         </div>
-        <Row label="closest" value={debug.closestPairScore.toFixed(2)} score={debug.closestPairScore} />
+        <Row
+          label="closest"
+          value={debug.closestPairScore.toFixed(2)}
+          score={debug.closestPairScore}
+        />
         <Row label="pair" value={debug.closestPairKey ?? "—"} />
         <Row label="edge gap" value={debug.closestPairGap.toFixed(2)} />
         {debug.trackedIds.length > 0 && (

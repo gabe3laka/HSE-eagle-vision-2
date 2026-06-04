@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react";
 import { Lock, Save, ShieldCheck } from "lucide-react";
-import {
-  useAlertSettings,
-  DEFAULT_ALERT_CONFIG,
-  type AlertConfig,
-} from "@/hooks/useAlertSettings";
+import { useAlertSettings, DEFAULT_ALERT_CONFIG, type AlertConfig } from "@/hooks/useAlertSettings";
 import { ALL_HAZARDS, HAZARDS } from "@/lib/detection/hazardCatalog";
 import { HAZARD_ICONS } from "@/components/live/hazardIcons";
 import { Switch } from "@/components/ui/switch";

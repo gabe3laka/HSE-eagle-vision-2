@@ -118,9 +118,9 @@ describe("pose geometry helpers", () => {
   });
 
   it("jointAngleDeg ≈ 180 straight, ≈ 90 at a right angle", () => {
-    expect(jointAngleDeg({ x: 0.5, y: 0.3 }, { x: 0.5, y: 0.5 }, { x: 0.5, y: 0.7 })).toBeGreaterThan(
-      175,
-    );
+    expect(
+      jointAngleDeg({ x: 0.5, y: 0.3 }, { x: 0.5, y: 0.5 }, { x: 0.5, y: 0.7 }),
+    ).toBeGreaterThan(175);
     expect(jointAngleDeg({ x: 0.5, y: 0.3 }, { x: 0.5, y: 0.5 }, { x: 0.7, y: 0.5 })).toBeCloseTo(
       90,
       0,

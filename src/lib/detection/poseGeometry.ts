@@ -192,11 +192,7 @@ export function analyzeLift(landmarks: PoseLandmark[]): LiftAnalysis {
   const rw = landmarks[LM.rightWrist];
 
   const bbox = personBBox(landmarks);
-  const visibility = clamp(
-    (vis(ls) + vis(rs) + vis(lh) + vis(rh) + vis(lk) + vis(rk)) / 6,
-    0,
-    1,
-  );
+  const visibility = clamp((vis(ls) + vis(rs) + vis(lh) + vis(rh) + vis(lk) + vis(rk)) / 6, 0, 1);
 
   const base: LiftAnalysis = {
     torsoAngle: 0,
@@ -261,11 +257,15 @@ export function analyzeLift(landmarks: PoseLandmark[]): LiftAnalysis {
   confidence = clamp(confidence, 0, 1);
 
   const ergonomicFactors: string[] = [];
-  if (torsoAngle >= POSE_THRESHOLDS.torsoBendExtreme) ergonomicFactors.push("extreme trunk flexion");
+  if (torsoAngle >= POSE_THRESHOLDS.torsoBendExtreme)
+    ergonomicFactors.push("extreme trunk flexion");
   else if (torsoAngle >= POSE_THRESHOLDS.torsoBendHigh) ergonomicFactors.push("deep trunk flexion");
-  else if (torsoAngle >= POSE_THRESHOLDS.torsoBendLow) ergonomicFactors.push("moderate forward bend");
-  else if (torsoAngle >= POSE_THRESHOLDS.torsoBendWatch) ergonomicFactors.push("slight forward bend");
-  if (torsoBendScore > 0.3 && kneeStraightScore > 0.5) ergonomicFactors.push("straight-knee (stoop) lift");
+  else if (torsoAngle >= POSE_THRESHOLDS.torsoBendLow)
+    ergonomicFactors.push("moderate forward bend");
+  else if (torsoAngle >= POSE_THRESHOLDS.torsoBendWatch)
+    ergonomicFactors.push("slight forward bend");
+  if (torsoBendScore > 0.3 && kneeStraightScore > 0.5)
+    ergonomicFactors.push("straight-knee (stoop) lift");
   if (wristLowScore > 0.5) ergonomicFactors.push("hands low / load near floor");
   if (forwardReachScore > 0.4) ergonomicFactors.push("forward reach / load away from body");
   if (twistAsymmetryScore > 0.4) ergonomicFactors.push("trunk twist / asymmetry (approx.)");

@@ -33,7 +33,9 @@ function IncidentSnapshot({ path }: { path: string | null }) {
     );
   }
   if (!url) return <div className="h-20 w-28 shrink-0 animate-pulse rounded-lg bg-muted" />;
-  return <img src={url} alt="Incident snapshot" className="h-20 w-28 shrink-0 rounded-lg object-cover" />;
+  return (
+    <img src={url} alt="Incident snapshot" className="h-20 w-28 shrink-0 rounded-lg object-cover" />
+  );
 }
 
 export default function Incidents() {
@@ -91,7 +93,9 @@ export default function Incidents() {
                 <IncidentSnapshot path={inc.snapshot_path} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`flex items-center gap-1 text-xs font-semibold uppercase ${sev.text}`}>
+                    <span
+                      className={`flex items-center gap-1 text-xs font-semibold uppercase ${sev.text}`}
+                    >
                       <Icon className="h-3.5 w-3.5" /> {sev.label}
                     </span>
                     <span className="text-sm font-medium">{meta.label}</span>

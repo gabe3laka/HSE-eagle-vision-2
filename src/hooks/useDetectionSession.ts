@@ -115,7 +115,10 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
           zone_label: alert.zoneLabel ?? null,
           snapshot_path: snapshotPath,
         })
-        .then(() => onSavedRef.current?.(), () => undefined);
+        .then(
+          () => onSavedRef.current?.(),
+          () => undefined,
+        );
     },
     [user],
   );
@@ -240,7 +243,10 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
           frames_processed: framesRef.current,
         })
         .eq("id", sid)
-        .then(() => undefined, () => undefined);
+        .then(
+          () => undefined,
+          () => undefined,
+        );
     }
   }, [user]);
 

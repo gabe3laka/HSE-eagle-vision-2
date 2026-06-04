@@ -24,17 +24,15 @@ export const Link = forwardRef<
 });
 Link.displayName = "Link";
 
-export interface NavLinkProps
-  extends Omit<ComponentPropsWithoutRef<"a">, "href" | "className" | "children"> {
+export interface NavLinkProps extends Omit<
+  ComponentPropsWithoutRef<"a">,
+  "href" | "className" | "children"
+> {
   to: string;
   replace?: boolean;
   end?: boolean;
-  className?:
-    | string
-    | ((state: { isActive: boolean; isPending: boolean }) => string);
-  children?:
-    | ReactNode
-    | ((state: { isActive: boolean; isPending: boolean }) => ReactNode);
+  className?: string | ((state: { isActive: boolean; isPending: boolean }) => string);
+  children?: ReactNode | ((state: { isActive: boolean; isPending: boolean }) => ReactNode);
 }
 
 export const NavLink = forwardRef<HTMLAnchorElement, NavLinkProps>(
@@ -42,19 +40,11 @@ export const NavLink = forwardRef<HTMLAnchorElement, NavLinkProps>(
     const loc = tsUseLocation();
     const isActive = end ? loc.pathname === to : loc.pathname.startsWith(to);
     const state = { isActive, isPending: false };
-    const resolvedClassName =
-      typeof className === "function" ? className(state) : className;
-    const resolvedChildren =
-      typeof children === "function" ? children(state) : children;
+    const resolvedClassName = typeof className === "function" ? className(state) : className;
+    const resolvedChildren = typeof children === "function" ? children(state) : children;
     // @ts-ignore - TanStack Link accepts plain strings at runtime
     return (
-      <TSLink
-        ref={ref}
-        to={to}
-        replace={replace}
-        className={resolvedClassName}
-        {...rest}
-      >
+      <TSLink ref={ref} to={to} replace={replace} className={resolvedClassName} {...rest}>
         {resolvedChildren}
       </TSLink>
     );
@@ -74,10 +64,7 @@ export function useLocation() {
 
 export function useNavigate() {
   const nav = tsUseNavigate();
-  return (
-    to: string | { to: string; replace?: boolean },
-    opts?: { replace?: boolean },
-  ) => {
+  return (to: string | { to: string; replace?: boolean }, opts?: { replace?: boolean }) => {
     if (typeof to === "string") {
       // @ts-ignore
       nav({ to, replace: opts?.replace });

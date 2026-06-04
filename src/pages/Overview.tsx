@@ -71,8 +71,18 @@ export default function Overview() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard icon={ShieldAlert} label="Total incidents" value={stats.total} />
-        <StatCard icon={AlertOctagon} label="Critical" value={stats.critical} accent="text-red-500" />
-        <StatCard icon={ShieldCheck} label="Unresolved" value={stats.unresolved} accent="text-orange-500" />
+        <StatCard
+          icon={AlertOctagon}
+          label="Critical"
+          value={stats.critical}
+          accent="text-red-500"
+        />
+        <StatCard
+          icon={ShieldCheck}
+          label="Unresolved"
+          value={stats.unresolved}
+          accent="text-orange-500"
+        />
         <StatCard icon={Video} label="Sessions" value={sessions?.length ?? 0} />
       </div>
 
@@ -118,7 +128,9 @@ export default function Overview() {
             </Link>
           </div>
           {stats.recent.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">No incidents recorded yet.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No incidents recorded yet.
+            </p>
           ) : (
             <div className="space-y-2.5">
               {stats.recent.map((inc) => {

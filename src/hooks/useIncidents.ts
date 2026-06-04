@@ -63,8 +63,6 @@ export function useDetections(limit = 1000) {
 /** Creates a short-lived signed URL for a private incident snapshot. */
 export async function getSnapshotUrl(path: string | null): Promise<string | null> {
   if (!path) return null;
-  const { data } = await supabase.storage
-    .from("incident-snapshots")
-    .createSignedUrl(path, 60 * 10);
+  const { data } = await supabase.storage.from("incident-snapshots").createSignedUrl(path, 60 * 10);
   return data?.signedUrl ?? null;
 }
