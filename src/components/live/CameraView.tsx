@@ -1,10 +1,11 @@
-import { Camera, CameraOff, Loader2 } from "lucide-react";
+import { Camera, CameraOff, Loader2, SwitchCamera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DetectionOverlay } from "./DetectionOverlay";
 import type { Alert, LiveBox } from "@/lib/detection/types";
 import { SEVERITY_META, HAZARDS } from "@/lib/detection/hazardCatalog";
 import { localizedMessage, isRTL } from "@/lib/detection/messages";
 import { HAZARD_ICONS } from "./hazardIcons";
+import type { CameraFacing } from "@/hooks/useCamera";
 
 interface Props {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -15,7 +16,9 @@ interface Props {
   running: boolean;
   topAlert: Alert | null;
   language: string;
+  facing: CameraFacing;
   onEnable: () => void;
+  onFlip: () => void;
 }
 
 export function CameraView({
@@ -27,7 +30,9 @@ export function CameraView({
   running,
   topAlert,
   language,
+  facing,
   onEnable,
+  onFlip,
 }: Props) {
   const TopIcon = topAlert ? HAZARD_ICONS[topAlert.hazardType] : null;
   const topSev = topAlert ? SEVERITY_META[topAlert.severity] : null;
@@ -39,8 +44,21 @@ export function CameraView({
         playsInline
         muted
         autoPlay
-        className={`h-full w-full object-cover transition-opacity ${active ? "opacity-100" : "opacity-0"}`}
+        className={`h-full w-full object-cover transition-opacity ${active ? "opacity-100" : "opacity-0"} ${facing === "user" ? "scale-x-[-1]" : ""}`}
       />
+
+      {active && (
+        <Button
+          onClick={onFlip}
+          variant="glass"
+          size="icon"
+          className="absolute right-3 top-3 h-9 w-9 rounded-full"
+          aria-label="Flip camera"
+        >
+          <SwitchCamera className="h-4 w-4" />
+        </Button>
+      )}
+
 
       {active && running && <DetectionOverlay boxes={boxes} />}
 
