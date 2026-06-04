@@ -4,6 +4,7 @@ import {
   torsoAngleDeg,
   jointAngleDeg,
   personBBox,
+  computePoseQuality,
   computePostureDynamics,
   PerPersonDynamics,
   POSE_THRESHOLDS,
@@ -17,6 +18,13 @@ function makeLandmarks(overrides: Record<number, PoseLandmark>): PoseLandmark[] 
   const arr: PoseLandmark[] = [];
   for (let i = 0; i < 33; i++) arr[i] = { x: 0.5, y: 0.5, visibility: 1 };
   for (const key of Object.keys(overrides)) arr[Number(key)] = overrides[Number(key)];
+  return arr;
+}
+
+/** 33 landmarks all at one visibility (for quality-gate tests). */
+function uniformLandmarks(visibility: number): PoseLandmark[] {
+  const arr: PoseLandmark[] = [];
+  for (let i = 0; i < 33; i++) arr[i] = { x: 0.5, y: 0.5, visibility };
   return arr;
 }
 
@@ -129,9 +137,10 @@ describe("pose geometry helpers", () => {
 
   it("personBBox stays within the frame", () => {
     const b = personBBox(STANDING);
-    expect(b.x).toBeGreaterThanOrEqual(0);
-    expect(b.x + b.w).toBeLessThanOrEqual(1.0001);
-    expect(b.y + b.h).toBeLessThanOrEqual(1.0001);
+    expect(b).not.toBeNull();
+    expect(b!.x).toBeGreaterThanOrEqual(0);
+    expect(b!.x + b!.w).toBeLessThanOrEqual(1.0001);
+    expect(b!.y + b!.h).toBeLessThanOrEqual(1.0001);
   });
 });
 
@@ -253,5 +262,78 @@ describe("PerPersonDynamics", () => {
     expect(d.has("p1")).toBe(true);
     d.prune(5000); // last seen well beyond the window
     expect(d.has("p1")).toBe(false);
+  });
+});
+
+describe("personBBox", () => {
+  it("returns null when no landmark is visible (no fake fallback box)", () => {
+    expect(personBBox(uniformLandmarks(0.1))).toBeNull();
+  });
+
+  it("returns a box when landmarks are visible", () => {
+    expect(personBBox(STANDING)).not.toBeNull();
+  });
+});
+
+describe("computePoseQuality", () => {
+  it("rejects a pose with no usable landmarks (null bbox)", () => {
+    const lm = uniformLandmarks(0.1);
+    const q = computePoseQuality(lm, personBBox(lm));
+    expect(q.accepted).toBe(false);
+    expect(q.bboxValid).toBe(false);
+    expect(q.rejectionReasons).toContain("no_bbox");
+  });
+
+  it("rejects too few visible landmarks", () => {
+    const lm = uniformLandmarks(0.1);
+    const q = computePoseQuality(lm, { x: 0.4, y: 0.3, w: 0.2, h: 0.5 });
+    expect(q.accepted).toBe(false);
+    expect(q.rejectionReasons).toContain("too_few_landmarks");
+  });
+
+  it("rejects low core visibility (missing shoulders/hips/knees for unsafe-lift)", () => {
+    const lm = makeLandmarks({
+      [LM.leftShoulder]: { x: 0.48, y: 0.3, visibility: 0.1 },
+      [LM.rightShoulder]: { x: 0.52, y: 0.3, visibility: 0.1 },
+      [LM.leftHip]: { x: 0.48, y: 0.55, visibility: 0.1 },
+      [LM.rightHip]: { x: 0.52, y: 0.55, visibility: 0.1 },
+      [LM.leftKnee]: { x: 0.48, y: 0.75, visibility: 0.1 },
+      [LM.rightKnee]: { x: 0.52, y: 0.75, visibility: 0.1 },
+    });
+    const q = computePoseQuality(lm, personBBox(lm));
+    expect(q.hasRequiredLiftLandmarks).toBe(false);
+    expect(q.accepted).toBe(false);
+  });
+
+  it("rejects a tiny bbox", () => {
+    const q = computePoseQuality(STANDING, { x: 0.5, y: 0.5, w: 0.01, h: 0.02 });
+    expect(q.bboxValid).toBe(false);
+    expect(q.rejectionReasons).toContain("bbox_too_small");
+  });
+
+  it("rejects a huge bbox covering the whole frame", () => {
+    const q = computePoseQuality(STANDING, { x: 0, y: 0, w: 1, h: 1 });
+    expect(q.bboxValid).toBe(false);
+    expect(q.rejectionReasons).toContain("bbox_too_large");
+  });
+
+  it("rejects an unrealistic aspect ratio", () => {
+    const q = computePoseQuality(STANDING, { x: 0.1, y: 0.4, w: 0.8, h: 0.1 });
+    expect(q.bboxValid).toBe(false);
+    expect(q.rejectionReasons).toContain("bbox_bad_aspect");
+  });
+
+  it("accepts a valid standing pose with the required lift landmarks", () => {
+    const q = computePoseQuality(STANDING, personBBox(STANDING));
+    expect(q.accepted).toBe(true);
+    expect(q.bboxValid).toBe(true);
+    expect(q.hasRequiredLiftLandmarks).toBe(true);
+    expect(q.rejectionReasons).toHaveLength(0);
+  });
+
+  it("accepts a valid unsafe-lift (bent back, straight legs) pose", () => {
+    const q = computePoseQuality(BENT_STRAIGHT_LEGS, personBBox(BENT_STRAIGHT_LEGS));
+    expect(q.accepted).toBe(true);
+    expect(q.hasRequiredLiftLandmarks).toBe(true);
   });
 });

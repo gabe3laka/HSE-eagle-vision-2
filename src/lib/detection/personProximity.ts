@@ -101,10 +101,20 @@ export function scorePersonProximity(a: BBox, b: BBox): ProximityResult {
 
 // ── Simple frame-to-frame person tracker (IoU first, centre distance second) ──
 
+/**
+ * A tracked person must be seen on at least this many processed frames before
+ * it is "stable" and allowed to emit hazards. This is what stops a one-frame
+ * hallucinated pose from ever creating an alert/incident.
+ */
+export const MIN_STABLE_FRAMES = 3;
+
 interface PersonTrack {
   id: string;
   box: BBox;
+  firstSeen: number;
   lastSeen: number;
+  framesSeen: number;
+  quality: number;
 }
 
 export interface TrackedPerson {
@@ -116,12 +126,19 @@ export interface TrackedPerson {
    * analysis) without assuming the output order matches the input order.
    */
   sourceIndex: number;
+  firstSeen: number;
+  lastSeen: number;
+  framesSeen: number; // processed frames this id has been seen on
+  qualityScore: number; // latest accepted-pose quality for this id
+  jumpScore: number; // box centre jump vs last frame, height-normalized (0 = no jump)
+  stable: boolean; // framesSeen >= MIN_STABLE_FRAMES
 }
 
 /**
- * Lightweight greedy tracker that keeps stable ids (p1, p2, …) across frames.
- * Not ByteTrack/BoT-SORT — just enough to form stable person-pair keys so the
- * RiskEngine doesn't see flickering identities. Real tracking comes with YOLO.
+ * Lightweight greedy tracker that keeps stable ids (p1, p2, …) across frames and
+ * tracks per-id stability metadata. Not ByteTrack/BoT-SORT — just enough to form
+ * stable person-pair keys and gate hazards on track age. Real tracking comes
+ * with YOLO.
  */
 export class PersonTracker {
   private tracks: PersonTrack[] = [];
@@ -133,13 +150,20 @@ export class PersonTracker {
     this.nextId = 1;
   }
 
-  update(boxes: BBox[], now: number): TrackedPerson[] {
+  /**
+   * Match this frame's (already accepted) person boxes to existing tracks.
+   * `qualities[i]` is the optional pose-quality of `boxes[i]`. Returns one
+   * TrackedPerson per input box, in input order, with a stable id, sourceIndex
+   * and stability metadata.
+   */
+  update(boxes: BBox[], now: number, qualities?: number[]): TrackedPerson[] {
     this.tracks = this.tracks.filter((t) => now - t.lastSeen <= this.expireMs);
     const used = new Set<number>();
     const out: TrackedPerson[] = [];
 
     for (let sourceIndex = 0; sourceIndex < boxes.length; sourceIndex++) {
       const box = boxes[sourceIndex];
+      const quality = qualities?.[sourceIndex] ?? 1;
       let best = -1;
       let bestScore = 0;
       for (let i = 0; i < this.tracks.length; i++) {
@@ -158,15 +182,42 @@ export class PersonTracker {
       }
 
       if (best >= 0 && bestScore > 0.02) {
-        this.tracks[best].box = box;
-        this.tracks[best].lastSeen = now;
+        const t = this.tracks[best];
+        const avgH = (t.box.h + box.h) / 2 || 1e-6;
+        const c1 = boxCenter(t.box);
+        const c2 = boxCenter(box);
+        const jumpScore = Math.hypot(c1.x - c2.x, c1.y - c2.y) / avgH;
+        t.box = box;
+        t.lastSeen = now;
+        t.framesSeen++;
+        t.quality = quality;
         used.add(best);
-        out.push({ id: this.tracks[best].id, box, sourceIndex });
+        out.push({
+          id: t.id,
+          box,
+          sourceIndex,
+          firstSeen: t.firstSeen,
+          lastSeen: now,
+          framesSeen: t.framesSeen,
+          qualityScore: quality,
+          jumpScore,
+          stable: t.framesSeen >= MIN_STABLE_FRAMES,
+        });
       } else {
         const id = `p${this.nextId++}`;
-        this.tracks.push({ id, box, lastSeen: now });
+        this.tracks.push({ id, box, firstSeen: now, lastSeen: now, framesSeen: 1, quality });
         used.add(this.tracks.length - 1);
-        out.push({ id, box, sourceIndex });
+        out.push({
+          id,
+          box,
+          sourceIndex,
+          firstSeen: now,
+          lastSeen: now,
+          framesSeen: 1,
+          qualityScore: quality,
+          jumpScore: 0,
+          stable: MIN_STABLE_FRAMES <= 1,
+        });
       }
     }
     return out;
