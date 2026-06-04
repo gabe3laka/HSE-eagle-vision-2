@@ -9,7 +9,7 @@ import { SessionControls } from "@/components/live/SessionControls";
 import { PoseDebugPanel } from "@/components/live/PoseDebugPanel";
 
 export default function Live() {
-  const { videoRef, active, starting, error, start: startCamera } = useCamera();
+  const { videoRef, active, starting, error, facing, start: startCamera, flip } = useCamera();
   const { config } = useAlertSettings();
   const queryClient = useQueryClient();
 
