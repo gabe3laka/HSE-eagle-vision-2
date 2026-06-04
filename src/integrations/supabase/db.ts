@@ -1,7 +1,7 @@
 // Typed accessor that works even before the auto-generated Database types
 // have caught up to a fresh migration. Use `db` for `.from(...)` calls in
 // place of `supabase` when you need typed-table inference.
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/own-client";
 
 type HazardType =
   | "unsafe_lift"
