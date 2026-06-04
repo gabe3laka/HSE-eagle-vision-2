@@ -7,13 +7,6 @@ import {
 import { forwardRef, type ComponentPropsWithoutRef, type ReactNode } from "react";
 
 type AnyLink = typeof TSLink;
-const RawLink = TSLink as unknown as (props: {
-  to: string;
-  replace?: boolean;
-  children?: ReactNode;
-  className?: string;
-  title?: string;
-} & Omit<ComponentPropsWithoutRef<"a">, "href">) => JSX.Element;
 
 export const Link = forwardRef<HTMLAnchorElement, { to: string; replace?: boolean; children?: ReactNode } & Omit<ComponentPropsWithoutRef<"a">, "href">>(
   ({ to, replace, children, ...rest }, ref) => {

@@ -35,7 +35,7 @@ export function useAlertSettings() {
         setLoading(false);
         return;
       }
-      const { data } = await supabase
+      const { data } = await db
         .from("alert_settings")
         .select("config, preferred_language, voice_enabled")
         .eq("owner_id", user.id)
