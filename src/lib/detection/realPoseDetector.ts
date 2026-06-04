@@ -21,6 +21,7 @@ import {
   scorePersonProximity,
   unionBox,
 } from "./personProximity";
+import { zoneContainsBox } from "./zones";
 
 // Pinned to the installed @mediapipe/tasks-vision version.
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
@@ -154,7 +155,9 @@ export class RealPoseDetector implements Detector {
 
     const wantLift = input.enabledHazards.includes("unsafe_lift");
     const wantProx = input.enabledHazards.includes("person_proximity");
-    if (!wantLift && !wantProx) return [];
+    const zones = input.zones ?? [];
+    const wantZone = input.enabledHazards.includes("restricted_zone") && zones.length > 0;
+    if (!wantLift && !wantProx && !wantZone) return [];
 
     // MediaPipe requires strictly increasing timestamps in VIDEO mode.
     let ts = Math.round(input.timestamp);
@@ -275,6 +278,26 @@ export class RealPoseDetector implements Detector {
               confidence: r.score,
               bbox: unionBox(ti.box, tj.box),
               trackKey: makePairKey(ti.id, tj.id),
+              source: "pose",
+            });
+          }
+        }
+      }
+    }
+
+    // ── restricted_zone: a stable person whose feet stand inside a drawn zone ──
+    if (wantZone) {
+      for (const tp of tracked) {
+        if (!tp.stable || tp.qualityScore < MIN_EMIT_QUALITY) continue;
+        for (const zone of zones) {
+          if (zone.kind !== "restricted") continue;
+          if (zoneContainsBox(zone, tp.box)) {
+            observations.push({
+              hazardType: "restricted_zone",
+              confidence: Math.max(0.6, tp.qualityScore),
+              bbox: tp.box,
+              zoneLabel: zone.label ?? undefined,
+              trackKey: `${zone.id}:${tp.id}`,
               source: "pose",
             });
           }

@@ -7,7 +7,9 @@ import { localizedMessage, isRTL } from "@/lib/detection/messages";
 import { HAZARD_ICONS } from "./hazardIcons";
 import type { CameraFacing } from "@/hooks/useCamera";
 import { SkeletonOverlay } from "./SkeletonOverlay";
+import { ZoneOverlay } from "./ZoneOverlay";
 import type { PoseDebug, PoseStatus } from "@/lib/detection/poseGeometry";
+import type { DetectionZone, ZonePoint } from "@/lib/detection/types";
 
 const POSE_STATUS_LABEL: Record<PoseStatus, string> = {
   loading: "Loading pose model",
@@ -33,6 +35,9 @@ interface Props {
   poseStatus?: PoseStatus | null;
   debug?: PoseDebug | null;
   showSkeleton?: boolean;
+  zones?: DetectionZone[];
+  editingZones?: boolean;
+  onZoneCreate?: (points: ZonePoint[]) => void;
 }
 
 export function CameraView({
@@ -50,6 +55,9 @@ export function CameraView({
   poseStatus,
   debug,
   showSkeleton,
+  zones,
+  editingZones,
+  onZoneCreate,
 }: Props) {
   const TopIcon = topAlert ? HAZARD_ICONS[topAlert.hazardType] : null;
   const topSev = topAlert ? SEVERITY_META[topAlert.severity] : null;
@@ -74,6 +82,14 @@ export function CameraView({
         >
           <SwitchCamera className="h-5 w-5 sm:h-4 sm:w-4" />
         </Button>
+      )}
+
+      {active && (
+        <ZoneOverlay
+          zones={zones ?? []}
+          editing={!!editingZones}
+          onCreate={onZoneCreate ?? (() => undefined)}
+        />
       )}
 
       {active && running && <DetectionOverlay boxes={boxes} />}

@@ -66,6 +66,21 @@ with a **timer fallback** (e.g. Firefox). Key properties:
   frames seen, FPS, detection timing, thresholds, `MAX_POSES`). The overlay is
   purely presentational and never affects detection output.
 
+## Tracking upgrade (Sprint 3.5)
+`PersonTracker` is now ByteTrack-inspired: each track carries a smoothed centre
+velocity and is matched against its **predicted** position, and an unmatched track
+survives a lost-track buffer (~1.2 s, still predicting) so a brief miss / short
+occlusion re-acquires the **same** `pX` id. No full Kalman filter or camera-motion
+compensation yet — those can come with YOLO.
+
+## Restricted zones (Sprint 3.75)
+Operator-drawn rectangles (stored as normalized polygons in `hazard_zones`) emit
+**`restricted_zone`** when a *stable* person's **foot anchor** (bbox bottom-centre,
+à la Supervision `PolygonZone`) falls inside — entirely in-browser, no YOLO. Draw
+them on Live via "Edit zones"; `pointInPolygon` / `zoneContainsBox` live in
+`zones.ts`. `blocked_exit` stays weak with pose-only (it wants object detection)
+and remains Sprint 4.
+
 ## Future performance
 If main-thread detection stays heavy on low-end devices, move MediaPipe into a
 **Web Worker** (OffscreenCanvas / `ImageBitmap` transfer) so detection no longer

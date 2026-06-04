@@ -12,6 +12,20 @@ export interface BBox {
   h: number;
 }
 
+/** A point in normalized 0..1 frame coordinates. */
+export interface ZonePoint {
+  x: number;
+  y: number;
+}
+
+/** An operator-drawn hazard zone (polygon, normalized 0..1), from `hazard_zones`. */
+export interface DetectionZone {
+  id: string;
+  kind: "restricted" | "exit";
+  label: string | null;
+  points: ZonePoint[];
+}
+
 /** A raw observation produced by a detector for a single frame. */
 export interface Observation {
   hazardType: HazardType;
@@ -33,6 +47,8 @@ export interface DetectorInput {
   timestamp: number; // performance.now()
   enabledHazards: HazardType[];
   sensitivity: number; // 0..1 — higher = more sensitive (more events)
+  /** Operator-drawn zones (normalized) for restricted-area detection. */
+  zones?: DetectionZone[];
 }
 
 /**
