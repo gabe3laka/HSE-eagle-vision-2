@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/own-client";
-import { db } from "@/integrations/supabase/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { ALL_HAZARDS } from "@/lib/detection/hazardCatalog";
 import type { HazardType, DetectionMode } from "@/lib/detection/types";
@@ -35,7 +34,7 @@ export function useAlertSettings() {
         setLoading(false);
         return;
       }
-      const { data } = await db
+      const { data } = await supabase
         .from("alert_settings")
         .select("config, preferred_language, voice_enabled")
         .eq("owner_id", user.id)
@@ -70,7 +69,7 @@ export function useAlertSettings() {
     async (next: AlertConfig) => {
       setConfigState(next);
       if (!user) return;
-      await db.from("alert_settings").upsert(
+      await supabase.from("alert_settings").upsert(
         {
           owner_id: user.id,
           config: {

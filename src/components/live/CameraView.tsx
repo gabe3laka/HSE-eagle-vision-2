@@ -7,7 +7,7 @@ import { localizedMessage, isRTL } from "@/lib/detection/messages";
 import { HAZARD_ICONS } from "./hazardIcons";
 
 interface Props {
-  videoRef: React.RefObject<HTMLVideoElement | null>;
+  videoRef: React.RefObject<HTMLVideoElement>;
   active: boolean;
   starting: boolean;
   error: string | null;
