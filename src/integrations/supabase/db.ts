@@ -60,7 +60,6 @@ export interface IncidentRow {
   confidence: number;
   message: string | null;
   zone_label: string | null;
-  snapshot_path: string | null;
   resolved: boolean;
   resolution_notes: string | null;
   occurred_at: string;
