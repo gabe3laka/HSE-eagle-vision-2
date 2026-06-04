@@ -6,7 +6,7 @@ import { HAZARDS, SEVERITY_META } from "@/lib/detection/hazardCatalog";
 import { HAZARD_ICONS } from "@/components/live/hazardIcons";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/own-client";
 import { db } from "@/integrations/supabase/db";
 import { toast } from "@/hooks/use-toast";
 
