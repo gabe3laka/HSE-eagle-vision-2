@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { createDetector } from "@/lib/detection/detectorFactory";
 import type { PoseDebug, PoseStatus } from "@/lib/detection/poseGeometry";
 import { RiskEngine } from "@/lib/detection/riskEngine";
-import type { Alert, Detector, LiveBox } from "@/lib/detection/types";
+import type { Alert, DetectionZone, Detector, LiveBox } from "@/lib/detection/types";
 import { HAZARDS, SEVERITY_META } from "@/lib/detection/hazardCatalog";
 import { localizedMessage } from "@/lib/detection/messages";
 // Local Json type — avoids depending on the managed-project types.ts file.
@@ -67,6 +67,8 @@ const EMPTY_PERF: PerfMetrics = {
 interface Options {
   video: HTMLVideoElement | null;
   config: AlertConfig;
+  /** Operator-drawn restricted zones (for restricted_zone detection). */
+  zones?: DetectionZone[];
   /** Best-effort capture of the current frame for incident snapshots. */
   captureSnapshot?: () => Promise<Blob | null>;
   onIncidentSaved?: () => void;
@@ -79,7 +81,13 @@ interface Options {
  * when supported, with a timer fallback; detection is synchronous and never
  * overlaps, while persistence is fire-and-forget so the loop stays responsive.
  */
-export function useDetectionSession({ video, config, captureSnapshot, onIncidentSaved }: Options) {
+export function useDetectionSession({
+  video,
+  config,
+  zones,
+  captureSnapshot,
+  onIncidentSaved,
+}: Options) {
   const { user } = useAuth();
   const [running, setRunning] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -101,6 +109,7 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
   const videoRef = useRef(video);
   const captureRef = useRef(captureSnapshot);
   const onSavedRef = useRef(onIncidentSaved);
+  const zonesRef = useRef(zones);
 
   // scheduling / metrics state
   const lastMediaTimeRef = useRef(-1);
@@ -126,6 +135,9 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
   useEffect(() => {
     onSavedRef.current = onIncidentSaved;
   }, [onIncidentSaved]);
+  useEffect(() => {
+    zonesRef.current = zones;
+  }, [zones]);
 
   const persistDetection = useCallback(
     async (alert: Alert): Promise<string | null> => {
@@ -201,6 +213,7 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
         timestamp: now,
         enabledHazards: cfg.enabledHazards,
         sensitivity: cfg.sensitivity,
+        zones: zonesRef.current,
       });
       const detMs = performance.now() - tDet0;
       framesRef.current++;
