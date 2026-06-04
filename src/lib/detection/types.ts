@@ -1,7 +1,12 @@
-import type { Database } from "@/integrations/supabase/types";
-
-export type HazardType = Database["public"]["Enums"]["hazard_type"];
-export type Severity = Database["public"]["Enums"]["severity"];
+export type HazardType =
+  | "unsafe_lift"
+  | "ppe_missing"
+  | "person_proximity"
+  | "restricted_zone"
+  | "blocked_exit"
+  | "forklift_proximity"
+  | "fall_risk";
+export type Severity = "low" | "medium" | "high" | "critical";
 
 /** Which detector the live loop uses. */
 export type DetectionMode = "simulated" | "pose-beta";
