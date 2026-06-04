@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/db"
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { ALL_HAZARDS } from "@/lib/detection/hazardCatalog";
@@ -69,7 +70,7 @@ export function useAlertSettings() {
     async (next: AlertConfig) => {
       setConfigState(next);
       if (!user) return;
-      await supabase.from("alert_settings").upsert(
+      await db.from("alert_settings").upsert(
         {
           owner_id: user.id,
           config: {

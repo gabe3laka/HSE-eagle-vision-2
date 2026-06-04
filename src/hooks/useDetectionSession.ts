@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { supabase } from "@/integrations/supabase/db"
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { createDetector } from "@/lib/detection/detectorFactory";
