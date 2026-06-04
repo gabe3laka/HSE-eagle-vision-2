@@ -91,4 +91,26 @@ describe("PersonTracker", () => {
     const after = tr.update([box(0.3, 0.4)], 5000)[0].id; // long gap → expired
     expect(after).not.toBe(first);
   });
+
+  it("returns a sourceIndex that maps back to the input box", () => {
+    const tr = new PersonTracker(900);
+    const boxes = [box(0.1, 0.4), box(0.5, 0.4), box(0.85, 0.4)];
+    const out = tr.update(boxes, 0);
+    expect(out).toHaveLength(3);
+    for (const p of out) expect(boxes[p.sourceIndex]).toEqual(p.box);
+    expect([...out.map((p) => p.sourceIndex)].sort()).toEqual([0, 1, 2]);
+  });
+
+  it("keeps each id bound to its own box via sourceIndex when input order changes", () => {
+    const tr = new PersonTracker(900);
+    const idA = tr.update([box(0.1, 0.4), box(0.75, 0.4)], 0)[0].id; // A at input index 0
+    // same two people next frame, supplied in swapped order (B-ish first, A-ish second)
+    const f2 = [box(0.76, 0.4), box(0.11, 0.4)];
+    const second = tr.update(f2, 100);
+    const trackedA = second.find((p) => p.id === idA)!;
+    expect(trackedA.sourceIndex).toBe(1); // A is now at input index 1
+    // every person's sourceIndex indexes its own box, so analyses[sourceIndex]
+    // can never hand a person another person's pose
+    for (const p of second) expect(f2[p.sourceIndex]).toEqual(p.box);
+  });
 });

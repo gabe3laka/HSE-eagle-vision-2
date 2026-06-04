@@ -110,6 +110,12 @@ interface PersonTrack {
 export interface TrackedPerson {
   id: string;
   box: BBox;
+  /**
+   * Index of this person's box in the `boxes` array passed to `update()`. Lets a
+   * caller map a stable id back to its own per-frame input (e.g. the matching pose
+   * analysis) without assuming the output order matches the input order.
+   */
+  sourceIndex: number;
 }
 
 /**
@@ -132,20 +138,21 @@ export class PersonTracker {
     const used = new Set<number>();
     const out: TrackedPerson[] = [];
 
-    for (const box of boxes) {
+    for (let sourceIndex = 0; sourceIndex < boxes.length; sourceIndex++) {
+      const box = boxes[sourceIndex];
       let best = -1;
       let bestScore = 0;
       for (let i = 0; i < this.tracks.length; i++) {
         if (used.has(i)) continue;
         const iou = boxIoU(box, this.tracks[i].box);
-        let s = iou;
-        if (s === 0) {
+        let score = iou;
+        if (score === 0) {
           const c1 = boxCenter(box);
           const c2 = boxCenter(this.tracks[i].box);
-          s = Math.max(0, 0.3 - Math.hypot(c1.x - c2.x, c1.y - c2.y));
+          score = Math.max(0, 0.3 - Math.hypot(c1.x - c2.x, c1.y - c2.y));
         }
-        if (s > bestScore) {
-          bestScore = s;
+        if (score > bestScore) {
+          bestScore = score;
           best = i;
         }
       }
@@ -154,12 +161,12 @@ export class PersonTracker {
         this.tracks[best].box = box;
         this.tracks[best].lastSeen = now;
         used.add(best);
-        out.push({ id: this.tracks[best].id, box });
+        out.push({ id: this.tracks[best].id, box, sourceIndex });
       } else {
         const id = `p${this.nextId++}`;
         this.tracks.push({ id, box, lastSeen: now });
         used.add(this.tracks.length - 1);
-        out.push({ id, box });
+        out.push({ id, box, sourceIndex });
       }
     }
     return out;

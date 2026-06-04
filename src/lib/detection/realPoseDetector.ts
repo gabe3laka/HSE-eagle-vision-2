@@ -135,8 +135,8 @@ export class RealPoseDetector implements Detector {
     let primaryEmitted = false;
 
     for (let i = 0; i < tracked.length; i++) {
-      const id = tracked[i].id; // tracker preserves input order → aligns with analyses[i]
-      const a = analyses[i];
+      const { id, sourceIndex } = tracked[i];
+      const a = analyses[sourceIndex]; // sourceIndex maps this person to its own pose analysis
       const dyn = this.dynamics.update(id, a.torsoBendScore > POSE_THRESHOLDS.bentSample, now);
       const allowBoost = a.kneeStraightScore > 0.3 || a.confidence >= 0.5;
       const conf = allowBoost
@@ -159,7 +159,7 @@ export class RealPoseDetector implements Detector {
 
       if (conf > primaryConf) {
         primaryConf = conf;
-        primaryIdx = i;
+        primaryIdx = sourceIndex;
         primaryId = id;
         primaryDyn = dyn;
         primaryFactors = factors;
