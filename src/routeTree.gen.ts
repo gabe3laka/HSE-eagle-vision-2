@@ -11,9 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as OverviewRouteImport } from './routes/overview'
+import { Route as LiveRouteImport } from './routes/live'
 import { Route as LandingRouteImport } from './routes/landing'
 import { Route as IncidentsRouteImport } from './routes/incidents'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as SplatRouteImport } from './routes/$'
 import { Route as IndexRouteImport } from './routes/index'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -26,6 +29,11 @@ const OverviewRoute = OverviewRouteImport.update({
   path: '/overview',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LiveRoute = LiveRouteImport.update({
+  id: '/live',
+  path: '/live',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LandingRoute = LandingRouteImport.update({
   id: '/landing',
   path: '/landing',
@@ -36,9 +44,19 @@ const IncidentsRoute = IncidentsRouteImport.update({
   path: '/incidents',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SplatRoute = SplatRouteImport.update({
+  id: '/$',
+  path: '/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -49,26 +67,35 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
   '/auth': typeof AuthRoute
+  '/dashboard': typeof DashboardRoute
   '/incidents': typeof IncidentsRoute
   '/landing': typeof LandingRoute
+  '/live': typeof LiveRoute
   '/overview': typeof OverviewRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
   '/auth': typeof AuthRoute
+  '/dashboard': typeof DashboardRoute
   '/incidents': typeof IncidentsRoute
   '/landing': typeof LandingRoute
+  '/live': typeof LiveRoute
   '/overview': typeof OverviewRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/$': typeof SplatRoute
   '/auth': typeof AuthRoute
+  '/dashboard': typeof DashboardRoute
   '/incidents': typeof IncidentsRoute
   '/landing': typeof LandingRoute
+  '/live': typeof LiveRoute
   '/overview': typeof OverviewRoute
   '/settings': typeof SettingsRoute
 }
@@ -76,28 +103,46 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/$'
     | '/auth'
+    | '/dashboard'
     | '/incidents'
     | '/landing'
+    | '/live'
     | '/overview'
     | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/incidents' | '/landing' | '/overview' | '/settings'
+  to:
+    | '/'
+    | '/$'
+    | '/auth'
+    | '/dashboard'
+    | '/incidents'
+    | '/landing'
+    | '/live'
+    | '/overview'
+    | '/settings'
   id:
     | '__root__'
     | '/'
+    | '/$'
     | '/auth'
+    | '/dashboard'
     | '/incidents'
     | '/landing'
+    | '/live'
     | '/overview'
     | '/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SplatRoute: typeof SplatRoute
   AuthRoute: typeof AuthRoute
+  DashboardRoute: typeof DashboardRoute
   IncidentsRoute: typeof IncidentsRoute
   LandingRoute: typeof LandingRoute
+  LiveRoute: typeof LiveRoute
   OverviewRoute: typeof OverviewRoute
   SettingsRoute: typeof SettingsRoute
 }
@@ -118,6 +163,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OverviewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/live': {
+      id: '/live'
+      path: '/live'
+      fullPath: '/live'
+      preLoaderRoute: typeof LiveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/landing': {
       id: '/landing'
       path: '/landing'
@@ -132,11 +184,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IncidentsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth': {
       id: '/auth'
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$': {
+      id: '/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof SplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -151,9 +217,12 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SplatRoute: SplatRoute,
   AuthRoute: AuthRoute,
+  DashboardRoute: DashboardRoute,
   IncidentsRoute: IncidentsRoute,
   LandingRoute: LandingRoute,
+  LiveRoute: LiveRoute,
   OverviewRoute: OverviewRoute,
   SettingsRoute: SettingsRoute,
 }
