@@ -68,7 +68,9 @@ export default function Live() {
             running={running}
             topAlert={topAlert}
             language={config.language}
-            onEnable={startCamera}
+            facing={facing}
+            onEnable={() => startCamera()}
+            onFlip={flip}
           />
           <SessionControls
             cameraActive={active}
