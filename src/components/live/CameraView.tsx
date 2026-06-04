@@ -55,7 +55,7 @@ export function CameraView({
   const topSev = topAlert ? SEVERITY_META[topAlert.severity] : null;
 
   return (
-    <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-border bg-black sm:aspect-video">
+    <div className="relative -mx-3 aspect-[3/4] w-[calc(100%+1.5rem)] overflow-hidden border border-border bg-black sm:mx-0 sm:aspect-video sm:w-full sm:rounded-2xl">
       <video
         ref={videoRef}
         playsInline
@@ -69,10 +69,10 @@ export function CameraView({
           onClick={onFlip}
           variant="glass"
           size="icon"
-          className="absolute right-3 top-3 h-9 w-9 rounded-full"
+          className="absolute bottom-24 right-4 h-12 w-12 rounded-full shadow-xl sm:bottom-auto sm:top-3 sm:h-9 sm:w-9"
           aria-label="Flip camera"
         >
-          <SwitchCamera className="h-4 w-4" />
+          <SwitchCamera className="h-5 w-5 sm:h-4 sm:w-4" />
         </Button>
       )}
 
@@ -126,24 +126,24 @@ export function CameraView({
 
       {!active && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center">
-          <div className="rounded-2xl bg-primary/10 p-4">
+          <div className="rounded-2xl bg-primary/10 p-5">
             {error ? (
-              <CameraOff className="h-8 w-8 text-destructive" />
+              <CameraOff className="h-10 w-10 text-destructive" />
             ) : (
-              <Camera className="h-8 w-8 text-primary" />
+              <Camera className="h-10 w-10 text-primary" />
             )}
           </div>
           {error ? (
             <>
               <p className="max-w-xs text-sm text-muted-foreground">{error}</p>
-              <Button onClick={onEnable} variant="secondary">
+              <Button onClick={onEnable} variant="secondary" size="lg">
                 Try again
               </Button>
             </>
           ) : (
             <>
               <div>
-                <p className="font-display text-lg font-semibold">
+                <p className="font-display text-lg font-semibold sm:text-xl">
                   Use this phone as a safety camera
                 </p>
                 <p className="mt-1 max-w-xs text-sm text-muted-foreground">
@@ -151,7 +151,7 @@ export function CameraView({
                   you the moment one appears.
                 </p>
               </div>
-              <Button onClick={onEnable} disabled={starting} size="lg">
+              <Button onClick={onEnable} disabled={starting} size="lg" className="min-w-[180px]">
                 {starting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (

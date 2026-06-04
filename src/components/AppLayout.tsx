@@ -21,6 +21,8 @@ const mainNav = [
 
 const bottomNav = [{ path: "/settings", label: "Settings", icon: Settings }];
 
+const mobileNav = [...mainNav, ...bottomNav];
+
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { profile, signOut } = useAuth();
   const location = useLocation();
@@ -28,9 +30,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-background">
-      {/* Sidebar */}
+      {/* Desktop sidebar */}
       <aside
-        className={`glass-panel sticky top-0 flex h-screen flex-col border-r transition-all duration-300 ${
+        className={`glass-panel sticky top-0 hidden h-screen flex-col border-r transition-all duration-300 lg:flex ${
           collapsed ? "w-16" : "w-60"
         }`}
       >
@@ -110,10 +112,64 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
+      {/* Mobile top bar */}
+      <header
+        className="glass-panel fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b px-4 lg:hidden"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
+        <Link to="/" className="flex items-center gap-2 font-display text-base font-bold">
+          <ShieldCheck className="h-5 w-5 text-primary" />
+          Safe<span className="text-primary">Lens</span>
+        </Link>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 text-muted-foreground hover:text-destructive"
+          onClick={signOut}
+          aria-label="Sign out"
+        >
+          <LogOut className="h-4 w-4" />
+        </Button>
+      </header>
+
       {/* Main content */}
       <main className="dotted-grid mesh-gradient flex-1 overflow-auto">
-        <div className="container max-w-6xl py-6 page-transition">{children}</div>
+        <div
+          className="container max-w-6xl px-3 pt-16 pb-[calc(env(safe-area-inset-bottom)+88px)] sm:px-4 lg:px-6 lg:py-6 lg:pt-6 page-transition"
+        >
+          {children}
+        </div>
       </main>
+
+      {/* Mobile bottom tab bar */}
+      <nav
+        className="glass-panel fixed inset-x-0 bottom-0 z-40 border-t lg:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        <div className="grid grid-cols-4">
+          {mobileNav.map((item) => {
+            const isActive = location.pathname === item.path;
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`flex min-h-[60px] flex-col items-center justify-center gap-1 px-2 py-2 text-[11px] font-medium transition-colors ${
+                  isActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span
+                  className={`flex h-7 w-12 items-center justify-center rounded-full transition-all ${
+                    isActive ? "bg-primary/15" : ""
+                  }`}
+                >
+                  <item.icon className="h-5 w-5" />
+                </span>
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }
