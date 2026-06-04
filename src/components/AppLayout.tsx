@@ -134,9 +134,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Main content */}
       <main className="dotted-grid mesh-gradient flex-1 overflow-auto">
-        <div
-          className="container max-w-6xl px-3 pt-16 pb-[calc(env(safe-area-inset-bottom)+88px)] sm:px-4 lg:px-6 lg:py-6 lg:pt-6 page-transition"
-        >
+        <div className="container max-w-6xl px-3 pt-16 pb-[calc(env(safe-area-inset-bottom)+88px)] sm:px-4 lg:px-6 lg:py-6 lg:pt-6 page-transition">
           {children}
         </div>
       </main>

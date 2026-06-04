@@ -102,10 +102,7 @@ export default function Live() {
                   </span>
                 </button>
               </SheetTrigger>
-              <SheetContent
-                side="bottom"
-                className="h-[80vh] rounded-t-2xl p-4"
-              >
+              <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-4">
                 <AlertFeed
                   alerts={alerts}
                   running={running}

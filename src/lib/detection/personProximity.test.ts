@@ -140,4 +140,28 @@ describe("PersonTracker", () => {
     expect(r.framesSeen).toBe(2);
     expect(r.jumpScore).toBeGreaterThan(0);
   });
+
+  it("re-acquires the same id after a missed frame within the lost-track buffer", () => {
+    const tr = new PersonTracker(); // default 1200 ms buffer
+    const id0 = tr.update([box(0.3, 0.4)], 0)[0].id;
+    // 1000 ms gap with no detection — the old hard 900 ms expiry would have dropped it
+    const r = tr.update([box(0.3, 0.4)], 1000)[0];
+    expect(r.id).toBe(id0);
+    expect(r.framesSeen).toBe(2);
+  });
+
+  it("motion prediction re-acquires a person who drifted beyond the static match window", () => {
+    const tr = new PersonTracker(3000);
+    const nb = (x: number) => box(x, 0.4, 0.05, 0.3); // narrow box
+    const id0 = tr.update([nb(0.05)], 0)[0].id; // build a steady rightward velocity
+    tr.update([nb(0.17)], 100);
+    tr.update([nb(0.29)], 200);
+    tr.update([nb(0.41)], 300);
+    // frames 400/500 missed; the person continues right to 0.77 by 600. Last *seen*
+    // centre (~0.435) is ~0.36 from the new centre (~0.795) — beyond the 0.3 static
+    // window, so only motion prediction keeps the id.
+    const r = tr.update([nb(0.77)], 600)[0];
+    expect(r.id).toBe(id0);
+    expect(r.framesSeen).toBe(5);
+  });
 });

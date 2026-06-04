@@ -108,9 +108,17 @@ export function scorePersonProximity(a: BBox, b: BBox): ProximityResult {
  */
 export const MIN_STABLE_FRAMES = 3;
 
+// Per-track centre-velocity model (ByteTrack-style motion prediction). The EMA
+// smooths the estimate; MAX_VELOCITY (normalized units per ms) bounds it so a
+// noisy frame can't fling a track across the frame.
+const VELOCITY_SMOOTHING = 0.5;
+const MAX_VELOCITY = 0.002;
+
 interface PersonTrack {
   id: string;
   box: BBox;
+  vx: number; // smoothed centre velocity (normalized units per ms)
+  vy: number;
   firstSeen: number;
   lastSeen: number;
   framesSeen: number;
@@ -135,19 +143,35 @@ export interface TrackedPerson {
 }
 
 /**
- * Lightweight greedy tracker that keeps stable ids (p1, p2, …) across frames and
- * tracks per-id stability metadata. Not ByteTrack/BoT-SORT — just enough to form
- * stable person-pair keys and gate hazards on track age. Real tracking comes
- * with YOLO.
+ * Lightweight tracker keeping stable ids (p1, p2, …) across frames. Inspired by
+ * ByteTrack's motion model + lost-track buffer (without a full Kalman filter or
+ * camera-motion compensation): each track carries a smoothed centre velocity and
+ * is matched against its *predicted* position, and an unmatched track is kept
+ * alive for `expireMs` so a brief miss / short occlusion re-acquires the SAME id
+ * rather than re-numbering. Still not BoT-SORT — that arrives with YOLO.
  */
 export class PersonTracker {
   private tracks: PersonTrack[] = [];
   private nextId = 1;
-  constructor(private expireMs = 900) {}
+  // expireMs doubles as the lost-track buffer: how long an unseen track survives
+  // (still motion-predicted) so a brief miss/occlusion re-acquires the same id.
+  constructor(private expireMs = 1200) {}
 
   reset() {
     this.tracks = [];
     this.nextId = 1;
+  }
+
+  /** Track box motion-predicted forward to `now` (centre translation only). */
+  private predict(t: PersonTrack, now: number): BBox {
+    const dt = Math.max(0, now - t.lastSeen);
+    if (dt === 0) return t.box;
+    return {
+      x: clamp(t.box.x + t.vx * dt, 0, 1 - t.box.w),
+      y: clamp(t.box.y + t.vy * dt, 0, 1 - t.box.h),
+      w: t.box.w,
+      h: t.box.h,
+    };
   }
 
   /**
@@ -168,11 +192,11 @@ export class PersonTracker {
       let bestScore = 0;
       for (let i = 0; i < this.tracks.length; i++) {
         if (used.has(i)) continue;
-        const iou = boxIoU(box, this.tracks[i].box);
-        let score = iou;
+        const predicted = this.predict(this.tracks[i], now);
+        let score = boxIoU(box, predicted);
         if (score === 0) {
           const c1 = boxCenter(box);
-          const c2 = boxCenter(this.tracks[i].box);
+          const c2 = boxCenter(predicted);
           score = Math.max(0, 0.3 - Math.hypot(c1.x - c2.x, c1.y - c2.y));
         }
         if (score > bestScore) {
@@ -183,10 +207,22 @@ export class PersonTracker {
 
       if (best >= 0 && bestScore > 0.02) {
         const t = this.tracks[best];
+        const dt = Math.max(1, now - t.lastSeen);
+        const prevC = boxCenter(t.box);
+        const newC = boxCenter(box);
         const avgH = (t.box.h + box.h) / 2 || 1e-6;
-        const c1 = boxCenter(t.box);
-        const c2 = boxCenter(box);
-        const jumpScore = Math.hypot(c1.x - c2.x, c1.y - c2.y) / avgH;
+        const jumpScore = Math.hypot(prevC.x - newC.x, prevC.y - newC.y) / avgH;
+        // EMA-update the centre velocity, bounded by MAX_VELOCITY
+        t.vx = clamp(
+          (1 - VELOCITY_SMOOTHING) * t.vx + (VELOCITY_SMOOTHING * (newC.x - prevC.x)) / dt,
+          -MAX_VELOCITY,
+          MAX_VELOCITY,
+        );
+        t.vy = clamp(
+          (1 - VELOCITY_SMOOTHING) * t.vy + (VELOCITY_SMOOTHING * (newC.y - prevC.y)) / dt,
+          -MAX_VELOCITY,
+          MAX_VELOCITY,
+        );
         t.box = box;
         t.lastSeen = now;
         t.framesSeen++;
@@ -205,7 +241,16 @@ export class PersonTracker {
         });
       } else {
         const id = `p${this.nextId++}`;
-        this.tracks.push({ id, box, firstSeen: now, lastSeen: now, framesSeen: 1, quality });
+        this.tracks.push({
+          id,
+          box,
+          vx: 0,
+          vy: 0,
+          firstSeen: now,
+          lastSeen: now,
+          framesSeen: 1,
+          quality,
+        });
         used.add(this.tracks.length - 1);
         out.push({
           id,
