@@ -186,7 +186,8 @@ export default function Settings() {
           </li>
           <li className="flex gap-2">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-            Only high and critical incidents save a snapshot, kept private to your account.
+            Only high and critical incidents are recorded with the time and date, kept private to
+            your account.
           </li>
           <li className="flex gap-2">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />

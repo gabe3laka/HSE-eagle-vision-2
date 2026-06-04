@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ImageOff, ShieldCheck } from "lucide-react";
-import { useIncidents, getSnapshotUrl, type Incident } from "@/hooks/useIncidents";
+import { CheckCircle2, ShieldCheck } from "lucide-react";
+import { useIncidents, type Incident } from "@/hooks/useIncidents";
 import { HAZARDS, SEVERITY_META } from "@/lib/detection/hazardCatalog";
 import { HAZARD_ICONS } from "@/components/live/hazardIcons";
 import { EmptyState } from "@/components/EmptyState";
@@ -9,32 +8,21 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/own-client";
 import { toast } from "@/hooks/use-toast";
 
-function IncidentSnapshot({ path }: { path: string | null }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    getSnapshotUrl(path).then((u) => {
-      if (cancelled) return;
-      setUrl(u);
-      if (!u) setFailed(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [path]);
-
-  if (failed || !path) {
-    return (
-      <div className="flex h-20 w-28 shrink-0 items-center justify-center rounded-lg bg-muted">
-        <ImageOff className="h-5 w-5 text-muted-foreground/50" />
-      </div>
-    );
-  }
-  if (!url) return <div className="h-20 w-28 shrink-0 animate-pulse rounded-lg bg-muted" />;
+/** Compact calendar-style stamp showing the day an incident occurred. */
+function IncidentDate({ at }: { at: string }) {
+  const when = new Date(at);
+  const month = when.toLocaleDateString(undefined, { month: "short" });
+  const day = when.toLocaleDateString(undefined, { day: "numeric" });
   return (
-    <img src={url} alt="Incident snapshot" className="h-20 w-28 shrink-0 rounded-lg object-cover" />
+    <div
+      title={when.toLocaleString()}
+      className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-lg border border-border bg-muted/50 text-center leading-none"
+    >
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {month}
+      </span>
+      <span className="mt-1 text-xl font-bold">{day}</span>
+    </div>
   );
 }
 
@@ -59,7 +47,7 @@ export default function Incidents() {
       <header>
         <h1 className="font-display text-2xl font-bold">Incidents</h1>
         <p className="text-sm text-muted-foreground">
-          High and critical hazards are saved here with a snapshot for review.
+          High and critical hazards are recorded here with the time and date for review.
         </p>
       </header>
 
@@ -73,7 +61,7 @@ export default function Incidents() {
         <EmptyState
           icon={ShieldCheck}
           title="No incidents yet"
-          description="When monitoring detects a high or critical hazard, it's recorded here with a snapshot."
+          description="When monitoring detects a high or critical hazard, it's recorded here with the time and date."
           actionLabel="Go to live monitoring"
           actionHref="/"
         />
@@ -83,6 +71,10 @@ export default function Incidents() {
             const meta = HAZARDS[inc.hazard_type];
             const sev = SEVERITY_META[inc.severity];
             const Icon = HAZARD_ICONS[inc.hazard_type];
+            const time = new Date(inc.occurred_at).toLocaleTimeString(undefined, {
+              hour: "numeric",
+              minute: "2-digit",
+            });
             return (
               <div
                 key={inc.id}
@@ -90,7 +82,7 @@ export default function Incidents() {
                   inc.resolved ? "opacity-60" : ""
                 }`}
               >
-                <IncidentSnapshot path={inc.snapshot_path} />
+                <IncidentDate at={inc.occurred_at} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
@@ -102,8 +94,7 @@ export default function Incidents() {
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">{inc.message}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {new Date(inc.occurred_at).toLocaleString()} ·{" "}
-                    {Math.round(Number(inc.confidence) * 100)}%
+                    {time} · {Math.round(Number(inc.confidence) * 100)}%
                     {inc.zone_label ? ` · ${inc.zone_label}` : ""}
                   </p>
                 </div>

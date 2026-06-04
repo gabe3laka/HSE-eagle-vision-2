@@ -74,7 +74,7 @@ export interface Alert {
   bbox?: BBox;
   zoneLabel?: string;
   createdAt: number; // epoch ms
-  isIncident: boolean; // high/critical → persist + snapshot
+  isIncident: boolean; // high/critical → persist as an incident
   silent?: boolean; // low severity: record to the dashboard but don't surface in the feed
 }
 
