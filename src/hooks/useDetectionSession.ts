@@ -7,7 +7,8 @@ import { RiskEngine } from "@/lib/detection/riskEngine";
 import type { Alert, Detector, LiveBox } from "@/lib/detection/types";
 import { HAZARDS, SEVERITY_META } from "@/lib/detection/hazardCatalog";
 import { localizedMessage } from "@/lib/detection/messages";
-import type { Json } from "@/integrations/supabase/types";
+// Local Json type — avoids depending on the managed-project types.ts file.
+type Json = string | number | boolean | null | { [k: string]: Json | undefined } | Json[];
 import type { AlertConfig } from "./useAlertSettings";
 
 const FPS = 8;
