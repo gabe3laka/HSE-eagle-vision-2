@@ -1,14 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/AppLayout";
-import Live from "@/pages/Live";
+import Settings from "@/pages/Settings";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/settings")({
   ssr: false,
   component: () => (
     <ProtectedRoute>
       <AppLayout>
-        <Live />
+        <Settings />
       </AppLayout>
     </ProtectedRoute>
   ),
