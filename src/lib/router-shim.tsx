@@ -25,7 +25,7 @@ export const Link = forwardRef<
 Link.displayName = "Link";
 
 export interface NavLinkProps
-  extends Omit<ComponentPropsWithoutRef<"a">, "href" | "className"> {
+  extends Omit<ComponentPropsWithoutRef<"a">, "href" | "className" | "children"> {
   to: string;
   replace?: boolean;
   end?: boolean;
