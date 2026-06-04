@@ -44,8 +44,21 @@ export function CameraView({
         playsInline
         muted
         autoPlay
-        className={`h-full w-full object-cover transition-opacity ${active ? "opacity-100" : "opacity-0"}`}
+        className={`h-full w-full object-cover transition-opacity ${active ? "opacity-100" : "opacity-0"} ${facing === "user" ? "scale-x-[-1]" : ""}`}
       />
+
+      {active && (
+        <Button
+          onClick={onFlip}
+          variant="glass"
+          size="icon"
+          className="absolute right-3 top-3 h-9 w-9 rounded-full"
+          aria-label="Flip camera"
+        >
+          <SwitchCamera className="h-4 w-4" />
+        </Button>
+      )}
+
 
       {active && running && <DetectionOverlay boxes={boxes} />}
 
