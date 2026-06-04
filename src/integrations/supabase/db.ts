@@ -3,7 +3,7 @@
 // place of `supabase` when you need typed-table inference.
 import { supabase } from "@/integrations/supabase/own-client";
 
-type HazardType =
+export type HazardType =
   | "unsafe_lift"
   | "ppe_missing"
   | "person_proximity"
@@ -11,8 +11,8 @@ type HazardType =
   | "blocked_exit"
   | "forklift_proximity"
   | "fall_risk";
-type Severity = "low" | "medium" | "high" | "critical";
-type SessionStatus = "active" | "ended";
+export type Severity = "low" | "medium" | "high" | "critical";
+export type SessionStatus = "active" | "ended";
 
 export interface ProfileRow {
   id: string;
