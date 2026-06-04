@@ -47,6 +47,18 @@ export const POSE_THRESHOLDS = {
   repsLowPerMin: 4, // bend cycles/min where repetition risk starts
   repsHighPerMin: 12, // bend cycles/min → full repetition risk
   bentSample: 0.3, // torsoBendScore above which a frame counts as "bent"
+
+  // ── pose quality / bbox sanity (Sprint 3) ──
+  qualityVisibility: 0.5, // landmark counts as "visible" at/above this visibility
+  minVisibleLandmarks: 8, // fewer visible landmarks than this → not a person
+  minVisibleCore: 4, // need this many of the 6 core landmarks visible
+  minQualityScore: 0.45, // overall pose quality below this → rejected
+  minBoxW: 0.04, // bbox narrower than this (normalized) → too tiny
+  minBoxH: 0.08, // bbox shorter than this → too tiny
+  minBoxArea: 0.004, // bbox area below this → too tiny
+  maxBoxCover: 0.97, // bbox covering ~the whole frame in both axes → hallucination
+  maxAspectWide: 5, // width/height above this → not a person (too wide)
+  maxAspectThin: 14, // height/width above this → not a person (sliver)
 } as const;
 
 export interface LiftAnalysis {
@@ -61,7 +73,7 @@ export interface LiftAnalysis {
   visibility: number; // 0..1
   confidence: number; // 0..1 per-frame unsafe-lift confidence
   ergonomicFactors: string[]; // human-readable reasons the posture scored
-  bbox: BBox;
+  bbox: BBox | null; // null when no usable landmarks were visible
 }
 
 function clamp(v: number, lo: number, hi: number) {
@@ -146,8 +158,13 @@ export function computeOverheadReach(
   return clamp((shoulders.y - wristTopY) / POSE_THRESHOLDS.overheadFull, 0, 1);
 }
 
-/** Normalized bounding box around the visible landmarks. */
-export function personBBox(landmarks: PoseLandmark[]): BBox {
+/**
+ * Normalized bounding box around the *visible* landmarks, or `null` when no
+ * landmark is visible enough to trust. Returning null (instead of a fake centre
+ * box) is what stops invisible/hallucinated poses from drawing a phantom box
+ * over the background.
+ */
+export function personBBox(landmarks: PoseLandmark[]): BBox | null {
   let minX = 1;
   let minY = 1;
   let maxX = 0;
@@ -161,7 +178,7 @@ export function personBBox(landmarks: PoseLandmark[]): BBox {
     maxY = Math.max(maxY, p.y);
     any = true;
   }
-  if (!any) return { x: 0.3, y: 0.2, w: 0.4, h: 0.6 };
+  if (!any) return null;
   const pad = 0.03;
   const x = clamp(minX - pad, 0, 1);
   const y = clamp(minY - pad, 0, 1);
@@ -170,6 +187,140 @@ export function personBBox(landmarks: PoseLandmark[]): BBox {
     y,
     w: clamp(maxX - minX + pad * 2, 0.02, 1 - x),
     h: clamp(maxY - minY + pad * 2, 0.02, 1 - y),
+  };
+}
+
+// ── Skeleton connections for the debug overlay (MediaPipe Pose topology) ──
+export const POSE_CONNECTIONS: [number, number][] = [
+  [LM.leftShoulder, LM.rightShoulder],
+  [LM.leftShoulder, LM.leftElbow],
+  [LM.leftElbow, LM.leftWrist],
+  [LM.rightShoulder, LM.rightElbow],
+  [LM.rightElbow, LM.rightWrist],
+  [LM.leftShoulder, LM.leftHip],
+  [LM.rightShoulder, LM.rightHip],
+  [LM.leftHip, LM.rightHip],
+  [LM.leftHip, LM.leftKnee],
+  [LM.leftKnee, LM.leftAnkle],
+  [LM.rightHip, LM.rightKnee],
+  [LM.rightKnee, LM.rightAnkle],
+];
+
+/** Coarse runtime status of the pose detector, surfaced to the Live UI. */
+export type PoseStatus =
+  | "loading"
+  | "ready"
+  | "scanning"
+  | "no_stable_person"
+  | "low_confidence"
+  | "person_detected";
+
+const CORE_LANDMARKS = [
+  LM.leftShoulder,
+  LM.rightShoulder,
+  LM.leftHip,
+  LM.rightHip,
+  LM.leftKnee,
+  LM.rightKnee,
+];
+
+export interface PoseQuality {
+  qualityScore: number; // 0..1 overall confidence this is a real, usable person
+  visibleLandmarkCount: number;
+  visibleCoreCount: number; // how many of the 6 core landmarks are visible
+  hasRequiredLiftLandmarks: boolean; // shoulder + hip + knee visible (lift needs these)
+  hasFeetOrAnkles: boolean; // an ankle is visible (helps same-floor proximity)
+  bboxValid: boolean;
+  accepted: boolean; // passes every gate → may enter tracking
+  rejectionReasons: string[];
+}
+
+/**
+ * Decides whether a raw MediaPipe pose is a usable person, before it can enter
+ * tracking or emit a hazard. Pose models hallucinate weak landmarks on
+ * background texture; this gate rejects those by requiring enough visible
+ * landmarks (especially the core shoulder/hip/knee set) and a sane bbox.
+ */
+export function computePoseQuality(landmarks: PoseLandmark[], bbox: BBox | null): PoseQuality {
+  const T = POSE_THRESHOLDS;
+  const reasons: string[] = [];
+  const visOf = (i: number) => landmarks[i]?.visibility ?? 0;
+
+  let visibleLandmarkCount = 0;
+  for (const p of landmarks)
+    if ((p?.visibility ?? 0) >= T.qualityVisibility) visibleLandmarkCount++;
+
+  let visibleCoreCount = 0;
+  let coreVisSum = 0;
+  for (const i of CORE_LANDMARKS) {
+    const v = visOf(i);
+    coreVisSum += clamp(v, 0, 1);
+    if (v >= T.qualityVisibility) visibleCoreCount++;
+  }
+  const coreVis = coreVisSum / CORE_LANDMARKS.length;
+
+  const shoulder =
+    visOf(LM.leftShoulder) >= T.qualityVisibility || visOf(LM.rightShoulder) >= T.qualityVisibility;
+  const hip = visOf(LM.leftHip) >= T.qualityVisibility || visOf(LM.rightHip) >= T.qualityVisibility;
+  const knee =
+    visOf(LM.leftKnee) >= T.qualityVisibility || visOf(LM.rightKnee) >= T.qualityVisibility;
+  const hasRequiredLiftLandmarks = shoulder && hip && knee && visibleCoreCount >= 4;
+  const hasFeetOrAnkles =
+    visOf(LM.leftAnkle) >= T.qualityVisibility || visOf(LM.rightAnkle) >= T.qualityVisibility;
+
+  let bboxValid = true;
+  if (!bbox) {
+    bboxValid = false;
+    reasons.push("no_bbox");
+  } else {
+    const area = bbox.w * bbox.h;
+    if (bbox.w < T.minBoxW || bbox.h < T.minBoxH || area < T.minBoxArea) {
+      bboxValid = false;
+      reasons.push("bbox_too_small");
+    }
+    if (bbox.w >= T.maxBoxCover && bbox.h >= T.maxBoxCover) {
+      bboxValid = false;
+      reasons.push("bbox_too_large");
+    }
+    const aspectWide = bbox.w / Math.max(bbox.h, 1e-6);
+    const aspectThin = bbox.h / Math.max(bbox.w, 1e-6);
+    if (aspectWide > T.maxAspectWide || aspectThin > T.maxAspectThin) {
+      bboxValid = false;
+      reasons.push("bbox_bad_aspect");
+    }
+    const touchesEdge =
+      bbox.x <= 0.01 || bbox.y <= 0.01 || bbox.x + bbox.w >= 0.99 || bbox.y + bbox.h >= 0.99;
+    if (touchesEdge && visibleCoreCount < 3) {
+      bboxValid = false;
+      reasons.push("bbox_edge_low_visibility");
+    }
+  }
+
+  if (visibleLandmarkCount < T.minVisibleLandmarks) reasons.push("too_few_landmarks");
+  if (visibleCoreCount < T.minVisibleCore) reasons.push("too_few_core_landmarks");
+  if (coreVis < T.qualityVisibility) reasons.push("low_visibility");
+
+  const coverage = Math.min(1, visibleLandmarkCount / 12);
+  let qualityScore = clamp(0.6 * coreVis + 0.4 * coverage, 0, 1);
+  if (!bboxValid) qualityScore *= 0.3;
+  if (qualityScore < T.minQualityScore) reasons.push("low_quality");
+
+  const accepted =
+    bboxValid &&
+    visibleLandmarkCount >= T.minVisibleLandmarks &&
+    visibleCoreCount >= T.minVisibleCore &&
+    coreVis >= T.qualityVisibility &&
+    qualityScore >= T.minQualityScore;
+
+  return {
+    qualityScore,
+    visibleLandmarkCount,
+    visibleCoreCount,
+    hasRequiredLiftLandmarks,
+    hasFeetOrAnkles,
+    bboxValid,
+    accepted,
+    rejectionReasons: reasons,
   };
 }
 
@@ -384,15 +535,45 @@ export class PerPersonDynamics {
   }
 }
 
-/** Combined snapshot used by the dev debug panel. */
+/** An accepted pose, for the skeleton overlay. */
+export interface AcceptedPoseView {
+  id: string | null;
+  bbox: BBox;
+  landmarks: PoseLandmark[];
+  qualityScore: number;
+  framesSeen: number;
+  stable: boolean;
+}
+
+/** A rejected raw pose, shown (with reasons) only in debug mode. */
+export interface RejectedPoseView {
+  bbox: BBox | null;
+  reasons: string[];
+}
+
+/** Combined snapshot used by the dev debug panel and skeleton overlay. */
 export type PoseDebug = LiftAnalysis &
   PostureDynamics & {
     emitted: boolean; // unsafe_lift emitted this frame (for the primary person)
     primaryPersonId: string | null;
-    personCount: number;
+    personCount: number; // accepted, tracked people this frame
     trackedIds: string[];
     proximityEmitted: boolean;
     closestPairKey: string | null;
     closestPairScore: number;
     closestPairGap: number;
+    // ── Sprint 3: pipeline visibility ──
+    status: PoseStatus;
+    rawPoseCount: number;
+    acceptedPoseCount: number;
+    rejectedPoseCount: number;
+    rejectionReasons: string[];
+    detectionMs: number;
+    qualityScore: number; // primary person's quality
+    visibleLandmarkCount: number; // primary
+    visibleCoreCount: number; // primary
+    framesSeen: number; // primary
+    acceptedPoses: AcceptedPoseView[]; // for the skeleton overlay
+    rejectedBoxes: RejectedPoseView[]; // for the debug overlay
+    thresholds: { detection: number; presence: number; tracking: number; maxPoses: number };
   };

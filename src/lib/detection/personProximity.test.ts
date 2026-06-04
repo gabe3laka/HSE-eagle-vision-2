@@ -6,6 +6,7 @@ import {
   scorePersonProximity,
   unionBox,
   PersonTracker,
+  MIN_STABLE_FRAMES,
   PROXIMITY_EMIT_THRESHOLD,
   PROXIMITY_STRONG_THRESHOLD,
 } from "./personProximity";
@@ -112,5 +113,31 @@ describe("PersonTracker", () => {
     // every person's sourceIndex indexes its own box, so analyses[sourceIndex]
     // can never hand a person another person's pose
     for (const p of second) expect(f2[p.sourceIndex]).toEqual(p.box);
+  });
+
+  it("marks a track stable only after MIN_STABLE_FRAMES frames; one frame is never stable", () => {
+    const tr = new PersonTracker(900);
+    const b = box(0.3, 0.4);
+    for (let f = 1; f <= MIN_STABLE_FRAMES; f++) {
+      const r = tr.update([b], f * 100)[0];
+      expect(r.framesSeen).toBe(f);
+      expect(r.stable).toBe(f >= MIN_STABLE_FRAMES);
+    }
+  });
+
+  it("two first-frame people are both unstable (proximity cannot emit yet)", () => {
+    const tr = new PersonTracker(900);
+    const out = tr.update([box(0.3, 0.4), box(0.6, 0.4)], 0);
+    expect(out.every((p) => !p.stable)).toBe(true);
+    expect(out.every((p) => p.framesSeen === 1)).toBe(true);
+  });
+
+  it("carries the latest quality and a height-normalized jumpScore", () => {
+    const tr = new PersonTracker(900);
+    tr.update([box(0.3, 0.4)], 0, [0.8]);
+    const r = tr.update([box(0.34, 0.4)], 100, [0.9])[0];
+    expect(r.qualityScore).toBe(0.9);
+    expect(r.framesSeen).toBe(2);
+    expect(r.jumpScore).toBeGreaterThan(0);
   });
 });

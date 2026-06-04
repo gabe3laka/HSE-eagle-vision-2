@@ -6,6 +6,17 @@ import { SEVERITY_META, HAZARDS } from "@/lib/detection/hazardCatalog";
 import { localizedMessage, isRTL } from "@/lib/detection/messages";
 import { HAZARD_ICONS } from "./hazardIcons";
 import type { CameraFacing } from "@/hooks/useCamera";
+import { SkeletonOverlay } from "./SkeletonOverlay";
+import type { PoseDebug, PoseStatus } from "@/lib/detection/poseGeometry";
+
+const POSE_STATUS_LABEL: Record<PoseStatus, string> = {
+  loading: "Loading pose model",
+  ready: "Pose model ready",
+  scanning: "Scanning video",
+  no_stable_person: "No stable person detected",
+  low_confidence: "Low confidence — improve lighting / show full body",
+  person_detected: "Person detected",
+};
 
 interface Props {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -19,6 +30,9 @@ interface Props {
   facing: CameraFacing;
   onEnable: () => void;
   onFlip: () => void;
+  poseStatus?: PoseStatus | null;
+  debug?: PoseDebug | null;
+  showSkeleton?: boolean;
 }
 
 export function CameraView({
@@ -33,6 +47,9 @@ export function CameraView({
   facing,
   onEnable,
   onFlip,
+  poseStatus,
+  debug,
+  showSkeleton,
 }: Props) {
   const TopIcon = topAlert ? HAZARD_ICONS[topAlert.hazardType] : null;
   const topSev = topAlert ? SEVERITY_META[topAlert.severity] : null;
@@ -59,8 +76,21 @@ export function CameraView({
         </Button>
       )}
 
-
       {active && running && <DetectionOverlay boxes={boxes} />}
+
+      {active && running && showSkeleton && debug && (
+        <div
+          className={`pointer-events-none absolute inset-0 ${facing === "user" ? "scale-x-[-1]" : ""}`}
+        >
+          <SkeletonOverlay debug={debug} />
+        </div>
+      )}
+
+      {active && running && poseStatus && (
+        <div className="pointer-events-none absolute left-3 top-12 max-w-[80%] rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-white backdrop-blur">
+          {topAlert ? "Hazard detected" : POSE_STATUS_LABEL[poseStatus]}
+        </div>
+      )}
 
       {active && running && (
         <div className="pointer-events-none absolute inset-x-0 top-0 h-1 animate-scan bg-gradient-to-r from-transparent via-primary to-transparent" />

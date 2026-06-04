@@ -31,7 +31,7 @@ export default function Live() {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
   }, [queryClient]);
 
-  const { running, alerts, liveBoxes, stats, debug, start, stop, dismissAlert } =
+  const { running, alerts, liveBoxes, stats, debug, perf, poseStatus, start, stop, dismissAlert } =
     useDetectionSession({
       video: videoRef.current,
       config,
@@ -71,6 +71,9 @@ export default function Live() {
             facing={facing}
             onEnable={() => startCamera()}
             onFlip={flip}
+            poseStatus={poseStatus}
+            debug={debug}
+            showSkeleton={import.meta.env.DEV}
           />
           <SessionControls
             cameraActive={active}
@@ -79,7 +82,7 @@ export default function Live() {
             onStart={handleStart}
             onStop={stop}
           />
-          {import.meta.env.DEV && debug && <PoseDebugPanel debug={debug} />}
+          {import.meta.env.DEV && debug && <PoseDebugPanel debug={debug} perf={perf} />}
         </div>
 
         <aside className="glass-panel rounded-2xl border p-4 lg:sticky lg:top-6 lg:h-[calc(100vh-9rem)]">
