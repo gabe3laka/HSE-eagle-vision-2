@@ -92,6 +92,22 @@ function vis(p?: PoseLandmark): number {
   return p?.visibility ?? 1;
 }
 
+/**
+ * Whether this pose carries usable per-landmark visibility. Some
+ * @mediapipe/tasks-vision builds leave `visibility` at 0/undefined for every
+ * landmark; when that happens we must NOT filter or suppress by visibility
+ * (otherwise every real person is rejected) — callers treat all landmarks as
+ * visible and lean on bbox sanity + MediaPipe's pose-level confidence instead.
+ */
+function hasVisibilityData(landmarks: PoseLandmark[]): boolean {
+  let max = 0;
+  for (const p of landmarks) {
+    const v = p?.visibility ?? 0;
+    if (v > max) max = v;
+  }
+  return max > 0.05;
+}
+
 /** Angle (deg) of the torso away from vertical: 0 = upright, 90 = horizontal. */
 export function torsoAngleDeg(shoulders: PoseLandmark, hips: PoseLandmark): number {
   const vx = shoulders.x - hips.x;
@@ -165,13 +181,15 @@ export function computeOverheadReach(
  * over the background.
  */
 export function personBBox(landmarks: PoseLandmark[]): BBox | null {
+  const hasVis = hasVisibilityData(landmarks);
   let minX = 1;
   let minY = 1;
   let maxX = 0;
   let maxY = 0;
   let any = false;
   for (const p of landmarks) {
-    if (!p || (p.visibility !== undefined && p.visibility < 0.2)) continue;
+    if (!p) continue;
+    if (hasVis && (p.visibility ?? 0) < 0.2) continue;
     minX = Math.min(minX, p.x);
     minY = Math.min(minY, p.y);
     maxX = Math.max(maxX, p.x);
@@ -244,11 +262,14 @@ export interface PoseQuality {
 export function computePoseQuality(landmarks: PoseLandmark[], bbox: BBox | null): PoseQuality {
   const T = POSE_THRESHOLDS;
   const reasons: string[] = [];
-  const visOf = (i: number) => landmarks[i]?.visibility ?? 0;
+  // Only trust visibility when the model actually provides it; otherwise treat
+  // every landmark as visible (see hasVisibilityData).
+  const hasVis = hasVisibilityData(landmarks);
+  const visOf = (i: number) => (hasVis ? (landmarks[i]?.visibility ?? 0) : 1);
 
   let visibleLandmarkCount = 0;
-  for (const p of landmarks)
-    if ((p?.visibility ?? 0) >= T.qualityVisibility) visibleLandmarkCount++;
+  for (let i = 0; i < landmarks.length; i++)
+    if (visOf(i) >= T.qualityVisibility) visibleLandmarkCount++;
 
   let visibleCoreCount = 0;
   let coreVisSum = 0;
@@ -343,7 +364,11 @@ export function analyzeLift(landmarks: PoseLandmark[]): LiftAnalysis {
   const rw = landmarks[LM.rightWrist];
 
   const bbox = personBBox(landmarks);
-  const visibility = clamp((vis(ls) + vis(rs) + vis(lh) + vis(rh) + vis(lk) + vis(rk)) / 6, 0, 1);
+  // When the model omits visibility (0/undefined everywhere) don't suppress —
+  // treat the pose as fully visible and rely on geometry/confidence instead.
+  const visibility = hasVisibilityData(landmarks)
+    ? clamp((vis(ls) + vis(rs) + vis(lh) + vis(rh) + vis(lk) + vis(rk)) / 6, 0, 1)
+    : 1;
 
   const base: LiftAnalysis = {
     torsoAngle: 0,

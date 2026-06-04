@@ -28,6 +28,23 @@ function uniformLandmarks(visibility: number): PoseLandmark[] {
   return arr;
 }
 
+/** A standing person with a chosen visibility (or undefined) on every landmark —
+ * mimics @mediapipe/tasks-vision builds that omit/zero visibility. */
+function standingWith(visibility?: number): PoseLandmark[] {
+  const arr: PoseLandmark[] = [];
+  for (let i = 0; i < 33; i++) arr[i] = { x: 0.5, y: 0.5, visibility };
+  const set = (i: number, x: number, y: number) => (arr[i] = { x, y, visibility });
+  set(LM.leftShoulder, 0.46, 0.3);
+  set(LM.rightShoulder, 0.54, 0.3);
+  set(LM.leftHip, 0.46, 0.55);
+  set(LM.rightHip, 0.54, 0.55);
+  set(LM.leftKnee, 0.46, 0.75);
+  set(LM.rightKnee, 0.54, 0.75);
+  set(LM.leftAnkle, 0.46, 0.95);
+  set(LM.rightAnkle, 0.54, 0.95);
+  return arr;
+}
+
 const STANDING = makeLandmarks({
   [LM.leftShoulder]: { x: 0.48, y: 0.3, visibility: 1 },
   [LM.rightShoulder]: { x: 0.52, y: 0.3, visibility: 1 },
@@ -335,5 +352,35 @@ describe("computePoseQuality", () => {
     const q = computePoseQuality(BENT_STRAIGHT_LEGS, personBBox(BENT_STRAIGHT_LEGS));
     expect(q.accepted).toBe(true);
     expect(q.hasRequiredLiftLandmarks).toBe(true);
+  });
+});
+
+describe("missing visibility (tasks-vision compatibility)", () => {
+  it("personBBox returns a real box when visibility is undefined for all landmarks", () => {
+    expect(personBBox(standingWith(undefined))).not.toBeNull();
+  });
+
+  it("accepts a real pose when the model omits visibility (undefined everywhere)", () => {
+    const lm = standingWith(undefined);
+    const q = computePoseQuality(lm, personBBox(lm));
+    expect(q.accepted).toBe(true);
+    expect(q.hasRequiredLiftLandmarks).toBe(true);
+  });
+
+  it("accepts a real pose when visibility is reported as 0 for every landmark", () => {
+    const lm = standingWith(0);
+    const q = computePoseQuality(lm, personBBox(lm));
+    expect(q.accepted).toBe(true);
+  });
+
+  it("still scores an unsafe lift when visibility is omitted (not zeroed out)", () => {
+    const lm = standingWith(undefined); // straight legs by default
+    lm[LM.leftShoulder] = { x: 0.73, y: 0.52 }; // bend the torso forward
+    lm[LM.rightShoulder] = { x: 0.77, y: 0.52 };
+    lm[LM.leftWrist] = { x: 0.7, y: 0.85 }; // hands low
+    lm[LM.rightWrist] = { x: 0.8, y: 0.85 };
+    const a = analyzeLift(lm);
+    expect(a.visibility).toBe(1); // not suppressed
+    expect(a.confidence).toBeGreaterThan(0);
   });
 });
