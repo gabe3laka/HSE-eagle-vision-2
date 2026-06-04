@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/own-client";
-import { db } from "@/integrations/supabase/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { createDetector } from "@/lib/detection/detectorFactory";
 import type { PoseDebug } from "@/lib/detection/poseGeometry";
@@ -68,7 +67,7 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
     async (alert: Alert): Promise<string | null> => {
       const sid = sessionIdRef.current;
       if (!sid || !user) return null;
-      const { data } = await db
+      const { data } = await supabase
         .from("detections")
         .insert({
           owner_id: user.id,
@@ -102,7 +101,7 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
       } catch {
         /* snapshot is best-effort — never block the incident record */
       }
-      await db
+      await supabase
         .from("incidents")
         .insert({
           owner_id: user.id,
@@ -206,7 +205,7 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
     }
 
     if (user) {
-      const { data } = await db
+      const { data } = await supabase
         .from("monitoring_sessions")
         .insert({ owner_id: user.id, label: "Live session", status: "active" })
         .select("id")
@@ -232,7 +231,7 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
     const sid = sessionIdRef.current;
     sessionIdRef.current = null;
     if (sid && user) {
-      await db
+      await supabase
         .from("monitoring_sessions")
         .update({
           status: "ended",

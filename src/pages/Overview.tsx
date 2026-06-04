@@ -42,7 +42,7 @@ export default function Overview() {
       {} as Record<HazardType, number>,
     );
     for (const inc of list) counts[inc.hazard_type] = (counts[inc.hazard_type] ?? 0) + 1;
-    const max = Math.max(1, ...Object.values(counts));
+    const max = Math.max(1, ...(Object.values(counts) as number[]));
     return {
       total: list.length,
       unresolved: list.filter((i) => !i.resolved).length,

@@ -1,5 +1,7 @@
 import { useMemo } from "react";
-import type { Severity } from "@/lib/detection/types";
+import type { Database } from "@/integrations/supabase/types";
+
+type Severity = Database["public"]["Enums"]["severity"];
 
 interface Det {
   bbox: unknown;

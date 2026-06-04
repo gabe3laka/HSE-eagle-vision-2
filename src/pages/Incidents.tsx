@@ -7,7 +7,6 @@ import { HAZARD_ICONS } from "@/components/live/hazardIcons";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/own-client";
-import { db } from "@/integrations/supabase/db";
 import { toast } from "@/hooks/use-toast";
 
 function IncidentSnapshot({ path }: { path: string | null }) {
@@ -42,7 +41,7 @@ export default function Incidents() {
   const queryClient = useQueryClient();
 
   const toggleResolved = async (inc: Incident) => {
-    const { error } = await db
+    const { error } = await supabase
       .from("incidents")
       .update({ resolved: !inc.resolved })
       .eq("id", inc.id);

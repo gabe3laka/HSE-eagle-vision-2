@@ -1,11 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/own-client";
-import { db } from "@/integrations/supabase/db";
 import { useAuth } from "@/contexts/AuthContext";
-import type { IncidentRow, MonitoringSessionRow, DetectionRow } from "@/integrations/supabase/db";
+import type { Database } from "@/integrations/supabase/types";
 
-export type Incident = IncidentRow;
-export type MonitoringSession = MonitoringSessionRow;
+export type Incident = Database["public"]["Tables"]["incidents"]["Row"];
+export type MonitoringSession = Database["public"]["Tables"]["monitoring_sessions"]["Row"];
 
 export function useIncidents(limit = 200) {
   const { user } = useAuth();
@@ -13,7 +12,7 @@ export function useIncidents(limit = 200) {
     queryKey: ["incidents", user?.id, limit],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await db
+      const { data, error } = await supabase
         .from("incidents")
         .select("*")
         .order("occurred_at", { ascending: false })
@@ -30,7 +29,7 @@ export function useSessions(limit = 50) {
     queryKey: ["sessions", user?.id, limit],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await db
+      const { data, error } = await supabase
         .from("monitoring_sessions")
         .select("*")
         .order("started_at", { ascending: false })
@@ -41,7 +40,7 @@ export function useSessions(limit = 50) {
   });
 }
 
-export type Detection = DetectionRow;
+export type Detection = Database["public"]["Tables"]["detections"]["Row"];
 
 /** Recent detections (including low-tier silent records) for the risk heatmap. */
 export function useDetections(limit = 1000) {
@@ -50,7 +49,7 @@ export function useDetections(limit = 1000) {
     queryKey: ["detections", user?.id, limit],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await db
+      const { data, error } = await supabase
         .from("detections")
         .select("hazard_type, severity, bbox, detected_at")
         .order("detected_at", { ascending: false })
