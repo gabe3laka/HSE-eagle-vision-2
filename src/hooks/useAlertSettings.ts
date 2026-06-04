@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/db"
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/integrations/supabase/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { ALL_HAZARDS } from "@/lib/detection/hazardCatalog";
 import type { HazardType, DetectionMode } from "@/lib/detection/types";
