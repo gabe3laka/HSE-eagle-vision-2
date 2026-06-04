@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation } from "@/lib/router-shim";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Camera,

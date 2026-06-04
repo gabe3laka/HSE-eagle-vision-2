@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "@/lib/router-shim";
 import { AlertOctagon, Camera, ShieldAlert, ShieldCheck, Video } from "lucide-react";
 import { useIncidents, useSessions, useDetections } from "@/hooks/useIncidents";
 import { ALL_HAZARDS, HAZARDS, SEVERITY_META } from "@/lib/detection/hazardCatalog";

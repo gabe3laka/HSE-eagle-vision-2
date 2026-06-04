@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "@/lib/router-shim";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, ShieldCheck, Camera, Languages, Zap, EyeOff } from "lucide-react";
 
