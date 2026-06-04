@@ -68,7 +68,7 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
     async (alert: Alert): Promise<string | null> => {
       const sid = sessionIdRef.current;
       if (!sid || !user) return null;
-      const { data } = await supabase
+      const { data } = await db
         .from("detections")
         .insert({
           owner_id: user.id,
@@ -102,7 +102,7 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
       } catch {
         /* snapshot is best-effort — never block the incident record */
       }
-      await supabase
+      await db
         .from("incidents")
         .insert({
           owner_id: user.id,
@@ -206,7 +206,7 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
     }
 
     if (user) {
-      const { data } = await supabase
+      const { data } = await db
         .from("monitoring_sessions")
         .insert({ owner_id: user.id, label: "Live session", status: "active" })
         .select("id")
@@ -232,7 +232,7 @@ export function useDetectionSession({ video, config, captureSnapshot, onIncident
     const sid = sessionIdRef.current;
     sessionIdRef.current = null;
     if (sid && user) {
-      await supabase
+      await db
         .from("monitoring_sessions")
         .update({
           status: "ended",

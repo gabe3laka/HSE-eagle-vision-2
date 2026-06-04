@@ -13,7 +13,7 @@ export function useIncidents(limit = 200) {
     queryKey: ["incidents", user?.id, limit],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("incidents")
         .select("*")
         .order("occurred_at", { ascending: false })
@@ -30,7 +30,7 @@ export function useSessions(limit = 50) {
     queryKey: ["sessions", user?.id, limit],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("monitoring_sessions")
         .select("*")
         .order("started_at", { ascending: false })
@@ -50,7 +50,7 @@ export function useDetections(limit = 1000) {
     queryKey: ["detections", user?.id, limit],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("detections")
         .select("hazard_type, severity, bbox, detected_at")
         .order("detected_at", { ascending: false })

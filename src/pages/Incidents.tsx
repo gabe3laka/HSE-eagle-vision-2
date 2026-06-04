@@ -42,7 +42,7 @@ export default function Incidents() {
   const queryClient = useQueryClient();
 
   const toggleResolved = async (inc: Incident) => {
-    const { error } = await supabase
+    const { error } = await db
       .from("incidents")
       .update({ resolved: !inc.resolved })
       .eq("id", inc.id);
