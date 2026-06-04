@@ -22,20 +22,6 @@ export default function Live() {
   const createZone = useCreateZone();
   const deleteZone = useDeleteZone();
 
-  const captureSnapshot = useCallback(async (): Promise<Blob | null> => {
-    const video = videoRef.current;
-    if (!video || !video.videoWidth) return null;
-    const maxW = 640;
-    const scale = Math.min(1, maxW / video.videoWidth);
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(video.videoWidth * scale);
-    canvas.height = Math.round(video.videoHeight * scale);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", 0.7));
-  }, [videoRef]);
-
   const onIncidentSaved = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
   }, [queryClient]);
@@ -45,7 +31,6 @@ export default function Live() {
       video: videoRef.current,
       config,
       zones,
-      captureSnapshot,
       onIncidentSaved,
     });
 

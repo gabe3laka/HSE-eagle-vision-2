@@ -69,25 +69,17 @@ interface Options {
   config: AlertConfig;
   /** Operator-drawn restricted zones (for restricted_zone detection). */
   zones?: DetectionZone[];
-  /** Best-effort capture of the current frame for incident snapshots. */
-  captureSnapshot?: () => Promise<Blob | null>;
   onIncidentSaved?: () => void;
 }
 
 /**
  * Orchestrates the live loop: detector → risk engine → alerts, and persists
- * medium+ events as detections and high/critical events as incidents (with a
- * snapshot). Detection runs on actual video frames (requestVideoFrameCallback)
+ * medium+ events as detections and high/critical events as incidents (with the
+ * time and date). Detection runs on actual video frames (requestVideoFrameCallback)
  * when supported, with a timer fallback; detection is synchronous and never
  * overlaps, while persistence is fire-and-forget so the loop stays responsive.
  */
-export function useDetectionSession({
-  video,
-  config,
-  zones,
-  captureSnapshot,
-  onIncidentSaved,
-}: Options) {
+export function useDetectionSession({ video, config, zones, onIncidentSaved }: Options) {
   const { user } = useAuth();
   const [running, setRunning] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -107,7 +99,6 @@ export function useDetectionSession({
   const framesRef = useRef(0);
   const configRef = useRef(config);
   const videoRef = useRef(video);
-  const captureRef = useRef(captureSnapshot);
   const onSavedRef = useRef(onIncidentSaved);
   const zonesRef = useRef(zones);
 
@@ -129,9 +120,6 @@ export function useDetectionSession({
   useEffect(() => {
     videoRef.current = video;
   }, [video]);
-  useEffect(() => {
-    captureRef.current = captureSnapshot;
-  }, [captureSnapshot]);
   useEffect(() => {
     onSavedRef.current = onIncidentSaved;
   }, [onIncidentSaved]);
@@ -164,19 +152,6 @@ export function useDetectionSession({
   const persistIncident = useCallback(
     async (alert: Alert, detectionId: string | null) => {
       if (!user) return;
-      let snapshotPath: string | null = null;
-      try {
-        const blob = await captureRef.current?.();
-        if (blob) {
-          const path = `${user.id}/${crypto.randomUUID()}.jpg`;
-          const { error } = await supabase.storage
-            .from("incident-snapshots")
-            .upload(path, blob, { contentType: "image/jpeg", upsert: false });
-          if (!error) snapshotPath = path;
-        }
-      } catch {
-        /* snapshot is best-effort — never block the incident record */
-      }
       await supabase
         .from("incidents")
         .insert({
@@ -188,7 +163,6 @@ export function useDetectionSession({
           confidence: round3(alert.confidence),
           message: alert.message,
           zone_label: alert.zoneLabel ?? null,
-          snapshot_path: snapshotPath,
         })
         .then(
           () => onSavedRef.current?.(),
