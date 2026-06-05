@@ -74,6 +74,7 @@ export class BackendVisionDetector implements Detector {
   private running = false;
   private inFlight = false;
   private lastBackendAt = 0;
+  private lastWarmupAt = 0;
   private lastEntities: BackendEntity[] = [];
   private captureCanvas: HTMLCanvasElement | null = null;
   private captureCtx: CanvasRenderingContext2D | null = null;
@@ -83,15 +84,28 @@ export class BackendVisionDetector implements Detector {
     this.running = true;
     this.inFlight = false;
     this.lastBackendAt = 0;
+    this.lastWarmupAt = 0;
     this.lastEntities = [];
-    this.status = emptyStatus("ready");
+    this.status = emptyStatus("loading");
     // Pre-allocate the capture canvas (guarded for SSR / test environments).
     if (typeof document !== "undefined") {
       this.captureCanvas = document.createElement("canvas");
       this.captureCanvas.width = CAPTURE_WIDTH;
       this.captureCanvas.height = CAPTURE_HEIGHT;
       this.captureCtx = this.captureCanvas.getContext("2d");
+      // The worker runs SKIP_WARMUP=true, so the model is cold until an explicit
+      // /warmup. Kick it once on start; /detect returns model_not_ready (shown as
+      // "loading") until the model is ready, then entities start flowing.
+      this._warmup();
     }
+  }
+
+  /** Trigger a worker /warmup through the proxy (fire-and-forget, throttled). */
+  private _warmup(): void {
+    this.lastWarmupAt = Date.now();
+    void supabase.functions
+      .invoke(PROXY_FUNCTION, { body: { mode: "warmup" } })
+      .catch(() => undefined);
   }
 
   stop(): void {
@@ -176,11 +190,13 @@ export class BackendVisionDetector implements Detector {
       // model_not_ready, etc.) arrives in the body rather than as a transport error.
       if (resp.error) {
         this.lastEntities = [];
-        this.status.state =
-          resp.error === "model_not_ready" || resp.error === "runpod_queued" ? "loading" : "error";
+        const loading = resp.error === "model_not_ready" || resp.error === "runpod_queued";
+        this.status.state = loading ? "loading" : "error";
         this.status.error = resp.error;
         this.status.model = resp.model ?? this.status.model;
         this.status.lastInferenceMs = performance.now() - t0;
+        // If the model went cold mid-session, re-kick warmup (throttled).
+        if (loading && Date.now() - this.lastWarmupAt > 15000) this._warmup();
         return;
       }
       this.lastEntities = normalizeEntities(resp.entities, resp.img_w, resp.img_h);
