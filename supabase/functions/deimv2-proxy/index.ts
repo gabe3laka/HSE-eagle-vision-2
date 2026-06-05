@@ -1,17 +1,34 @@
-// DEIMv2 proxy — forwards a base64 frame to the RunPod DEIMv2 worker and holds
-// the backend secret so it never reaches the client. It normalizes the several
-// RunPod response shapes into one stable contract:
-//   { entities: Entity[], model?: string, state?: string, error?: string }
-//
-// It ALWAYS responds with HTTP 200 (even "not configured" / errors) so the
-// frontend can render a clear state instead of treating it as a transport
-// failure.
-//
-// Secrets (set with `supabase secrets set`):
-//   DEIMV2_RUNPOD_URL      — RunPod endpoint, e.g. https://api.runpod.ai/v2/<id>/runsync
-//   DEIMV2_RUNPOD_API_KEY  — RunPod API key
+/**
+ * supabase/functions/deimv2-proxy/index.ts
+ *
+ * Supabase Edge Function — DEIMv2 RunPod proxy (hardened in Sprint 4A.1).
+ *
+ * The browser calls this function instead of RunPod directly, so the
+ * RUNPOD_API_KEY never reaches the client bundle.
+ *
+ * Environment secrets required (set via Supabase CLI or dashboard):
+ *   RUNPOD_API_KEY      Your RunPod API key
+ *   RUNPOD_ENDPOINT_ID  Your RunPod serverless endpoint id
+ *
+ *   supabase secrets set RUNPOD_API_KEY=rp_...
+ *   supabase secrets set RUNPOD_ENDPOINT_ID=abc123
+ *   supabase functions deploy deimv2-proxy
+ *
+ * Request body (from BackendVisionDetector):
+ *   { image_b64: string, conf?: number, img_size?: number, classes?: number[] | null }
+ *
+ * Response — one stable contract, ALWAYS HTTP 200 so the frontend can render a
+ * clear state instead of treating it as a transport failure:
+ *   { entities: Entity[], model?, inference_ms?, ... } | { error: string, entities: [], state? }
+ *
+ * Every RunPod response shape is normalized here: COMPLETED/output, a direct
+ * worker output, IN_QUEUE/IN_PROGRESS (pending), FAILED, and bare errors.
+ */
 
-const CORS = {
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+// CORS — allow requests from the app origin.
+const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -20,49 +37,44 @@ const CORS = {
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS, "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed", entities: [] });
 
-  // Missing secrets → clear, non-error state the UI can show.
-  const RUNPOD_URL = Deno.env.get("DEIMV2_RUNPOD_URL");
-  const RUNPOD_API_KEY = Deno.env.get("DEIMV2_RUNPOD_API_KEY");
-  if (!RUNPOD_URL || !RUNPOD_API_KEY) {
+  // Missing secrets → clear, non-error state the UI can show (HTTP 200, not 500).
+  const apiKey = Deno.env.get("RUNPOD_API_KEY");
+  const endpointId = Deno.env.get("RUNPOD_ENDPOINT_ID");
+  if (!apiKey || !endpointId) {
     return json({ error: "deimv2_backend_not_configured", entities: [], state: "unconfigured" });
   }
 
-  let payload: Record<string, unknown>;
+  let body: Record<string, unknown>;
   try {
-    payload = await req.json();
+    body = await req.json();
   } catch {
     return json({ error: "invalid_json_body", entities: [] });
   }
 
-  const image_b64 = payload.image_b64;
-  if (typeof image_b64 !== "string" || !image_b64) {
+  const { image_b64, conf = 0.35, img_size = 640, classes = null } = body;
+  if (!image_b64 || typeof image_b64 !== "string") {
     return json({ error: "missing_image_b64", entities: [] });
   }
 
+  // Submit to RunPod /runsync (synchronous, waits for the result).
+  const runpodUrl = `https://api.runpod.ai/v2/${endpointId}/runsync`;
   let runpodData: Record<string, unknown>;
   try {
-    const upstream = await fetch(RUNPOD_URL, {
+    const upstream = await fetch(runpodUrl, {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        Authorization: `Bearer ${RUNPOD_API_KEY}`,
       },
-      body: JSON.stringify({
-        input: {
-          image_b64,
-          conf: payload.conf ?? 0.35,
-          img_size: payload.img_size ?? 640,
-          classes: payload.classes ?? null,
-        },
-      }),
+      body: JSON.stringify({ input: { image_b64, conf, img_size, classes } }),
     });
     runpodData = (await upstream.json()) as Record<string, unknown>;
   } catch (e) {

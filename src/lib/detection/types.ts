@@ -12,13 +12,6 @@ export interface BBox {
   h: number;
 }
 
-/** A raw object detected by the backend vision model (DEIMv2 dry-run). */
-export interface BackendEntity {
-  label: string;
-  confidence: number; // 0..1
-  bbox: BBox; // normalized 0..1
-}
-
 /** A point in normalized 0..1 frame coordinates. */
 export interface ZonePoint {
   x: number;
@@ -45,7 +38,7 @@ export interface Observation {
    * instead of collapsing everything of one hazard type into a single track.
    */
   trackKey?: string;
-  source?: "pose" | "simulated" | "yolo";
+  source?: "pose" | "simulated" | "yolo" | "deimv2";
 }
 
 /** Input handed to a detector each processed frame. */
@@ -89,6 +82,18 @@ export interface Alert {
 export interface LiveBox {
   hazardType: HazardType;
   severity: Severity;
+  confidence: number;
+  bbox: BBox;
+}
+
+/**
+ * A raw DEIMv2 entity returned by the backend worker (dry-run mode).
+ * These are displayed in dev/debug overlays but do NOT drive RiskEngine alerts
+ * in Sprint 4A. In Sprint 4B+ they will be mapped to Observations.
+ */
+export interface BackendEntity {
+  label: string;
+  class_id: number;
   confidence: number;
   bbox: BBox;
 }

@@ -22,6 +22,15 @@ export const DEFAULT_ALERT_CONFIG: AlertConfig = {
   detectionMode: "simulated",
 };
 
+const VALID_MODES: DetectionMode[] = ["simulated", "pose-beta", "backend-deimv2"];
+
+function coerceMode(v: unknown): DetectionMode {
+  if (typeof v === "string" && (VALID_MODES as string[]).includes(v)) {
+    return v as DetectionMode;
+  }
+  return "simulated";
+}
+
 export function useAlertSettings() {
   const { user } = useAuth();
   const [config, setConfigState] = useState<AlertConfig>(DEFAULT_ALERT_CONFIG);
@@ -56,10 +65,7 @@ export function useAlertSettings() {
             typeof cfg.notificationsEnabled === "boolean"
               ? cfg.notificationsEnabled
               : DEFAULT_ALERT_CONFIG.notificationsEnabled,
-          detectionMode:
-            cfg.detectionMode === "pose-beta" || cfg.detectionMode === "backend-deimv2"
-              ? cfg.detectionMode
-              : "simulated",
+          detectionMode: coerceMode(cfg.detectionMode),
         });
       }
       setLoading(false);

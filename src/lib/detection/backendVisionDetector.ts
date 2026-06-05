@@ -1,13 +1,42 @@
-import { supabase } from "@/integrations/supabase/own-client";
 import type { BackendEntity, Detector, DetectorInput, Observation } from "./types";
+import { supabase } from "@/integrations/supabase/own-client";
 
 /**
- * Status snapshot consumed by the dev-only backend debug panel. Purely
- * informational — this detector never emits hazard observations in the Sprint
- * 4A dry-run.
+ * BackendVisionDetector — Sprint 4A dry-run detector (hardened in 4A.1).
+ *
+ * Architecture:
+ *   Browser frame -> captureFrame() -> base64 JPEG
+ *   -> Supabase Edge Function `deimv2-proxy` (hides the RunPod key)
+ *   -> RunPod DEIMv2 worker
+ *   -> normalised entity boxes cached in this.lastEntities
+ *
+ * detect() is synchronous (required by the Detector contract). Backend calls are
+ * async, fire-and-forget, and guarded by an `inFlight` flag so requests never
+ * overlap; results are cached and read off the detector by the dev UI throttle.
+ *
+ * In Sprint 4A:
+ *  - detect() returns [] (no Observations → no RiskEngine alerts)
+ *  - lastEntities is populated and exposed for dev/debug overlays only
+ *  - No DEIMv2 safety alerts are emitted
+ *
+ * In Sprint 4B+ map entities → Observations for ppe_missing, forklift_proximity, blocked_exit.
  */
+
+const PROXY_FUNCTION = "deimv2-proxy";
+
+// How often to submit a new frame to the backend (ms). One request is in flight
+// at a time (inFlight guard), and never faster than this interval.
+const BACKEND_INTERVAL_MS = 1500;
+
+// JPEG quality for the captured frame sent to the backend (0..1).
+const CAPTURE_QUALITY = 0.7;
+
+// Canvas resolution for frame capture.
+const CAPTURE_WIDTH = 640;
+const CAPTURE_HEIGHT = 480;
+
 export interface BackendStatus {
-  state: string; // idle | submitting | ok | error | pending | unconfigured | …
+  state: "idle" | "loading" | "ready" | "error";
   inFlight: boolean;
   lastRequestAt: number | null;
   lastSuccessAt: number | null;
@@ -17,26 +46,9 @@ export interface BackendStatus {
   error: string | null;
 }
 
-/** Edge function that proxies frames to the DEIMv2 RunPod worker (holds the secret). */
-const PROXY_FUNCTION = "deimv2-proxy";
-// One request in flight at a time, and no faster than this — plenty for a dev
-// overlay and gentle on the backend.
-const MIN_SUBMIT_INTERVAL_MS = 500;
-// Downscale frames before upload to keep the base64 payload small.
-const MAX_FRAME_SIZE = 640;
-const DEFAULT_CONF = 0.35;
-
-/** Stable contract the proxy normalizes every RunPod response shape into. */
-interface ProxyResponse {
-  entities?: unknown;
-  model?: string;
-  state?: string;
-  error?: string;
-}
-
-function emptyStatus(): BackendStatus {
+function emptyStatus(state: BackendStatus["state"]): BackendStatus {
   return {
-    state: "idle",
+    state,
     inFlight: false,
     lastRequestAt: null,
     lastSuccessAt: null,
@@ -47,158 +59,138 @@ function emptyStatus(): BackendStatus {
   };
 }
 
-/**
- * Sprint 4A dry-run detector. Sends downscaled frames to the DEIMv2 backend
- * (via the `deimv2-proxy` edge function) and exposes the returned entities for a
- * dev-only overlay. It implements the same `Detector` contract as the others
- * but **never emits hazard observations** — `detect()` always returns `[]`, so
- * the RiskEngine, alerts and persistence see nothing.
- *
- * `detect()` stays synchronous: it kicks off a fire-and-forget frame submission
- * guarded by an `inFlight` flag (no overlapping requests) and returns
- * immediately. The latest entities/status are read off the detector by the UI
- * throttle.
- */
 export class BackendVisionDetector implements Detector {
   readonly name = "backend-deimv2";
-  private started = false;
+
+  private running = false;
   private inFlight = false;
-  private canvas: HTMLCanvasElement | null = null;
+  private lastBackendAt = 0;
   private lastEntities: BackendEntity[] = [];
-  private status: BackendStatus = emptyStatus();
+  private captureCanvas: HTMLCanvasElement | null = null;
+  private captureCtx: CanvasRenderingContext2D | null = null;
+  private status: BackendStatus = emptyStatus("idle");
 
-  async start() {
-    this.started = true;
+  async start(): Promise<void> {
+    this.running = true;
     this.inFlight = false;
+    this.lastBackendAt = 0;
     this.lastEntities = [];
-    this.status = emptyStatus();
-  }
-
-  stop() {
-    this.started = false;
-    this.inFlight = false;
-    this.lastEntities = [];
-    this.canvas = null;
-    this.status = emptyStatus();
-  }
-
-  /** Dry-run: schedule a background submission and emit no observations. */
-  detect(input: DetectorInput): Observation[] {
-    if (this.started && input.video) {
-      void this._submitFrame(input.video);
+    this.status = emptyStatus("ready");
+    // Pre-allocate the capture canvas (guarded for SSR / test environments).
+    if (typeof document !== "undefined") {
+      this.captureCanvas = document.createElement("canvas");
+      this.captureCanvas.width = CAPTURE_WIDTH;
+      this.captureCanvas.height = CAPTURE_HEIGHT;
+      this.captureCtx = this.captureCanvas.getContext("2d");
     }
-    return [];
   }
 
-  getInFlight(): boolean {
-    return this.inFlight;
+  stop(): void {
+    this.running = false;
+    this.inFlight = false;
+    this.lastEntities = [];
+    this.captureCanvas = null;
+    this.captureCtx = null;
+    this.status = emptyStatus("idle");
   }
 
-  getLastEntities(): BackendEntity[] {
-    return this.lastEntities;
-  }
-
+  /** Latest backend status (for the dev debug overlay). */
   getBackendStatus(): BackendStatus {
     return { ...this.status, inFlight: this.inFlight, entityCount: this.lastEntities.length };
   }
 
-  private async _submitFrame(video: HTMLVideoElement): Promise<void> {
-    if (this.inFlight) return;
-    if (video.readyState < 2 || !video.videoWidth) return;
-    const now = Date.now();
-    if (this.status.lastRequestAt && now - this.status.lastRequestAt < MIN_SUBMIT_INTERVAL_MS) {
-      return;
+  /** Latest entity list (for the dev overlay — not driven by RiskEngine in 4A). */
+  getLastEntities(): BackendEntity[] {
+    return this.lastEntities;
+  }
+
+  /** Whether a backend request is currently in flight. */
+  getInFlight(): boolean {
+    return this.inFlight;
+  }
+
+  /**
+   * Synchronous detection tick. Schedules a background inference request when the
+   * interval has elapsed and nothing is in flight, then returns [] (no
+   * Observations in Sprint 4A).
+   */
+  detect(input: DetectorInput): Observation[] {
+    if (!this.running) return [];
+    const now = input.timestamp;
+
+    if (
+      input.video &&
+      input.video.readyState >= 2 &&
+      input.video.videoWidth > 0 &&
+      now - this.lastBackendAt > BACKEND_INTERVAL_MS
+    ) {
+      this.lastBackendAt = now;
+      void this._submitFrame(input.video);
     }
 
-    const image_b64 = this._encodeFrame(video);
+    // Sprint 4A dry-run: return no Observations → no RiskEngine hazards from DEIMv2.
+    return [];
+  }
+
+  // ── Private helpers ────────────────────────────────────────────────────────
+
+  private async _submitFrame(video: HTMLVideoElement): Promise<void> {
+    if (this.inFlight) return;
+    const image_b64 = this._captureFrame(video);
     if (!image_b64) return;
 
     this.inFlight = true;
-    this.status.lastRequestAt = now;
-    this.status.state = "submitting";
+    this.status.lastRequestAt = Date.now();
+    this.status.state = "loading";
     const t0 = performance.now();
     try {
-      const { data, error } = await supabase.functions.invoke<ProxyResponse>(PROXY_FUNCTION, {
-        body: { image_b64, conf: DEFAULT_CONF, img_size: MAX_FRAME_SIZE },
+      const { data, error } = await supabase.functions.invoke(PROXY_FUNCTION, {
+        body: { image_b64, conf: 0.35, img_size: 640, classes: null },
       });
-      this.status.lastInferenceMs = performance.now() - t0;
-
-      if (error) {
-        this.lastEntities = [];
-        this.status.state = "error";
-        this.status.error = error.message ?? String(error);
-        return;
-      }
-
-      const resp = data ?? {};
+      if (error) throw error;
+      const resp = (data ?? {}) as {
+        entities?: BackendEntity[];
+        inference_ms?: number;
+        model?: string;
+        error?: string;
+      };
+      // The proxy always responds 200; a clear-state error (e.g. unconfigured
+      // backend) arrives in the body rather than as a transport failure.
       if (resp.error) {
         this.lastEntities = [];
-        this.status.state = resp.state ?? "error";
+        this.status.state = "error";
         this.status.error = resp.error;
         this.status.model = resp.model ?? this.status.model;
+        this.status.lastInferenceMs = performance.now() - t0;
         return;
       }
-
-      this.lastEntities = normalizeEntities(resp.entities);
-      this.status.state = "ok";
+      this.lastEntities = resp.entities ?? [];
+      this.status.state = "ready";
       this.status.error = null;
       this.status.model = resp.model ?? this.status.model;
+      this.status.lastInferenceMs = resp.inference_ms ?? performance.now() - t0;
       this.status.lastSuccessAt = Date.now();
     } catch (e) {
-      this.status.lastInferenceMs = performance.now() - t0;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (import.meta.env.DEV) console.warn("[BackendVisionDetector] error:", msg);
       this.lastEntities = [];
       this.status.state = "error";
-      this.status.error = e instanceof Error ? e.message : String(e);
+      this.status.error = msg;
+      this.status.lastInferenceMs = performance.now() - t0;
     } finally {
       this.inFlight = false;
     }
   }
 
-  /** Draw the current frame to an offscreen canvas → base64 JPEG (no data-URL prefix). */
-  private _encodeFrame(video: HTMLVideoElement): string | null {
-    if (typeof document === "undefined") return null;
-    const scale = Math.min(1, MAX_FRAME_SIZE / video.videoWidth);
-    const w = Math.max(1, Math.round(video.videoWidth * scale));
-    const h = Math.max(1, Math.round(video.videoHeight * scale));
-    const canvas = this.canvas ?? (this.canvas = document.createElement("canvas"));
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, w, h);
-    const url = canvas.toDataURL("image/jpeg", 0.7);
-    const comma = url.indexOf(",");
-    return comma >= 0 ? url.slice(comma + 1) : null;
+  private _captureFrame(video: HTMLVideoElement): string | null {
+    if (!this.captureCtx || !this.captureCanvas) return null;
+    try {
+      this.captureCtx.drawImage(video, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+      // Remove the data: URL prefix, keep only the base64 payload.
+      const dataUrl = this.captureCanvas.toDataURL("image/jpeg", CAPTURE_QUALITY);
+      return dataUrl.split(",")[1] ?? null;
+    } catch {
+      return null;
+    }
   }
-}
-
-/** Coerce arbitrary backend output into well-formed, normalized entities. */
-function normalizeEntities(raw: unknown): BackendEntity[] {
-  if (!Array.isArray(raw)) return [];
-  const out: BackendEntity[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const e = item as Record<string, unknown>;
-    const bbox = e.bbox as Record<string, unknown> | undefined;
-    if (!bbox) continue;
-    const x = num(bbox.x);
-    const y = num(bbox.y);
-    const w = num(bbox.w);
-    const h = num(bbox.h);
-    if (x === null || y === null || w === null || h === null) continue;
-    out.push({
-      label: typeof e.label === "string" ? e.label : "object",
-      confidence: num(e.confidence) ?? num(e.score) ?? 0,
-      bbox: { x: clamp01(x), y: clamp01(y), w: clamp01(w), h: clamp01(h) },
-    });
-  }
-  return out;
-}
-
-function num(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-function clamp01(v: number): number {
-  return Math.max(0, Math.min(1, v));
 }
