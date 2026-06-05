@@ -1,33 +1,25 @@
 /**
  * supabase/functions/deimv2-proxy/index.ts
  *
- * Supabase Edge Function — DEIMv2 RunPod proxy (hardened in Sprint 4A.1).
+ * DEIMv2 RunPod proxy. Hides the RunPod key from the browser and returns a
+ * single stable contract to the frontend (always HTTP 200; `entities: []` on
+ * error). Two upstream modes, chosen by which secrets are present:
  *
- * The browser calls this function instead of RunPod directly, so the
- * RUNPOD_API_KEY never reaches the client bundle.
+ *  1. LIVE server (preferred) — RunPod Load Balancer / FastAPI worker.
+ *     Active when RUNPOD_DEIMV2_BASE_URL is set. Calls `POST {base}/detect`.
+ *     Diagnostics: body {mode:"health"} -> GET {base}/health,
+ *                  body {mode:"startup"} -> GET {base}/debug/startup.
+ *  2. QUEUE fallback (legacy) — RUNPOD_API_KEY + RUNPOD_ENDPOINT_ID -> /runsync.
+ *     Kept so the old queue endpoint still works if the base URL is unset.
  *
- * Environment secrets required (set via Supabase CLI or dashboard):
- *   RUNPOD_API_KEY      Your RunPod API key
- *   RUNPOD_ENDPOINT_ID  Your RunPod serverless endpoint id
- *
- *   supabase secrets set RUNPOD_API_KEY=rp_...
- *   supabase secrets set RUNPOD_ENDPOINT_ID=abc123
- *   supabase functions deploy deimv2-proxy
- *
- * Request body (from BackendVisionDetector):
- *   { image_b64: string, conf?: number, img_size?: number, classes?: number[] | null }
- *
- * Response — one stable contract, ALWAYS HTTP 200 so the frontend can render a
- * clear state instead of treating it as a transport failure:
- *   { entities: Entity[], model?, inference_ms?, ... } | { error: string, entities: [], state? }
- *
- * Every RunPod response shape is normalized here: COMPLETED/output, a direct
- * worker output, IN_QUEUE/IN_PROGRESS (pending), FAILED, and bare errors.
+ * Secrets (Supabase function env; never returned to the client):
+ *   RUNPOD_DEIMV2_BASE_URL   live load-balancer base URL (no trailing /detect)
+ *   RUNPOD_API_KEY           RunPod API key (Bearer for both modes)
+ *   RUNPOD_ENDPOINT_ID       legacy queue endpoint id (fallback only)
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// CORS — allow requests from the app origin.
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -41,75 +33,165 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function stripSlash(u: string): string {
+  return u.replace(/\/+$/, "");
+}
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+async function safeJson(r: Response): Promise<Record<string, unknown> | null> {
+  try {
+    return (await r.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed", entities: [] });
 
-  // Missing secrets → clear, non-error state the UI can show (HTTP 200, not 500).
+  const baseUrl = Deno.env.get("RUNPOD_DEIMV2_BASE_URL");
   const apiKey = Deno.env.get("RUNPOD_API_KEY");
   const endpointId = Deno.env.get("RUNPOD_ENDPOINT_ID");
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    body = {};
+  }
+  const mode = typeof body.mode === "string" ? body.mode : undefined;
+  const authHeader = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+
+  // ── Diagnostics: health / startup (live-server mode only) ──
+  if (mode === "health" || mode === "startup") {
+    if (!baseUrl) {
+      return json({
+        error: "live_backend_not_configured",
+        entities: [],
+        proxy: apiKey && endpointId ? "queue" : "unconfigured",
+      });
+    }
+    const path = mode === "health" ? "/health" : "/debug/startup";
+    try {
+      const r = await fetch(stripSlash(baseUrl) + path, { method: "GET", headers: authHeader });
+      return json({ mode, proxy: "live", upstream_status: r.status, result: await safeJson(r) });
+    } catch (e) {
+      return json({ error: `live_unreachable: ${errMsg(e)}`, entities: [], proxy: "live" });
+    }
+  }
+
+  // ── LIVE server mode (preferred) ──
+  if (baseUrl) {
+    const image_b64 = body.image_b64;
+    if (!image_b64 || typeof image_b64 !== "string") {
+      return json({ error: "missing_image_b64", entities: [], proxy: "live" });
+    }
+    let r: Response;
+    try {
+      r = await fetch(stripSlash(baseUrl) + "/detect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader },
+        body: JSON.stringify({
+          image_b64,
+          conf: body.conf ?? 0.35,
+          img_size: body.img_size ?? 640,
+          classes: body.classes ?? null,
+        }),
+      });
+    } catch (e) {
+      return json({ error: `live_unreachable: ${errMsg(e)}`, entities: [] });
+    }
+
+    const data = await safeJson(r);
+
+    // Upstream HTTP error → map to a clear state, keep entities:[].
+    if (!r.ok) {
+      const fromBody =
+        data && typeof data.error === "string"
+          ? data.error
+          : data && typeof data.detail === "string"
+            ? data.detail
+            : null;
+      const error =
+        r.status === 503 ? (fromBody ?? "model_not_ready") : (fromBody ?? `upstream_${r.status}`);
+      return json({
+        error,
+        entities: [],
+        state: r.status === 503 ? "loading" : "error",
+        upstream_status: r.status,
+      });
+    }
+
+    if (!data) return json({ error: "unexpected_live_response", entities: [] });
+
+    // Worker-level structured error (200 body carrying an error).
+    if (typeof data.error === "string") {
+      return json({
+        error: data.error,
+        entities: Array.isArray(data.entities) ? data.entities : [],
+        model: data.model,
+        inference_ms: data.inference_ms,
+      });
+    }
+
+    // Success — preserve entities + model/inference metadata.
+    return json({
+      entities: Array.isArray(data.entities) ? data.entities : [],
+      model: data.model,
+      inference_ms: data.inference_ms,
+      img_w: data.img_w,
+      img_h: data.img_h,
+    });
+  }
+
+  // ── QUEUE fallback (legacy /runsync) ──
   if (!apiKey || !endpointId) {
     return json({ error: "deimv2_backend_not_configured", entities: [], state: "unconfigured" });
   }
-
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
-    return json({ error: "invalid_json_body", entities: [] });
-  }
-
-  const { image_b64, conf = 0.35, img_size = 640, classes = null } = body;
+  const image_b64 = body.image_b64;
   if (!image_b64 || typeof image_b64 !== "string") {
     return json({ error: "missing_image_b64", entities: [] });
   }
-
-  // Submit to RunPod /runsync (synchronous, waits for the result).
-  const runpodUrl = `https://api.runpod.ai/v2/${endpointId}/runsync`;
-  let runpodData: Record<string, unknown>;
+  let runpodData: Record<string, unknown> | null;
   try {
-    const upstream = await fetch(runpodUrl, {
+    const upstream = await fetch(`https://api.runpod.ai/v2/${endpointId}/runsync`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ input: { image_b64, conf, img_size, classes } }),
+      headers: { "Content-Type": "application/json", ...authHeader },
+      body: JSON.stringify({
+        input: {
+          image_b64,
+          conf: body.conf ?? 0.35,
+          img_size: body.img_size ?? 640,
+          classes: body.classes ?? null,
+        },
+      }),
     });
-    runpodData = (await upstream.json()) as Record<string, unknown>;
+    runpodData = await safeJson(upstream);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return json({ error: `runpod_unreachable: ${msg}`, entities: [] });
+    return json({ error: `runpod_unreachable: ${errMsg(e)}`, entities: [] });
   }
+  if (!runpodData) return json({ error: "unexpected_runpod_response", entities: [], state: "unknown" });
 
   const status = typeof runpodData.status === "string" ? runpodData.status : undefined;
-
-  // a) RunPod sync/async COMPLETED → forward the worker output (always with entities).
   if (status === "COMPLETED" && runpodData.output && typeof runpodData.output === "object") {
     return json({ entities: [], ...(runpodData.output as Record<string, unknown>) });
   }
-
-  // b) Direct worker output (has "entities", no RunPod "status" envelope) → forward as-is.
   if (status === undefined && "entities" in runpodData) {
     return json(runpodData);
   }
-
-  // c) Still queued / running.
   if (status === "IN_QUEUE" || status === "IN_PROGRESS") {
     return json({ error: "runpod_queued", entities: [], state: "pending" });
   }
-
-  // d) Failed.
   if (status === "FAILED") {
-    const err = runpodData.error;
-    return json({ error: typeof err === "string" ? err : "runpod_failed", entities: [] });
+    return json({
+      error: typeof runpodData.error === "string" ? runpodData.error : "runpod_failed",
+      entities: [],
+    });
   }
-
-  // e) Bare error passthrough.
   if (typeof runpodData.error === "string") {
     return json({ error: runpodData.error, entities: [] });
   }
-
-  // Unknown shape — surface it without crashing the client.
   return json({ error: "unexpected_runpod_response", entities: [], state: "unknown" });
 });
