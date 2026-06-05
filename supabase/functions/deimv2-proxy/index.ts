@@ -7,10 +7,13 @@
  *
  *  1. LIVE server (preferred) — RunPod Load Balancer / FastAPI worker.
  *     Active when RUNPOD_DEIMV2_BASE_URL is set. Calls `POST {base}/detect`.
- *     Diagnostics: body {mode:"health"} -> GET {base}/health,
- *                  body {mode:"startup"} -> GET {base}/debug/startup.
+ *     Diagnostic passthrough modes (forward the worker's raw JSON in `result`):
+ *       {mode:"health"}                  -> GET  {base}/health
+ *       {mode:"ping"}                    -> GET  {base}/ping
+ *       {mode:"startup", deep?:true}     -> GET  {base}/debug/startup[?deep=true]
+ *       {mode:"model-load"}              -> POST {base}/debug/model-load
+ *       {mode:"warmup"}                  -> POST {base}/warmup
  *  2. QUEUE fallback (legacy) — RUNPOD_API_KEY + RUNPOD_ENDPOINT_ID -> /runsync.
- *     Kept so the old queue endpoint still works if the base URL is unset.
  *
  * Secrets (Supabase function env; never returned to the client):
  *   RUNPOD_DEIMV2_BASE_URL   live load-balancer base URL (no trailing /detect)
@@ -32,7 +35,6 @@ function json(body: unknown, status = 200): Response {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
-
 function stripSlash(u: string): string {
   return u.replace(/\/+$/, "");
 }
@@ -46,6 +48,15 @@ async function safeJson(r: Response): Promise<Record<string, unknown> | null> {
     return null;
   }
 }
+
+// Diagnostic passthrough modes (live-server only) → worker route + HTTP method.
+const DIAG_ROUTES: Record<string, { method: "GET" | "POST"; path: string }> = {
+  health: { method: "GET", path: "/health" },
+  ping: { method: "GET", path: "/ping" },
+  startup: { method: "GET", path: "/debug/startup" },
+  "model-load": { method: "POST", path: "/debug/model-load" },
+  warmup: { method: "POST", path: "/warmup" },
+};
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -64,8 +75,8 @@ serve(async (req: Request) => {
   const mode = typeof body.mode === "string" ? body.mode : undefined;
   const authHeader = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 
-  // ── Diagnostics: health / startup (live-server mode only) ──
-  if (mode === "health" || mode === "startup") {
+  // Diagnostic passthrough (live-server only): forward the worker's raw JSON.
+  if (mode && mode in DIAG_ROUTES) {
     if (!baseUrl) {
       return json({
         error: "live_backend_not_configured",
@@ -73,16 +84,22 @@ serve(async (req: Request) => {
         proxy: apiKey && endpointId ? "queue" : "unconfigured",
       });
     }
-    const path = mode === "health" ? "/health" : "/debug/startup";
+    const route = DIAG_ROUTES[mode];
+    let path = route.path;
+    if (mode === "startup" && body.deep === true) path += "?deep=true";
     try {
-      const r = await fetch(stripSlash(baseUrl) + path, { method: "GET", headers: authHeader });
+      const init: RequestInit =
+        route.method === "POST"
+          ? { method: "POST", headers: { ...authHeader, "Content-Type": "application/json" }, body: "{}" }
+          : { method: "GET", headers: authHeader };
+      const r = await fetch(stripSlash(baseUrl) + path, init);
       return json({ mode, proxy: "live", upstream_status: r.status, result: await safeJson(r) });
     } catch (e) {
-      return json({ error: `live_unreachable: ${errMsg(e)}`, entities: [], proxy: "live" });
+      return json({ error: `live_unreachable: ${errMsg(e)}`, entities: [], proxy: "live", mode });
     }
   }
 
-  // ── LIVE server mode (preferred) ──
+  // LIVE server mode (preferred): POST /detect
   if (baseUrl) {
     const image_b64 = body.image_b64;
     if (!image_b64 || typeof image_b64 !== "string") {
@@ -106,7 +123,6 @@ serve(async (req: Request) => {
 
     const data = await safeJson(r);
 
-    // Upstream HTTP error → map to a clear state, keep entities:[].
     if (!r.ok) {
       const fromBody =
         data && typeof data.error === "string"
@@ -126,7 +142,6 @@ serve(async (req: Request) => {
 
     if (!data) return json({ error: "unexpected_live_response", entities: [] });
 
-    // Worker-level structured error (200 body carrying an error).
     if (typeof data.error === "string") {
       return json({
         error: data.error,
@@ -136,7 +151,6 @@ serve(async (req: Request) => {
       });
     }
 
-    // Success — preserve entities + model/inference metadata.
     return json({
       entities: Array.isArray(data.entities) ? data.entities : [],
       model: data.model,
@@ -146,7 +160,7 @@ serve(async (req: Request) => {
     });
   }
 
-  // ── QUEUE fallback (legacy /runsync) ──
+  // QUEUE fallback (legacy /runsync)
   if (!apiKey || !endpointId) {
     return json({ error: "deimv2_backend_not_configured", entities: [], state: "unconfigured" });
   }
@@ -172,7 +186,8 @@ serve(async (req: Request) => {
   } catch (e) {
     return json({ error: `runpod_unreachable: ${errMsg(e)}`, entities: [] });
   }
-  if (!runpodData) return json({ error: "unexpected_runpod_response", entities: [], state: "unknown" });
+  if (!runpodData)
+    return json({ error: "unexpected_runpod_response", entities: [], state: "unknown" });
 
   const status = typeof runpodData.status === "string" ? runpodData.status : undefined;
   if (status === "COMPLETED" && runpodData.output && typeof runpodData.output === "object") {
