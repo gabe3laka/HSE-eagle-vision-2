@@ -13,9 +13,17 @@ import type { BackendStatus } from "@/lib/detection/backendVisionDetector";
 import type { BackendEntity } from "@/lib/detection/types";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/own-client";
 
-/** Dev-only readout of the DEIMv2 backend dry-run state (Sprint 4A). */
-function BackendDebugPanel({ status }: { status: BackendStatus }) {
+/** Readout of the DEIMv2 backend dry-run state (shown in backend-deimv2 mode). */
+function BackendDebugPanel({
+  status,
+  entities,
+}: {
+  status: BackendStatus;
+  entities: BackendEntity[];
+}) {
+  const first = entities[0];
   return (
     <div className="rounded-xl border border-border bg-card/70 p-3 font-mono text-[11px] leading-relaxed">
       <div className="mb-2 flex items-center justify-between">
@@ -25,6 +33,13 @@ function BackendDebugPanel({ status }: { status: BackendStatus }) {
         </span>
       </div>
       <div className="space-y-0.5 text-muted-foreground">
+        <div>detector: BackendVisionDetector · mode backend-deimv2</div>
+        <div>
+          requests: {status.requestCount} · responses: {status.responseCount}
+        </div>
+        <div>
+          video: {status.videoWidth}×{status.videoHeight} · jpeg b64: {status.lastB64Bytes} B
+        </div>
         <div>model: {status.model ?? "—"}</div>
         <div>
           last inference:{" "}
@@ -34,6 +49,12 @@ function BackendDebugPanel({ status }: { status: BackendStatus }) {
           last success:{" "}
           {status.lastSuccessAt ? new Date(status.lastSuccessAt).toLocaleTimeString() : "—"}
         </div>
+        {first && (
+          <div className="text-teal-500">
+            #0 {first.label} {Math.round(first.confidence * 100)}% · x{first.bbox.x.toFixed(2)} y
+            {first.bbox.y.toFixed(2)} w{first.bbox.w.toFixed(2)} h{first.bbox.h.toFixed(2)}
+          </div>
+        )}
         {status.error && <div className="text-red-500">error: {status.error}</div>}
       </div>
     </div>
@@ -49,6 +70,8 @@ export default function Live() {
   const { data: zones = [] } = useZones();
   const createZone = useCreateZone();
   const deleteZone = useDeleteZone();
+  const [backendTest, setBackendTest] = useState<string | null>(null);
+  const [backendTesting, setBackendTesting] = useState(false);
 
   const onIncidentSaved = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
@@ -81,6 +104,37 @@ export default function Live() {
     await start();
   }, [active, startCamera, start]);
 
+  // Dev/debug: capture the current frame and send one request to deimv2-proxy,
+  // showing the raw response. Dry-run only — never enters the risk engine.
+  const testBackendFrame = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) {
+      setBackendTest("No active video frame — enable the camera first.");
+      return;
+    }
+    setBackendTesting(true);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 640;
+      canvas.height = 480;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        setBackendTest("Canvas 2D context unavailable.");
+        return;
+      }
+      ctx.drawImage(video, 0, 0, 640, 480);
+      const image_b64 = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
+      const { data, error } = await supabase.functions.invoke("deimv2-proxy", {
+        body: { image_b64, conf: 0.25, img_size: 640, classes: null },
+      });
+      setBackendTest(JSON.stringify(error ?? data, null, 2));
+    } catch (e) {
+      setBackendTest(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBackendTesting(false);
+    }
+  }, [videoRef]);
+
   return (
     <div className="space-y-4 sm:space-y-5">
       <header>
@@ -109,6 +163,7 @@ export default function Live() {
             debug={debug}
             showSkeleton={import.meta.env.DEV}
             backendEntities={backendEntities as BackendEntity[]}
+            backendDryRun={config.detectionMode === "backend-deimv2"}
             zones={zones}
             editingZones={editingZones}
             onZoneCreate={(points) =>
@@ -208,9 +263,38 @@ export default function Live() {
           </div>
 
           {import.meta.env.DEV && debug && <PoseDebugPanel debug={debug} perf={perf} />}
-          {import.meta.env.DEV &&
-            config.detectionMode === "backend-deimv2" &&
-            backendStatus != null && <BackendDebugPanel status={backendStatus as BackendStatus} />}
+
+          {/* DEIMv2 dry-run debug — visible whenever backend-deimv2 mode is
+              selected (not gated to dev builds) so the pipeline is observable in
+              the deployed app. Dry-run only: no alerts, no incidents. */}
+          {config.detectionMode === "backend-deimv2" && (
+            <div className="space-y-2">
+              {backendStatus != null && (
+                <BackendDebugPanel
+                  status={backendStatus as BackendStatus}
+                  entities={backendEntities as BackendEntity[]}
+                />
+              )}
+              <div className="rounded-xl border border-border bg-background/40 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">DEIMv2 dry-run · single-frame test</span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={testBackendFrame}
+                    disabled={!active || backendTesting}
+                  >
+                    {backendTesting ? "Testing…" : "Test DEIMv2 frame"}
+                  </Button>
+                </div>
+                {backendTest && (
+                  <pre className="mt-2 max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[10px] leading-snug">
+                    {backendTest}
+                  </pre>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <aside className="glass-panel hidden rounded-2xl border p-4 lg:sticky lg:top-6 lg:block lg:h-[calc(100vh-9rem)]">

@@ -37,6 +37,7 @@ interface Props {
   debug?: PoseDebug | null;
   showSkeleton?: boolean;
   backendEntities?: BackendEntity[];
+  backendDryRun?: boolean;
   zones?: DetectionZone[];
   editingZones?: boolean;
   onZoneCreate?: (points: ZonePoint[]) => void;
@@ -58,6 +59,7 @@ export function CameraView({
   debug,
   showSkeleton,
   backendEntities,
+  backendDryRun,
   zones,
   editingZones,
   onZoneCreate,
@@ -97,11 +99,17 @@ export function CameraView({
 
       {active && running && <DetectionOverlay boxes={boxes} />}
 
-      {active &&
-        running &&
-        import.meta.env.DEV &&
-        backendEntities &&
-        backendEntities.length > 0 && <BackendEntityOverlay entities={backendEntities} />}
+      {/* DEIMv2 dry-run overlay — shown in backend-deimv2 mode (not gated to dev
+          builds). Teal boxes when entities exist, plus an always-visible count so
+          the pipeline is observable even when no boxes render. */}
+      {active && running && backendDryRun && (
+        <>
+          <BackendEntityOverlay entities={backendEntities ?? []} />
+          <div className="pointer-events-none absolute right-3 top-12 z-20 rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-teal-300 backdrop-blur">
+            DEIMv2 entities: {backendEntities?.length ?? 0}
+          </div>
+        </>
+      )}
 
       {active && running && showSkeleton && debug && (
         <div
