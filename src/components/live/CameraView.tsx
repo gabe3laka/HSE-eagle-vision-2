@@ -104,7 +104,11 @@ export function CameraView({
           the pipeline is observable even when no boxes render. */}
       {active && running && backendDryRun && (
         <>
-          <BackendEntityOverlay entities={backendEntities ?? []} />
+          <div
+            className={`pointer-events-none absolute inset-0 ${facing === "user" ? "scale-x-[-1]" : ""}`}
+          >
+            <BackendEntityOverlay entities={backendEntities ?? []} />
+          </div>
           <div className="pointer-events-none absolute right-3 top-12 z-20 rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-teal-300 backdrop-blur">
             DEIMv2 entities: {backendEntities?.length ?? 0}
           </div>
