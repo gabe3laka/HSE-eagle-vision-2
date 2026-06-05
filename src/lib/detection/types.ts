@@ -2,7 +2,7 @@ export type { HazardType, Severity } from "@/integrations/supabase/db";
 import type { HazardType, Severity } from "@/integrations/supabase/db";
 
 /** Which detector the live loop uses. */
-export type DetectionMode = "simulated" | "pose-beta";
+export type DetectionMode = "simulated" | "pose-beta" | "backend-deimv2";
 
 /** Bounding box, normalized to 0..1 relative to the video frame. */
 export interface BBox {
@@ -10,6 +10,13 @@ export interface BBox {
   y: number;
   w: number;
   h: number;
+}
+
+/** A raw object detected by the backend vision model (DEIMv2 dry-run). */
+export interface BackendEntity {
+  label: string;
+  confidence: number; // 0..1
+  bbox: BBox; // normalized 0..1
 }
 
 /** A point in normalized 0..1 frame coordinates. */

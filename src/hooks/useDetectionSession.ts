@@ -88,6 +88,8 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
   const [debug, setDebug] = useState<PoseDebug | null>(null);
   const [perf, setPerf] = useState<PerfMetrics>(EMPTY_PERF);
   const [poseStatus, setPoseStatus] = useState<PoseStatus | null>(null);
+  const [backendStatus, setBackendStatus] = useState<unknown>(null);
+  const [backendEntities, setBackendEntities] = useState<unknown[]>([]);
 
   const detectorRef = useRef<Detector | null>(null);
   const engineRef = useRef<RiskEngine | null>(null);
@@ -272,6 +274,12 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
         if (import.meta.env.DEV) {
           setDebug((det as { getDebug?: () => PoseDebug | null }).getDebug?.() ?? null);
         }
+        setBackendStatus(
+          (det as { getBackendStatus?: () => unknown }).getBackendStatus?.() ?? null,
+        );
+        setBackendEntities(
+          (det as { getLastEntities?: () => unknown[] }).getLastEntities?.() ?? [],
+        );
       }
     },
     [persistDetection, persistIncident],
@@ -388,6 +396,8 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
     setLiveBoxes([]);
     setDebug(null);
     setPoseStatus(null);
+    setBackendStatus(null);
+    setBackendEntities([]);
     const sid = sessionIdRef.current;
     sessionIdRef.current = null;
     if (sid && user) {
@@ -434,6 +444,8 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
     debug,
     perf,
     poseStatus,
+    backendStatus,
+    backendEntities,
     start,
     stop,
     dismissAlert,

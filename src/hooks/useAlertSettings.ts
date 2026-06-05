@@ -56,7 +56,10 @@ export function useAlertSettings() {
             typeof cfg.notificationsEnabled === "boolean"
               ? cfg.notificationsEnabled
               : DEFAULT_ALERT_CONFIG.notificationsEnabled,
-          detectionMode: cfg.detectionMode === "pose-beta" ? "pose-beta" : "simulated",
+          detectionMode:
+            cfg.detectionMode === "pose-beta" || cfg.detectionMode === "backend-deimv2"
+              ? cfg.detectionMode
+              : "simulated",
         });
       }
       setLoading(false);
