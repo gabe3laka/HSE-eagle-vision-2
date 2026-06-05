@@ -1,7 +1,8 @@
 import { Camera, CameraOff, Loader2, SwitchCamera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DetectionOverlay } from "./DetectionOverlay";
-import type { Alert, LiveBox } from "@/lib/detection/types";
+import { BackendEntityOverlay } from "./BackendEntityOverlay";
+import type { Alert, LiveBox, BackendEntity } from "@/lib/detection/types";
 import { SEVERITY_META, HAZARDS } from "@/lib/detection/hazardCatalog";
 import { localizedMessage, isRTL } from "@/lib/detection/messages";
 import { HAZARD_ICONS } from "./hazardIcons";
@@ -35,6 +36,7 @@ interface Props {
   poseStatus?: PoseStatus | null;
   debug?: PoseDebug | null;
   showSkeleton?: boolean;
+  backendEntities?: BackendEntity[];
   zones?: DetectionZone[];
   editingZones?: boolean;
   onZoneCreate?: (points: ZonePoint[]) => void;
@@ -55,6 +57,7 @@ export function CameraView({
   poseStatus,
   debug,
   showSkeleton,
+  backendEntities,
   zones,
   editingZones,
   onZoneCreate,
@@ -93,6 +96,12 @@ export function CameraView({
       )}
 
       {active && running && <DetectionOverlay boxes={boxes} />}
+
+      {active &&
+        running &&
+        import.meta.env.DEV &&
+        backendEntities &&
+        backendEntities.length > 0 && <BackendEntityOverlay entities={backendEntities} />}
 
       {active && running && showSkeleton && debug && (
         <div

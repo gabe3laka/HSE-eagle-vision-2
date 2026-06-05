@@ -18,6 +18,8 @@ export default tseslint.config(
       "src/integrations/supabase/auth-middleware.ts",
       "src/integrations/supabase/auth-attacher.ts",
       "src/integrations/supabase/types.ts",
+      // Supabase Edge Functions run on Deno, not the app's browser/TS toolchain.
+      "supabase/functions/**",
     ],
   },
   {

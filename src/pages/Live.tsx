@@ -9,8 +9,36 @@ import { CameraView } from "@/components/live/CameraView";
 import { AlertFeed } from "@/components/live/AlertFeed";
 import { SessionControls } from "@/components/live/SessionControls";
 import { PoseDebugPanel } from "@/components/live/PoseDebugPanel";
+import type { BackendStatus } from "@/lib/detection/backendVisionDetector";
+import type { BackendEntity } from "@/lib/detection/types";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+
+/** Dev-only readout of the DEIMv2 backend dry-run state (Sprint 4A). */
+function BackendDebugPanel({ status }: { status: BackendStatus }) {
+  return (
+    <div className="rounded-xl border border-border bg-card/70 p-3 font-mono text-[11px] leading-relaxed">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-semibold">DEIMv2 backend · {status.state}</span>
+        <span className={status.inFlight ? "text-amber-500" : "text-muted-foreground"}>
+          {status.inFlight ? "in-flight" : "idle"} · {status.entityCount} ent
+        </span>
+      </div>
+      <div className="space-y-0.5 text-muted-foreground">
+        <div>model: {status.model ?? "—"}</div>
+        <div>
+          last inference:{" "}
+          {status.lastInferenceMs != null ? `${Math.round(status.lastInferenceMs)} ms` : "—"}
+        </div>
+        <div>
+          last success:{" "}
+          {status.lastSuccessAt ? new Date(status.lastSuccessAt).toLocaleTimeString() : "—"}
+        </div>
+        {status.error && <div className="text-red-500">error: {status.error}</div>}
+      </div>
+    </div>
+  );
+}
 
 export default function Live() {
   const { videoRef, active, starting, error, facing, start: startCamera, flip } = useCamera();
@@ -26,13 +54,25 @@ export default function Live() {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
   }, [queryClient]);
 
-  const { running, alerts, liveBoxes, stats, debug, perf, poseStatus, start, stop, dismissAlert } =
-    useDetectionSession({
-      video: videoRef.current,
-      config,
-      zones,
-      onIncidentSaved,
-    });
+  const {
+    running,
+    alerts,
+    liveBoxes,
+    stats,
+    debug,
+    perf,
+    poseStatus,
+    backendStatus,
+    backendEntities,
+    start,
+    stop,
+    dismissAlert,
+  } = useDetectionSession({
+    video: videoRef.current,
+    config,
+    zones,
+    onIncidentSaved,
+  });
 
   const topAlert = useMemo(() => alerts.find((a) => a.isIncident) ?? null, [alerts]);
 
@@ -68,6 +108,7 @@ export default function Live() {
             poseStatus={poseStatus}
             debug={debug}
             showSkeleton={import.meta.env.DEV}
+            backendEntities={backendEntities as BackendEntity[]}
             zones={zones}
             editingZones={editingZones}
             onZoneCreate={(points) =>
@@ -91,7 +132,7 @@ export default function Live() {
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-2 text-sm font-medium">
                 <Shapes className="h-4 w-4 text-primary" />
-                Restricted zones
+                Hazard zones
                 <span className="text-xs text-muted-foreground">({zones.length})</span>
               </span>
               <Button
@@ -167,6 +208,9 @@ export default function Live() {
           </div>
 
           {import.meta.env.DEV && debug && <PoseDebugPanel debug={debug} perf={perf} />}
+          {import.meta.env.DEV &&
+            config.detectionMode === "backend-deimv2" &&
+            backendStatus != null && <BackendDebugPanel status={backendStatus as BackendStatus} />}
         </div>
 
         <aside className="glass-panel hidden rounded-2xl border p-4 lg:sticky lg:top-6 lg:block lg:h-[calc(100vh-9rem)]">

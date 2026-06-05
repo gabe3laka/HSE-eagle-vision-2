@@ -87,11 +87,31 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { property: "og:title", content: "SafeLens Vision — Real-time safety monitoring" },
       { name: "twitter:title", content: "SafeLens Vision — Real-time safety monitoring" },
-      { name: "description", content: "Replicate It All is an application that mirrors data and functionality to a Supabase backend." },
-      { property: "og:description", content: "Replicate It All is an application that mirrors data and functionality to a Supabase backend." },
-      { name: "twitter:description", content: "Replicate It All is an application that mirrors data and functionality to a Supabase backend." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/e43d34b7-14d6-49d8-bc76-4401d976ae6b/id-preview-2451432e--228dd65d-a693-4a14-91f3-8014327b9576.lovable.app-1780591254433.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/e43d34b7-14d6-49d8-bc76-4401d976ae6b/id-preview-2451432e--228dd65d-a693-4a14-91f3-8014327b9576.lovable.app-1780591254433.png" },
+      {
+        name: "description",
+        content:
+          "Replicate It All is an application that mirrors data and functionality to a Supabase backend.",
+      },
+      {
+        property: "og:description",
+        content:
+          "Replicate It All is an application that mirrors data and functionality to a Supabase backend.",
+      },
+      {
+        name: "twitter:description",
+        content:
+          "Replicate It All is an application that mirrors data and functionality to a Supabase backend.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/e43d34b7-14d6-49d8-bc76-4401d976ae6b/id-preview-2451432e--228dd65d-a693-4a14-91f3-8014327b9576.lovable.app-1780591254433.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/e43d34b7-14d6-49d8-bc76-4401d976ae6b/id-preview-2451432e--228dd65d-a693-4a14-91f3-8014327b9576.lovable.app-1780591254433.png",
+      },
       { name: "twitter:card", content: "summary_large_image" },
       { property: "og:type", content: "website" },
     ],
