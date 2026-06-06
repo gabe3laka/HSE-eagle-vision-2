@@ -10,7 +10,7 @@ import { AlertFeed } from "@/components/live/AlertFeed";
 import { SessionControls } from "@/components/live/SessionControls";
 import { PoseDebugPanel } from "@/components/live/PoseDebugPanel";
 import type { BackendStatus } from "@/lib/detection/backendVisionDetector";
-import type { BackendEntity } from "@/lib/detection/types";
+import type { BackendEntity, BackendPose } from "@/lib/detection/types";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/own-client";
@@ -20,20 +20,27 @@ import { BUILD_MARKER, buildTime } from "@/lib/buildInfo";
 function BackendDebugPanel({
   status,
   entities,
+  poses,
 }: {
   status: BackendStatus;
   entities: BackendEntity[];
+  poses: BackendPose[];
 }) {
-  const first = entities[0];
+  const firstEntity = entities[0];
+  const firstPose = poses[0];
   return (
     <div className="rounded-xl border border-border bg-card/70 p-3 font-mono text-[11px] leading-relaxed">
       <div className="mb-2 flex items-center justify-between">
-        <span className="font-semibold">DEIMv2 backend · {status.state}</span>
+        <span className="font-semibold">backend · {status.state}</span>
         <span className={status.inFlight ? "text-amber-500" : "text-muted-foreground"}>
-          {status.inFlight ? "in-flight" : "idle"} · {status.entityCount} ent
+          {status.inFlight ? "in-flight" : "idle"} · {status.entityCount} ent · {status.poseCount}{" "}
+          pose
         </span>
       </div>
       <div className="space-y-0.5 text-muted-foreground">
+        <div>
+          backend: {status.backend ?? "—"} · tasks: {status.tasks?.join(",") ?? "—"}
+        </div>
         <div>detector: BackendVisionDetector · mode backend-deimv2</div>
         <div>
           requests: {status.requestCount} · responses: {status.responseCount}
@@ -50,13 +57,24 @@ function BackendDebugPanel({
           last success:{" "}
           {status.lastSuccessAt ? new Date(status.lastSuccessAt).toLocaleTimeString() : "—"}
         </div>
-        {first && (
+        {firstEntity && (
           <div className="text-teal-500">
-            #0 {first.label} {Math.round(first.confidence * 100)}% · x{first.bbox.x.toFixed(2)} y
-            {first.bbox.y.toFixed(2)} w{first.bbox.w.toFixed(2)} h{first.bbox.h.toFixed(2)}
+            ent#0 {firstEntity.label} {Math.round(firstEntity.confidence * 100)}% · x
+            {firstEntity.bbox.x.toFixed(2)} y{firstEntity.bbox.y.toFixed(2)} w
+            {firstEntity.bbox.w.toFixed(2)} h{firstEntity.bbox.h.toFixed(2)}
+          </div>
+        )}
+        {firstPose && (
+          <div className="text-fuchsia-500">
+            pose#0 {Math.round(firstPose.confidence * 100)}% · {firstPose.keypoints.length} kpts
           </div>
         )}
         {status.error && <div className="text-red-500">error: {status.error}</div>}
+        {status.lastRawResponse && (
+          <div className="truncate" title={status.lastRawResponse}>
+            raw: {status.lastRawResponse}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -89,6 +107,7 @@ export default function Live() {
     poseStatus,
     backendStatus,
     backendEntities,
+    backendPoses,
     start,
     stop,
     dismissAlert,
@@ -167,6 +186,7 @@ export default function Live() {
             debug={debug}
             showSkeleton={import.meta.env.DEV}
             backendEntities={backendEntities as BackendEntity[]}
+            backendPoses={backendPoses as BackendPose[]}
             backendDryRun={config.detectionMode === "backend-deimv2"}
             zones={zones}
             editingZones={editingZones}
@@ -277,18 +297,21 @@ export default function Live() {
                 <BackendDebugPanel
                   status={backendStatus as BackendStatus}
                   entities={backendEntities as BackendEntity[]}
+                  poses={backendPoses as BackendPose[]}
                 />
               )}
               <div className="rounded-xl border border-border bg-background/40 p-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">DEIMv2 dry-run · single-frame test</span>
+                  <span className="text-sm font-medium">
+                    EdgeCrafter dry-run · single-frame test
+                  </span>
                   <Button
                     size="sm"
                     variant="secondary"
                     onClick={testBackendFrame}
                     disabled={!active || backendTesting}
                   >
-                    {backendTesting ? "Testing…" : "Test DEIMv2 frame"}
+                    {backendTesting ? "Testing…" : "Test EdgeCrafter frame"}
                   </Button>
                 </div>
                 {(backendTestImg || backendTest) && (

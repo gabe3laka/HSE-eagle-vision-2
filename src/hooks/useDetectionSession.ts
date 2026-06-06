@@ -90,6 +90,7 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
   const [poseStatus, setPoseStatus] = useState<PoseStatus | null>(null);
   const [backendStatus, setBackendStatus] = useState<unknown>(null);
   const [backendEntities, setBackendEntities] = useState<unknown[]>([]);
+  const [backendPoses, setBackendPoses] = useState<unknown[]>([]);
 
   const detectorRef = useRef<Detector | null>(null);
   const engineRef = useRef<RiskEngine | null>(null);
@@ -280,6 +281,7 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
         setBackendEntities(
           (det as { getLastEntities?: () => unknown[] }).getLastEntities?.() ?? [],
         );
+        setBackendPoses((det as { getLastPoses?: () => unknown[] }).getLastPoses?.() ?? []);
       }
     },
     [persistDetection, persistIncident],
@@ -398,6 +400,7 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
     setPoseStatus(null);
     setBackendStatus(null);
     setBackendEntities([]);
+    setBackendPoses([]);
     const sid = sessionIdRef.current;
     sessionIdRef.current = null;
     if (sid && user) {
@@ -446,6 +449,7 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
     poseStatus,
     backendStatus,
     backendEntities,
+    backendPoses,
     start,
     stop,
     dismissAlert,

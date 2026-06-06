@@ -1,38 +1,75 @@
-import type { BBox, BackendEntity, Detector, DetectorInput, Observation } from "./types";
+import type {
+  BBox,
+  BackendEntity,
+  BackendKeypoint,
+  BackendPose,
+  Detector,
+  DetectorInput,
+  Observation,
+} from "./types";
 import { supabase } from "@/integrations/supabase/own-client";
 
 /**
  * BackendVisionDetector — Sprint 4A dry-run detector (hardened in 4A.1/4A.2).
  *
- * Architecture:
- *   Browser frame -> captureFrame() -> base64 JPEG
- *   -> Supabase Edge Function `deimv2-proxy` (hides the RunPod key)
- *   -> RunPod DEIMv2 worker -> normalised entity boxes cached in this.lastEntities
+ * Browser frame -> captureFrame() -> base64 JPEG -> Supabase Edge Function
+ * `deimv2-proxy` (hides the RunPod key) -> RunPod worker (DEIMv2 or EdgeCrafter)
+ * -> normalised entities + poses cached for the dev/debug overlay.
  *
- * detect() is synchronous (Detector contract). Backend calls are async,
- * fire-and-forget, and guarded by an `inFlight` flag so requests never overlap.
- *
- * Sprint 4A is dry-run ONLY:
- *  - detect() returns [] (no Observations -> no RiskEngine alerts/incidents)
- *  - lastEntities is exposed for the dev/debug overlay only
+ * detect() is synchronous and ALWAYS returns [] (no Observations -> no RiskEngine
+ * alerts/incidents). Backend calls are async, fire-and-forget, guarded by an
+ * `inFlight` flag. Works with both the old DEIMv2 response (`entities`) and the
+ * new EdgeCrafter response (`entities` + `poses` + `backend` + `tasks`).
  */
 
 const PROXY_FUNCTION = "deimv2-proxy";
-
-// How often to submit a new frame to the backend (ms). One request is in flight
-// at a time (inFlight guard), and never faster than this interval.
 const BACKEND_INTERVAL_MS = 1500;
-
-// JPEG quality for the captured frame sent to the backend (0..1).
 const CAPTURE_QUALITY = 0.7;
-
-// Canvas resolution for frame capture.
 const CAPTURE_WIDTH = 640;
 const CAPTURE_HEIGHT = 480;
-
 // Dry-run confidence — kept low so more entities surface for visual validation.
-// Nothing here drives alerts, so a permissive threshold is safe.
 const DRY_RUN_CONF = 0.2;
+
+// COCO-17 keypoint names + skeleton edges (zero-based) — fallback when the
+// worker returns bare keypoint arrays without names/skeleton.
+export const COCO17_KEYPOINTS = [
+  "nose",
+  "left_eye",
+  "right_eye",
+  "left_ear",
+  "right_ear",
+  "left_shoulder",
+  "right_shoulder",
+  "left_elbow",
+  "right_elbow",
+  "left_wrist",
+  "right_wrist",
+  "left_hip",
+  "right_hip",
+  "left_knee",
+  "right_knee",
+  "left_ankle",
+  "right_ankle",
+];
+
+export const COCO17_SKELETON: number[][] = [
+  [5, 7],
+  [7, 9],
+  [6, 8],
+  [8, 10],
+  [5, 6],
+  [5, 11],
+  [6, 12],
+  [11, 12],
+  [11, 13],
+  [13, 15],
+  [12, 14],
+  [14, 16],
+  [0, 1],
+  [0, 2],
+  [1, 3],
+  [2, 4],
+];
 
 export interface BackendStatus {
   state: "idle" | "loading" | "ready" | "error";
@@ -42,12 +79,16 @@ export interface BackendStatus {
   lastRequestAt: number | null;
   lastSuccessAt: number | null;
   lastInferenceMs: number | null;
+  backend: string | null; // "edgecrafter" | "deimv2" | ...
+  tasks: string[] | null; // ["det","pose"]
   model: string | null;
   entityCount: number;
+  poseCount: number;
   error: string | null;
   videoWidth: number;
   videoHeight: number;
   lastB64Bytes: number;
+  lastRawResponse: string | null; // truncated raw JSON for the debug panel
 }
 
 function emptyStatus(state: BackendStatus["state"]): BackendStatus {
@@ -59,12 +100,16 @@ function emptyStatus(state: BackendStatus["state"]): BackendStatus {
     lastRequestAt: null,
     lastSuccessAt: null,
     lastInferenceMs: null,
+    backend: null,
+    tasks: null,
     model: null,
     entityCount: 0,
+    poseCount: 0,
     error: null,
     videoWidth: 0,
     videoHeight: 0,
     lastB64Bytes: 0,
+    lastRawResponse: null,
   };
 }
 
@@ -76,6 +121,7 @@ export class BackendVisionDetector implements Detector {
   private lastBackendAt = 0;
   private lastWarmupAt = 0;
   private lastEntities: BackendEntity[] = [];
+  private lastPoses: BackendPose[] = [];
   private captureCanvas: HTMLCanvasElement | null = null;
   private captureCtx: CanvasRenderingContext2D | null = null;
   private status: BackendStatus = emptyStatus("idle");
@@ -86,21 +132,20 @@ export class BackendVisionDetector implements Detector {
     this.lastBackendAt = 0;
     this.lastWarmupAt = 0;
     this.lastEntities = [];
+    this.lastPoses = [];
     this.status = emptyStatus("loading");
-    // Pre-allocate the capture canvas (guarded for SSR / test environments).
     if (typeof document !== "undefined") {
       this.captureCanvas = document.createElement("canvas");
       this.captureCanvas.width = CAPTURE_WIDTH;
       this.captureCanvas.height = CAPTURE_HEIGHT;
       this.captureCtx = this.captureCanvas.getContext("2d");
-      // The worker runs SKIP_WARMUP=true, so the model is cold until an explicit
-      // /warmup. Kick it once on start; /detect returns model_not_ready (shown as
-      // "loading") until the model is ready, then entities start flowing.
+      // Worker runs SKIP_WARMUP=true, so the model is cold until an explicit
+      // /warmup. Kick it once; /detect returns model_not_ready ("loading") until
+      // the model is ready, then entities/poses start flowing.
       this._warmup();
     }
   }
 
-  /** Trigger a worker /warmup through the proxy (fire-and-forget, throttled). */
   private _warmup(): void {
     this.lastWarmupAt = Date.now();
     void supabase.functions
@@ -112,26 +157,33 @@ export class BackendVisionDetector implements Detector {
     this.running = false;
     this.inFlight = false;
     this.lastEntities = [];
+    this.lastPoses = [];
     this.captureCanvas = null;
     this.captureCtx = null;
     this.status = emptyStatus("idle");
   }
 
-  /** Latest backend status (for the debug panel). */
   getBackendStatus(): BackendStatus {
-    return { ...this.status, inFlight: this.inFlight, entityCount: this.lastEntities.length };
+    return {
+      ...this.status,
+      inFlight: this.inFlight,
+      entityCount: this.lastEntities.length,
+      poseCount: this.lastPoses.length,
+    };
   }
 
-  /** Latest entities (for the dry-run overlay — never driven into RiskEngine). */
   getLastEntities(): BackendEntity[] {
     return this.lastEntities;
+  }
+
+  getLastPoses(): BackendPose[] {
+    return this.lastPoses;
   }
 
   getInFlight(): boolean {
     return this.inFlight;
   }
 
-  /** Synchronous tick: schedule a background request, then return [] (dry-run). */
   detect(input: DetectorInput): Observation[] {
     if (!this.running) return [];
     const now = input.timestamp;
@@ -151,7 +203,7 @@ export class BackendVisionDetector implements Detector {
       void this._submitFrame(input.video);
     }
 
-    // Sprint 4A dry-run: no Observations -> no RiskEngine hazards from DEIMv2.
+    // Sprint 4A dry-run: no Observations -> no RiskEngine hazards from the backend.
     return [];
   }
 
@@ -180,26 +232,32 @@ export class BackendVisionDetector implements Detector {
       if (error) throw error;
       const resp = (data ?? {}) as {
         entities?: unknown;
+        poses?: unknown;
+        backend?: string;
+        tasks?: unknown;
         inference_ms?: number;
         model?: string;
         error?: string;
         img_w?: number;
         img_h?: number;
       };
-      // The proxy always responds 200; a clear-state error (unconfigured backend,
-      // model_not_ready, etc.) arrives in the body rather than as a transport error.
+      this.status.lastRawResponse = JSON.stringify(resp).slice(0, 1500);
+      this.status.backend = typeof resp.backend === "string" ? resp.backend : this.status.backend;
+      this.status.tasks = Array.isArray(resp.tasks) ? (resp.tasks as string[]) : this.status.tasks;
+
       if (resp.error) {
         this.lastEntities = [];
+        this.lastPoses = [];
         const loading = resp.error === "model_not_ready" || resp.error === "runpod_queued";
         this.status.state = loading ? "loading" : "error";
         this.status.error = resp.error;
         this.status.model = resp.model ?? this.status.model;
         this.status.lastInferenceMs = performance.now() - t0;
-        // If the model went cold mid-session, re-kick warmup (throttled).
         if (loading && Date.now() - this.lastWarmupAt > 15000) this._warmup();
         return;
       }
       this.lastEntities = normalizeEntities(resp.entities, resp.img_w, resp.img_h);
+      this.lastPoses = normalizePoses(resp.poses, resp.img_w, resp.img_h);
       this.status.state = "ready";
       this.status.error = null;
       this.status.model = resp.model ?? this.status.model;
@@ -209,6 +267,7 @@ export class BackendVisionDetector implements Detector {
       const msg = e instanceof Error ? e.message : String(e);
       if (import.meta.env.DEV) console.warn("[BackendVisionDetector] error:", msg);
       this.lastEntities = [];
+      this.lastPoses = [];
       this.status.state = "error";
       this.status.error = msg;
       this.status.lastInferenceMs = performance.now() - t0;
@@ -221,7 +280,6 @@ export class BackendVisionDetector implements Detector {
     if (!this.captureCtx || !this.captureCanvas) return null;
     try {
       this.captureCtx.drawImage(video, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
-      // Remove the data: URL prefix, keep only the base64 payload.
       const dataUrl = this.captureCanvas.toDataURL("image/jpeg", CAPTURE_QUALITY);
       return dataUrl.split(",")[1] ?? null;
     } catch {
@@ -230,13 +288,7 @@ export class BackendVisionDetector implements Detector {
   }
 }
 
-/**
- * Coerce arbitrary worker output into normalized BackendEntity[]. The worker
- * returns {label, class_id, confidence, bbox:{x,y,w,h}} normalized to 0..1, but
- * we defensively also handle x1/y1/x2/y2, [x1,y1,x2,y2] arrays, score vs
- * confidence, and pixel coords (via img_w/img_h) so a shape mismatch never
- * silently hides the boxes.
- */
+/** Coerce arbitrary worker output into normalized BackendEntity[] (bbox 0..1). */
 export function normalizeEntities(raw: unknown, imgW?: number, imgH?: number): BackendEntity[] {
   if (!Array.isArray(raw)) return [];
   const out: BackendEntity[] = [];
@@ -259,6 +311,75 @@ export function normalizeEntities(raw: unknown, imgW?: number, imgH?: number): B
       class_id: typeof e.class_id === "number" ? e.class_id : -1,
       confidence: num(e.confidence) ?? num(e.score) ?? 0,
       bbox,
+    });
+  }
+  return out;
+}
+
+/** Coerce arbitrary worker pose output into normalized BackendPose[] (kpts 0..1). */
+export function normalizePoses(raw: unknown, imgW?: number, imgH?: number): BackendPose[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BackendPose[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const p = item as Record<string, unknown>;
+    const keypoints = normalizeKeypoints(p.keypoints ?? p.kpts ?? p.points, imgW, imgH);
+    if (keypoints.length === 0) continue;
+    const skeleton =
+      Array.isArray(p.skeleton) && p.skeleton.every((e) => Array.isArray(e))
+        ? (p.skeleton as number[][])
+        : COCO17_SKELETON;
+    out.push({
+      label: typeof p.label === "string" ? p.label : undefined,
+      confidence: num(p.confidence) ?? num(p.score) ?? 0,
+      keypoints,
+      skeleton,
+      source: typeof p.source === "string" ? p.source : "edgecrafter-pose",
+    });
+  }
+  return out;
+}
+
+function normalizeKeypoints(raw: unknown, imgW?: number, imgH?: number): BackendKeypoint[] {
+  if (!Array.isArray(raw)) return [];
+  // First pass: pull raw (x, y, score, name); decide pixel-vs-normalized per pose.
+  const pts: { x: number; y: number; score: number; name?: string }[] = [];
+  let maxCoord = 0;
+  for (const k of raw) {
+    let x: number | null = null;
+    let y: number | null = null;
+    let score = 1;
+    let name: string | undefined;
+    if (Array.isArray(k)) {
+      x = num(k[0]);
+      y = num(k[1]);
+      score = num(k[2]) ?? 1;
+    } else if (k && typeof k === "object") {
+      const o = k as Record<string, unknown>;
+      x = num(o.x);
+      y = num(o.y);
+      score = num(o.score) ?? num(o.confidence) ?? num(o.v) ?? 1;
+      name = typeof o.name === "string" ? o.name : undefined;
+    }
+    if (x == null || y == null) {
+      pts.push({ x: NaN, y: NaN, score: 0, name });
+      continue;
+    }
+    maxCoord = Math.max(maxCoord, Math.abs(x), Math.abs(y));
+    pts.push({ x, y, score, name });
+  }
+  const pixel = maxCoord > 1.5 && !!imgW && !!imgH && imgW > 0 && imgH > 0;
+  const out: BackendKeypoint[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+    const x = pixel ? p.x / imgW! : p.x;
+    const y = pixel ? p.y / imgH! : p.y;
+    out.push({
+      name: p.name ?? COCO17_KEYPOINTS[i] ?? `kp_${i}`,
+      x: clamp01(x),
+      y: clamp01(y),
+      score: p.score,
     });
   }
   return out;
@@ -306,7 +427,6 @@ function toBBox(raw: unknown, imgW?: number, imgH?: number): BBox | null {
   if (x == null || y == null || w == null || h == null) return null;
   if (![x, y, w, h].every(Number.isFinite)) return null;
 
-  // Pixel coords -> normalize when values clearly exceed 1 and the size is known.
   const looksPixel = Math.max(Math.abs(x), Math.abs(y), Math.abs(w), Math.abs(h)) > 1.5;
   if (looksPixel && imgW && imgH && imgW > 0 && imgH > 0) {
     x /= imgW;

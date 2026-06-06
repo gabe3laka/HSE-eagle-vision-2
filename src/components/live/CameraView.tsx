@@ -2,7 +2,8 @@ import { Camera, CameraOff, Loader2, SwitchCamera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DetectionOverlay } from "./DetectionOverlay";
 import { BackendEntityOverlay } from "./BackendEntityOverlay";
-import type { Alert, LiveBox, BackendEntity } from "@/lib/detection/types";
+import { BackendPoseOverlay } from "./BackendPoseOverlay";
+import type { Alert, LiveBox, BackendEntity, BackendPose } from "@/lib/detection/types";
 import { SEVERITY_META, HAZARDS } from "@/lib/detection/hazardCatalog";
 import { localizedMessage, isRTL } from "@/lib/detection/messages";
 import { HAZARD_ICONS } from "./hazardIcons";
@@ -37,6 +38,7 @@ interface Props {
   debug?: PoseDebug | null;
   showSkeleton?: boolean;
   backendEntities?: BackendEntity[];
+  backendPoses?: BackendPose[];
   backendDryRun?: boolean;
   zones?: DetectionZone[];
   editingZones?: boolean;
@@ -59,6 +61,7 @@ export function CameraView({
   debug,
   showSkeleton,
   backendEntities,
+  backendPoses,
   backendDryRun,
   zones,
   editingZones,
@@ -108,9 +111,15 @@ export function CameraView({
             className={`pointer-events-none absolute inset-0 ${facing === "user" ? "scale-x-[-1]" : ""}`}
           >
             <BackendEntityOverlay entities={backendEntities ?? []} />
+            <BackendPoseOverlay poses={backendPoses ?? []} />
           </div>
-          <div className="pointer-events-none absolute right-3 top-12 z-20 rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-teal-300 backdrop-blur">
-            DEIMv2 entities: {backendEntities?.length ?? 0}
+          <div className="pointer-events-none absolute right-3 top-12 z-20 flex flex-col items-end gap-1">
+            <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-teal-300 backdrop-blur">
+              EdgeCrafter entities: {backendEntities?.length ?? 0}
+            </span>
+            <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-fuchsia-300 backdrop-blur">
+              EdgeCrafter poses: {backendPoses?.length ?? 0}
+            </span>
           </div>
         </>
       )}
