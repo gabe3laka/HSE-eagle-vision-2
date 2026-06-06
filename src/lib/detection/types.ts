@@ -98,6 +98,27 @@ export interface BackendEntity {
   bbox: BBox;
 }
 
+/** A single EdgeCrafter (ECPose) keypoint, normalized to 0..1. */
+export interface BackendKeypoint {
+  name: string;
+  x: number;
+  y: number;
+  score: number;
+}
+
+/**
+ * A raw EdgeCrafter pose returned by the backend worker (dry-run only). Like
+ * BackendEntity, these are displayed in the dev/debug overlay and never enter
+ * the RiskEngine in Sprint 4A.
+ */
+export interface BackendPose {
+  label?: string;
+  confidence: number;
+  keypoints: BackendKeypoint[];
+  skeleton?: number[][];
+  source?: "edgecrafter-pose" | string;
+}
+
 export const SEVERITY_ORDER: Record<Severity, number> = {
   low: 0,
   medium: 1,

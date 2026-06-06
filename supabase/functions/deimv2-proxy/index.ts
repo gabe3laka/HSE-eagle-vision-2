@@ -90,7 +90,11 @@ serve(async (req: Request) => {
     try {
       const init: RequestInit =
         route.method === "POST"
-          ? { method: "POST", headers: { ...authHeader, "Content-Type": "application/json" }, body: "{}" }
+          ? {
+              method: "POST",
+              headers: { ...authHeader, "Content-Type": "application/json" },
+              body: "{}",
+            }
           : { method: "GET", headers: authHeader };
       const r = await fetch(stripSlash(baseUrl) + path, init);
       return json({ mode, proxy: "live", upstream_status: r.status, result: await safeJson(r) });
@@ -103,7 +107,7 @@ serve(async (req: Request) => {
   if (baseUrl) {
     const image_b64 = body.image_b64;
     if (!image_b64 || typeof image_b64 !== "string") {
-      return json({ error: "missing_image_b64", entities: [], proxy: "live" });
+      return json({ error: "missing_image_b64", entities: [], poses: [], proxy: "live" });
     }
     let r: Response;
     try {
@@ -118,7 +122,7 @@ serve(async (req: Request) => {
         }),
       });
     } catch (e) {
-      return json({ error: `live_unreachable: ${errMsg(e)}`, entities: [] });
+      return json({ error: `live_unreachable: ${errMsg(e)}`, entities: [], poses: [] });
     }
 
     const data = await safeJson(r);
@@ -135,24 +139,33 @@ serve(async (req: Request) => {
       return json({
         error,
         entities: [],
+        poses: [],
         state: r.status === 503 ? "loading" : "error",
         upstream_status: r.status,
       });
     }
 
-    if (!data) return json({ error: "unexpected_live_response", entities: [] });
+    if (!data) return json({ error: "unexpected_live_response", entities: [], poses: [] });
 
     if (typeof data.error === "string") {
       return json({
         error: data.error,
         entities: Array.isArray(data.entities) ? data.entities : [],
+        poses: Array.isArray(data.poses) ? data.poses : [],
+        backend: data.backend,
+        tasks: data.tasks,
         model: data.model,
         inference_ms: data.inference_ms,
       });
     }
 
+    // Success — forward both DEIMv2 (entities) and EdgeCrafter (entities+poses)
+    // fields, plus backend/tasks metadata. Defaults keep old DEIMv2 compatible.
     return json({
       entities: Array.isArray(data.entities) ? data.entities : [],
+      poses: Array.isArray(data.poses) ? data.poses : [],
+      backend: data.backend,
+      tasks: data.tasks,
       model: data.model,
       inference_ms: data.inference_ms,
       img_w: data.img_w,

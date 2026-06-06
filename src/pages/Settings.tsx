@@ -68,8 +68,8 @@ export default function Settings() {
         <h2 className="font-display text-sm font-semibold">Detection engine</h2>
         <p className="mb-4 text-xs text-muted-foreground">
           Three modes: Simulated drives the demo. Pose (beta) uses your camera with MediaPipe to
-          detect real unsafe lifting on-device. DEIMv2 backend (dry run) runs object detection on a
-          backend and previews entities in dev/debug only.
+          detect real unsafe lifting on-device. EdgeCrafter backend (dry run) runs object detection
+          + pose on a backend and previews boxes/skeletons in a dry-run overlay only.
         </p>
         <Select
           value={draft.detectionMode}
@@ -81,7 +81,7 @@ export default function Settings() {
           <SelectContent>
             <SelectItem value="simulated">Simulated</SelectItem>
             <SelectItem value="pose-beta">Pose — unsafe lifting (beta)</SelectItem>
-            <SelectItem value="backend-deimv2">DEIMv2 backend — dry run</SelectItem>
+            <SelectItem value="backend-deimv2">EdgeCrafter backend — dry run</SelectItem>
           </SelectContent>
         </Select>
         {draft.detectionMode === "pose-beta" && (
@@ -92,8 +92,8 @@ export default function Settings() {
         )}
         {draft.detectionMode === "backend-deimv2" && (
           <p className="mt-2 text-xs text-muted-foreground">
-            Backend object detection via RunPod. Shows detected entities in dev/debug mode only — no
-            safety alerts fire yet (Sprint 4A dry-run).
+            EdgeCrafter backend via RunPod. Previews object boxes and pose skeletons in a dry-run
+            overlay only — no safety alerts fire yet (Sprint 4A dry-run).
           </p>
         )}
       </section>
