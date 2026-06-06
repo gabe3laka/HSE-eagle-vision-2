@@ -30,9 +30,9 @@ const CAPTURE_QUALITY = 0.7;
 const CAPTURE_WIDTH = 640;
 const CAPTURE_HEIGHT = 480;
 
-// Dry-run confidence — lower than production so more entities surface for visual
-// validation. Nothing here drives alerts, so a permissive threshold is safe.
-const DRY_RUN_CONF = 0.25;
+// Dry-run confidence — kept low so more entities surface for visual validation.
+// Nothing here drives alerts, so a permissive threshold is safe.
+const DRY_RUN_CONF = 0.2;
 
 export interface BackendStatus {
   state: "idle" | "loading" | "ready" | "error";
