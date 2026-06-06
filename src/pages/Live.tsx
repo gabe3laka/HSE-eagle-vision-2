@@ -14,6 +14,7 @@ import type { BackendEntity } from "@/lib/detection/types";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/own-client";
+import { BUILD_MARKER, buildTime } from "@/lib/buildInfo";
 
 /** Readout of the DEIMv2 backend dry-run state (shown in backend-deimv2 mode). */
 function BackendDebugPanel({
@@ -71,6 +72,7 @@ export default function Live() {
   const createZone = useCreateZone();
   const deleteZone = useDeleteZone();
   const [backendTest, setBackendTest] = useState<string | null>(null);
+  const [backendTestImg, setBackendTestImg] = useState<string | null>(null);
   const [backendTesting, setBackendTesting] = useState(false);
 
   const onIncidentSaved = useCallback(() => {
@@ -123,9 +125,11 @@ export default function Live() {
         return;
       }
       ctx.drawImage(video, 0, 0, 640, 480);
-      const image_b64 = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+      setBackendTestImg(dataUrl); // preview the exact frame we send
+      const image_b64 = dataUrl.split(",")[1];
       const { data, error } = await supabase.functions.invoke("deimv2-proxy", {
-        body: { image_b64, conf: 0.25, img_size: 640, classes: null },
+        body: { image_b64, conf: 0.15, img_size: 640, classes: null },
       });
       setBackendTest(JSON.stringify(error ?? data, null, 2));
     } catch (e) {
@@ -287,10 +291,26 @@ export default function Live() {
                     {backendTesting ? "Testing…" : "Test DEIMv2 frame"}
                   </Button>
                 </div>
-                {backendTest && (
-                  <pre className="mt-2 max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[10px] leading-snug">
-                    {backendTest}
-                  </pre>
+                {(backendTestImg || backendTest) && (
+                  <div className="mt-2 space-y-2">
+                    {backendTestImg && (
+                      <div>
+                        <div className="mb-1 text-[10px] text-muted-foreground">
+                          captured frame sent to /detect (check it isn't black/blank/rotated):
+                        </div>
+                        <img
+                          src={backendTestImg}
+                          alt="captured frame"
+                          className="max-h-40 rounded border border-border"
+                        />
+                      </div>
+                    )}
+                    {backendTest && (
+                      <pre className="max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[10px] leading-snug">
+                        {backendTest}
+                      </pre>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -306,6 +326,10 @@ export default function Live() {
           />
         </aside>
       </div>
+
+      <p className="pt-1 text-center text-[10px] text-muted-foreground/60">
+        build {BUILD_MARKER} · {buildTime()} · {import.meta.env.MODE} · mode {config.detectionMode}
+      </p>
     </div>
   );
 }
