@@ -102,10 +102,9 @@ export default function Settings() {
         {draft.detectionMode === "backend-edgecrafter-stream" && (
           <p className="mt-2 text-xs text-muted-foreground">
             Beta: streams camera frames to the EdgeCrafter worker over a WebSocket and previews
-            boxes/skeletons in real time — dry-run overlay only, no safety alerts. Needs a public
-            stream-gateway URL (<code>VITE_EDGECRAFT_STREAM_WS_URL</code>); without it you&rsquo;ll
-            see &ldquo;Stream URL not configured&rdquo; and can keep using the HTTP dry-run mode.
-            The browser never holds the RunPod API key.
+            boxes/skeletons in real time — dry-run overlay only, no safety alerts. Authenticated
+            with a short-lived Supabase session token; the gateway URL is provided by the session,
+            so no build-time URL is required. The browser never holds the RunPod API key.
           </p>
         )}
       </section>

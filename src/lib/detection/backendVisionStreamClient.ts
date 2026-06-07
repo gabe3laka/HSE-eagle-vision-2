@@ -10,11 +10,11 @@ import { supabase } from "@/integrations/supabase/own-client";
  *   send:    { type:"frame", camera_id, frame_id, sent_at, frame_b64 }
  *   receive: connected | warming | ready | vision | metrics | error
  *
- * SAFETY: this opens `new WebSocket(url)` to a PUBLIC stream-gateway URL
- * (VITE_EDGECRAFT_STREAM_WS_URL). It NEVER sends a RunPod API key — browsers
- * can't set WebSocket Authorization headers, and the key must never ship to the
- * client. If the env var is absent the client reports "unconfigured" and does
- * nothing, leaving the HTTP dry-run path as the safe default.
+ * SAFETY: it opens `new WebSocket(url)` to a PUBLIC stream-gateway URL returned
+ * by the Supabase session (or a VITE_EDGECRAFT_STREAM_WS_URL dev override). It
+ * NEVER sends a RunPod API key — browsers can't set WebSocket Authorization
+ * headers, and the key must never ship to the client. A short-lived session
+ * token (?token=) authenticates to the gateway.
  *
  * Like BackendVisionDetector this is dry-run only: `vision` results update the
  * cached entities/poses for the overlay; nothing reaches the RiskEngine.
@@ -42,9 +42,16 @@ export interface StreamSocketLike {
 }
 export type StreamSocketFactory = (url: string) => StreamSocketLike;
 
-/** Provides a short-lived gateway session token. Throws StreamAuthError when the
- *  user isn't authenticated, or a generic Error on any other failure. */
-export type StreamTokenProvider = (cameraId: string) => Promise<string>;
+/** A minted stream session: short-lived token + the gateway URL to use. */
+export interface StreamSession {
+  token: string;
+  wsUrl: string | null; // gateway URL from the Edge Function (null when unset)
+  expiresAt: string | null;
+}
+
+/** Provides a stream session. Throws StreamAuthError when the user isn't
+ *  authenticated, or a generic Error on any other failure. */
+export type StreamTokenProvider = (cameraId: string) => Promise<StreamSession>;
 
 /** Thrown when the session-token endpoint reports the user is not authenticated. */
 export class StreamAuthError extends Error {
@@ -61,12 +68,12 @@ export function buildStreamUrl(base: string, token: string): string {
 }
 
 /**
- * Default token provider: asks the Supabase Edge Function `create-stream-session`
- * (authenticated by the caller's Supabase session) for a short-lived token. The
- * HMAC signing secret and the RunPod key stay server-side — only the minted token
- * ever reaches the browser.
+ * Default provider: asks the Supabase Edge Function `create-stream-session`
+ * (authenticated by the caller's Supabase session) for a short-lived token AND
+ * the gateway URL. The HMAC signing secret and the RunPod key stay server-side —
+ * only the minted token + public gateway URL ever reach the browser.
  */
-async function defaultStreamTokenProvider(cameraId: string): Promise<string> {
+async function defaultStreamTokenProvider(cameraId: string): Promise<StreamSession> {
   const { data, error } = await supabase.functions.invoke("create-stream-session", {
     body: { camera_id: cameraId },
   });
@@ -75,13 +82,17 @@ async function defaultStreamTokenProvider(cameraId: string): Promise<string> {
     if (status === 401) throw new StreamAuthError("not_authenticated");
     throw new Error("stream_token_failed");
   }
-  const token = (data as { token?: unknown } | null)?.token;
-  if (typeof token !== "string" || !token) throw new Error("stream_token_failed");
-  return token;
+  const d = (data ?? {}) as { token?: unknown; ws_url?: unknown; expires_at?: unknown };
+  if (typeof d.token !== "string" || !d.token) throw new Error("stream_token_failed");
+  return {
+    token: d.token,
+    wsUrl: typeof d.ws_url === "string" && d.ws_url ? d.ws_url : null,
+    expiresAt: typeof d.expires_at === "string" ? d.expires_at : null,
+  };
 }
 
 export interface StreamClientState {
-  configured: boolean; // VITE_EDGECRAFT_STREAM_WS_URL present
+  configured: boolean; // a Supabase client is available to mint a session
   url: string | null;
   state: StreamState;
   backend: string | null;
@@ -104,7 +115,7 @@ export interface StreamClientState {
   lastRawResponse: string | null;
 }
 
-/** Read the public stream URL from Vite env (browser-safe). */
+/** Optional dev override for the gateway URL (normally provided by the session). */
 function readEnvUrl(): string | null {
   try {
     const v = import.meta.env.VITE_EDGECRAFT_STREAM_WS_URL;
@@ -119,10 +130,13 @@ function mean(xs: number[]): number | null {
 }
 
 export class BackendVisionStreamClient {
+  /** Optional dev override (VITE_EDGECRAFT_STREAM_WS_URL); the gateway URL is
+   *  normally provided by the Supabase session response. */
   readonly url: string | null;
   readonly cameraId: string;
 
   private ws: StreamSocketLike | null = null;
+  private resolvedUrl: string | null = null; // URL actually used (override or session)
   private running = false;
   private frameId = 0;
   private reconnectAttempts = 0;
@@ -186,7 +200,7 @@ export class BackendVisionStreamClient {
     this.tokenProvider = opts?.tokenProvider ?? defaultStreamTokenProvider;
     this.wsFactory = opts?.webSocketFactory ?? null;
     this.s = {
-      state: this.url ? "closed" : "unconfigured",
+      state: "closed",
       backend: null,
       tasks: null,
       model: null,
@@ -203,7 +217,9 @@ export class BackendVisionStreamClient {
   }
 
   get configured(): boolean {
-    return !!this.url;
+    // The gateway URL now comes from the Supabase session, so streaming is
+    // attemptable whenever a Supabase client is available (it always is here).
+    return true;
   }
 
   getLastEntities(): BackendEntity[] {
@@ -222,7 +238,7 @@ export class BackendVisionStreamClient {
     const avgLat = this.wm.avgLat ?? mean(this.latMs);
     return {
       configured: this.configured,
-      url: this.url,
+      url: this.resolvedUrl ?? this.url,
       state: this.s.state,
       backend: this.s.backend,
       tasks: this.s.tasks,
@@ -245,15 +261,10 @@ export class BackendVisionStreamClient {
     };
   }
 
-  /** Begin connecting: mint a token, then open the socket. Safe no-op when
-   *  unconfigured or when no WebSocket is available. */
+  /** Begin connecting: mint a session (token + gateway URL), then open the
+   *  socket. Safe no-op when no WebSocket is available. */
   connect(): void {
     this.running = true;
-    if (!this.url) {
-      this.s.state = "unconfigured";
-      this.s.lastError = null;
-      return;
-    }
     if (!this.wsFactory && typeof WebSocket === "undefined") {
       this.s.state = "error";
       this.s.lastError = "websocket_unavailable";
@@ -262,14 +273,13 @@ export class BackendVisionStreamClient {
     void this._openWithToken();
   }
 
-  /** Fetch a short-lived session token (Supabase), then open the gateway socket
-   *  with `?token=`. Never carries a RunPod key or the signing secret. */
+  /** Fetch a session (token + gateway URL) from Supabase, then open the gateway
+   *  socket with `?token=`. Never carries a RunPod key or the signing secret. */
   private async _openWithToken(): Promise<void> {
-    if (!this.url) return;
     this.s.state = "connecting";
-    let token: string;
+    let session: StreamSession;
     try {
-      token = await this.tokenProvider(this.cameraId);
+      session = await this.tokenProvider(this.cameraId);
     } catch (e) {
       if (!this.running) return;
       this.s.state = "error";
@@ -283,15 +293,24 @@ export class BackendVisionStreamClient {
       }
       return;
     }
-    if (!this.running) return; // stopped while the token was in flight
-    if (!token) {
+    if (!this.running) return; // stopped while the session was in flight
+    if (!session.token) {
       this.s.state = "error";
       this.s.lastError = "stream_token_failed";
       this.s.errorCount += 1;
       this._scheduleReconnect();
       return;
     }
-    this._open(token);
+    // Dev override (env) wins; otherwise use the gateway URL from the session.
+    const url = this.url ?? session.wsUrl;
+    if (!url) {
+      this.s.state = "error";
+      this.s.lastError = "stream_url_not_returned";
+      this.s.errorCount += 1;
+      return; // config issue — retrying won't help until the gateway URL is set
+    }
+    this.resolvedUrl = url;
+    this._open(url, session.token);
   }
 
   private _newSocket(url: string): StreamSocketLike | null {
@@ -300,10 +319,9 @@ export class BackendVisionStreamClient {
     return new WebSocket(url) as unknown as StreamSocketLike;
   }
 
-  private _open(token: string): void {
-    if (!this.url) return;
+  private _open(url: string, token: string): void {
     try {
-      const ws = this._newSocket(buildStreamUrl(this.url, token));
+      const ws = this._newSocket(buildStreamUrl(url, token));
       if (!ws) {
         this.s.state = "error";
         this.s.lastError = "websocket_unavailable";
@@ -333,7 +351,7 @@ export class BackendVisionStreamClient {
   }
 
   private _scheduleReconnect(): void {
-    if (!this.running || !this.url || this.reconnectTimer) return;
+    if (!this.running || this.reconnectTimer) return;
     const delay = Math.min(RECONNECT_BASE_MS * 2 ** this.reconnectAttempts, RECONNECT_MAX_MS);
     this.reconnectAttempts += 1;
     this.reconnectTimer = setTimeout(() => {
@@ -430,7 +448,7 @@ export class BackendVisionStreamClient {
 
   /** Capture the current video frame, JPEG-encode, and send it. */
   sendFrameFromVideo(video: HTMLVideoElement): boolean {
-    if (!this.running || !this.url || typeof document === "undefined") return false;
+    if (!this.running || typeof document === "undefined") return false;
     const ws = this.ws;
     if (!ws || ws.readyState !== WS_OPEN) return false;
     if (!this.canvas) {
@@ -489,7 +507,7 @@ export class BackendVisionStreamClient {
         /* ignore */
       }
     }
-    this.s.state = this.url ? "closed" : "unconfigured";
+    this.s.state = "closed";
     this.lastEntities = [];
     this.lastPoses = [];
   }

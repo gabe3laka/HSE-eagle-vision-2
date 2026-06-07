@@ -47,7 +47,6 @@ function BackendDebugPanel({
           <span className="text-foreground">
             {isStream ? "WebSocket stream (beta)" : "HTTP dry-run"}
           </span>
-          {isStream && <> · ws url: {status.wsConfigured ? "configured" : "not configured"}</>}
         </div>
         <div>
           backend: {status.backend ?? "—"} · tasks: {status.tasks?.join(",") ?? "—"}
@@ -113,20 +112,11 @@ function BackendDebugPanel({
       {/* Transport note. */}
       {isStream ? (
         <div className="mt-2 border-t border-border/60 pt-2 text-[10px] not-italic text-muted-foreground">
-          {status.wsConfigured ? (
-            <>
-              <span className="font-semibold text-foreground">WebSocket stream (beta).</span> Frames
-              stream to <code>VITE_EDGECRAFT_STREAM_WS_URL</code>, authenticated with a short-lived
-              Supabase-issued session token (<code>?token=</code>). The browser never holds the
-              RunPod API key or the signing secret. HTTP dry-run remains available as a fallback.
-            </>
-          ) : (
-            <>
-              <span className="font-semibold text-amber-500">Stream URL not configured.</span> Set{" "}
-              <code>VITE_EDGECRAFT_STREAM_WS_URL</code> to a public stream gateway to enable
-              streaming. Until then, use &ldquo;EdgeCrafter backend — dry run&rdquo; (HTTP).
-            </>
-          )}
+          <span className="font-semibold text-foreground">WebSocket stream (beta).</span>{" "}
+          Authenticated with a short-lived Supabase-issued session token (<code>?token=</code>); the
+          gateway URL comes from the session (override with{" "}
+          <code>VITE_EDGECRAFT_STREAM_WS_URL</code>). The browser never holds the RunPod API key or
+          the signing secret. HTTP dry-run remains available as a fallback.
         </div>
       ) : (
         <div className="mt-2 border-t border-border/60 pt-2 text-[10px] not-italic text-muted-foreground">

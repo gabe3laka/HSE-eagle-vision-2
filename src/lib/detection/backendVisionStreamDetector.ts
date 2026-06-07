@@ -85,7 +85,9 @@ export class BackendVisionStreamDetector implements Detector {
         : s.state === "error" || s.state === "unconfigured"
           ? "error"
           : "loading";
-    const error = s.state === "unconfigured" ? "stream_url_not_configured" : s.lastError;
+    // s.lastError carries the reason (stream_url_not_returned / not_authenticated
+    // / stream_token_failed / ws_error). No env-based "unconfigured" gate anymore.
+    const error = s.lastError;
     return {
       state,
       inFlight: false,

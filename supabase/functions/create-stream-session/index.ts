@@ -3,9 +3,10 @@
  *
  * Mints a short-lived, HMAC-signed session token so the browser can authenticate
  * to the EdgeCrafter stream gateway (Cloudflare Worker) WITHOUT ever holding the
- * RunPod API key or the signing secret. Flow:
- *   browser (Supabase session) -> this function -> { token, expires_at }
- *   browser -> wss://<gateway>/ws/vision?token=<token>
+ * RunPod API key or the signing secret. Also returns the gateway URL so the
+ * frontend doesn't need it baked in at build time. Flow:
+ *   browser (Supabase session) -> this function -> { token, expires_at, ws_url }
+ *   browser -> ${ws_url}?token=<token>
  *
  * Token format (must match the Cloudflare gateway EXACTLY):
  *   payloadB64 = base64url(JSON.stringify(payload))            // no padding
@@ -14,9 +15,10 @@
  *   token      = payloadB64 + "." + sig
  *   payload    = { scope:"edgecrafter-stream", iat, exp, camera_id }
  *
- * Secrets (Supabase function env; NEVER returned or logged):
+ * Env (Supabase function env; the SIGNING_SECRET is NEVER returned or logged):
  *   STREAM_SESSION_SIGNING_SECRET   shared HMAC secret (also set on the gateway)
  *   STREAM_SESSION_TTL_SECONDS      optional, default 300
+ *   EDGECRAFT_STREAM_WS_URL         gateway WS URL returned to the client (null if unset)
  *   SUPABASE_URL / SUPABASE_ANON_KEY  auto-provided; used to verify the caller
  */
 
@@ -101,6 +103,9 @@ Deno.serve(async (req: Request) => {
     secret,
   );
 
-  // Never return/log the secret or any RunPod key.
-  return json({ token, expires_at: new Date(exp * 1000).toISOString() });
+  // Gateway URL comes from env (no hardcoded fallback); null when unset.
+  const wsUrl = Deno.env.get("EDGECRAFT_STREAM_WS_URL") ?? null;
+
+  // Never return/log the signing secret or any RunPod key.
+  return json({ token, expires_at: new Date(exp * 1000).toISOString(), ws_url: wsUrl });
 });

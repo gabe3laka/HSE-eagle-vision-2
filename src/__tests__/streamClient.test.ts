@@ -32,27 +32,20 @@ describe("EdgeCrafter stream mode (beta)", () => {
     det.stop();
   });
 
-  it("reports 'not configured' when no stream URL is set", async () => {
+  it("is 'configured' without an env URL (gateway URL comes from the session)", async () => {
     const { BackendVisionStreamClient } =
       await import("../lib/detection/backendVisionStreamClient");
     const c = new BackendVisionStreamClient({ url: null });
-    expect(c.configured).toBe(false);
-    expect(c.getState().state).toBe("unconfigured");
-
+    expect(c.configured).toBe(true); // no longer gated on VITE_EDGECRAFT_STREAM_WS_URL
     const { BackendVisionStreamDetector } =
       await import("../lib/detection/backendVisionStreamDetector");
     const det = new BackendVisionStreamDetector(c);
-    await det.start();
     const st = det.getBackendStatus();
     expect(st.transport).toBe("ws");
-    expect(st.wsConfigured).toBe(false);
-    expect(st.streamState).toBe("unconfigured");
-    expect(st.error).toBe("stream_url_not_configured");
-    // dry-run: still no observations even when unconfigured
+    // dry-run before start: no observations
     expect(det.detect({ video: null, timestamp: 0, enabledHazards: [], sensitivity: 0.5 })).toEqual(
       [],
     );
-    det.stop();
   });
 
   it("parses connected/warming/ready", async () => {
@@ -186,7 +179,7 @@ describe("EdgeCrafter stream mode (beta)", () => {
   });
 });
 
-describe("EdgeCrafter stream — Supabase token flow + frontend secret safety", () => {
+describe("EdgeCrafter stream — Supabase session flow + frontend secret safety", () => {
   function fakeSocket(): StreamSocketLike {
     return {
       readyState: 1,
@@ -199,39 +192,18 @@ describe("EdgeCrafter stream — Supabase token flow + frontend secret safety", 
     };
   }
   const flush = () => new Promise((r) => setTimeout(r, 0));
+  const session = (token: string, wsUrl: string | null) => ({ token, wsUrl, expiresAt: null });
 
-  it("missing stream URL does not request a token or connect", async () => {
-    const { BackendVisionStreamClient } =
-      await import("../lib/detection/backendVisionStreamClient");
-    const order: string[] = [];
-    const c = new BackendVisionStreamClient({
-      url: null,
-      tokenProvider: async () => {
-        order.push("token");
-        return "tok";
-      },
-      webSocketFactory: (u) => {
-        order.push(`ws:${u}`);
-        return fakeSocket();
-      },
-    });
-    c.connect();
-    await flush();
-    await flush();
-    expect(order).toEqual([]); // never fetched a token, never opened a socket
-    expect(c.getState().state).toBe("unconfigured");
-  });
-
-  it("requests a token BEFORE connecting and opens the gateway with ?token=", async () => {
+  it("requests a session BEFORE connecting and opens the returned ws_url with ?token=", async () => {
     const { BackendVisionStreamClient } =
       await import("../lib/detection/backendVisionStreamClient");
     const order: string[] = [];
     const openedUrls: string[] = [];
     const c = new BackendVisionStreamClient({
-      url: "wss://gw.example/ws/vision",
+      url: null, // no dev override -> URL must come from the session response
       tokenProvider: async (cameraId) => {
-        order.push(`token:${cameraId}`);
-        return "tok.sig";
+        order.push(`session:${cameraId}`);
+        return session("tok.sig", "wss://gw.example/ws/vision");
       },
       webSocketFactory: (u) => {
         order.push("ws");
@@ -242,16 +214,74 @@ describe("EdgeCrafter stream — Supabase token flow + frontend secret safety", 
     c.connect();
     await flush();
     await flush();
-    expect(order).toEqual(["token:browser-test", "ws"]); // token minted before socket
+    expect(order).toEqual(["session:browser-test", "ws"]); // session minted before socket
     expect(openedUrls).toEqual(["wss://gw.example/ws/vision?token=tok.sig"]);
   });
 
-  it("token failure -> state error / stream_token_failed, no socket opened", async () => {
+  it("uses the VITE_EDGECRAFT_STREAM_WS_URL dev override instead of the session ws_url", async () => {
+    const { BackendVisionStreamClient } =
+      await import("../lib/detection/backendVisionStreamClient");
+    const openedUrls: string[] = [];
+    const c = new BackendVisionStreamClient({
+      url: "wss://override.example/ws/vision",
+      tokenProvider: async () => session("tok", "wss://from-session.example/ws/vision"),
+      webSocketFactory: (u) => {
+        openedUrls.push(u);
+        return fakeSocket();
+      },
+    });
+    c.connect();
+    await flush();
+    await flush();
+    expect(openedUrls).toEqual(["wss://override.example/ws/vision?token=tok"]);
+  });
+
+  it("missing ws_url (and no dev override) -> stream_url_not_returned, no socket", async () => {
     const { BackendVisionStreamClient } =
       await import("../lib/detection/backendVisionStreamClient");
     let wsCalls = 0;
     const c = new BackendVisionStreamClient({
-      url: "wss://gw.example/ws/vision",
+      url: null,
+      tokenProvider: async () => session("tok", null),
+      webSocketFactory: () => {
+        wsCalls += 1;
+        return fakeSocket();
+      },
+    });
+    c.connect();
+    await flush();
+    await flush();
+    expect(wsCalls).toBe(0);
+    expect(c.getState().state).toBe("error");
+    expect(c.getState().lastError).toBe("stream_url_not_returned");
+  });
+
+  it("missing token -> stream_token_failed, no socket", async () => {
+    const { BackendVisionStreamClient } =
+      await import("../lib/detection/backendVisionStreamClient");
+    let wsCalls = 0;
+    const c = new BackendVisionStreamClient({
+      url: null,
+      tokenProvider: async () => session("", "wss://gw.example/ws/vision"),
+      webSocketFactory: () => {
+        wsCalls += 1;
+        return fakeSocket();
+      },
+    });
+    c.connect();
+    await flush();
+    await flush();
+    expect(wsCalls).toBe(0);
+    expect(c.getState().state).toBe("error");
+    expect(c.getState().lastError).toBe("stream_token_failed");
+  });
+
+  it("session creation failure -> state error / stream_token_failed, no socket", async () => {
+    const { BackendVisionStreamClient } =
+      await import("../lib/detection/backendVisionStreamClient");
+    let wsCalls = 0;
+    const c = new BackendVisionStreamClient({
+      url: null,
       tokenProvider: async () => {
         throw new Error("boom");
       },
@@ -268,12 +298,12 @@ describe("EdgeCrafter stream — Supabase token flow + frontend secret safety", 
     expect(c.getState().lastError).toBe("stream_token_failed");
   });
 
-  it("not authenticated -> lastError not_authenticated, no socket opened", async () => {
+  it("not authenticated -> lastError not_authenticated, no socket", async () => {
     const { BackendVisionStreamClient, StreamAuthError } =
       await import("../lib/detection/backendVisionStreamClient");
     let wsCalls = 0;
     const c = new BackendVisionStreamClient({
-      url: "wss://gw.example/ws/vision",
+      url: null,
       tokenProvider: async () => {
         throw new StreamAuthError();
       },
@@ -288,6 +318,29 @@ describe("EdgeCrafter stream — Supabase token flow + frontend secret safety", 
     expect(wsCalls).toBe(0);
     expect(c.getState().state).toBe("error");
     expect(c.getState().lastError).toBe("not_authenticated");
+  });
+
+  it("detector surfaces stream_url_not_returned and stays dry-run ([])", async () => {
+    const { BackendVisionStreamClient } =
+      await import("../lib/detection/backendVisionStreamClient");
+    const { BackendVisionStreamDetector } =
+      await import("../lib/detection/backendVisionStreamDetector");
+    const c = new BackendVisionStreamClient({
+      url: null,
+      tokenProvider: async () => session("tok", null),
+      webSocketFactory: () => fakeSocket(),
+    });
+    const det = new BackendVisionStreamDetector(c);
+    await det.start();
+    await flush();
+    await flush();
+    const st = det.getBackendStatus();
+    expect(st.transport).toBe("ws");
+    expect(st.error).toBe("stream_url_not_returned");
+    expect(det.detect({ video: null, timestamp: 0, enabledHazards: [], sensitivity: 0.5 })).toEqual(
+      [],
+    );
+    det.stop();
   });
 
   it("buildStreamUrl appends ?token= (URL-encoded)", async () => {
