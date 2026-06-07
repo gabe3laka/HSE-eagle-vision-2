@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/own-client";
 import { BUILD_MARKER, buildTime } from "@/lib/buildInfo";
 
-/** Readout of the EdgeCrafter backend dry-run state (shown in backend-deimv2 mode). */
+/** Readout of the EdgeCrafter backend — HTTP dry-run or WebSocket stream (beta). */
 function BackendDebugPanel({
   status,
   entities,
@@ -28,10 +28,14 @@ function BackendDebugPanel({
 }) {
   const firstEntity = entities[0];
   const firstPose = poses[0];
+  const isStream = status.transport === "ws";
+  const fmt = (v?: number | null) => (v != null ? `${v}` : "—");
   return (
     <div className="rounded-xl border border-border bg-card/70 p-3 font-mono text-[11px] leading-relaxed">
       <div className="mb-2 flex items-center justify-between">
-        <span className="font-semibold">backend · {status.state}</span>
+        <span className="font-semibold">
+          backend · {isStream ? (status.streamState ?? status.state) : status.state}
+        </span>
         <span className={status.inFlight ? "text-amber-500" : "text-muted-foreground"}>
           {status.inFlight ? "in-flight" : "idle"} · {status.entityCount} ent · {status.poseCount}{" "}
           pose
@@ -39,20 +43,50 @@ function BackendDebugPanel({
       </div>
       <div className="space-y-0.5 text-muted-foreground">
         <div>
+          transport:{" "}
+          <span className="text-foreground">
+            {isStream ? "WebSocket stream (beta)" : "HTTP dry-run"}
+          </span>
+          {isStream && <> · ws url: {status.wsConfigured ? "configured" : "not configured"}</>}
+        </div>
+        <div>
           backend: {status.backend ?? "—"} · tasks: {status.tasks?.join(",") ?? "—"}
         </div>
-        <div>detector: BackendVisionDetector · mode backend-deimv2</div>
         <div>
-          requests: {status.requestCount} · responses: {status.responseCount}
+          detector: {isStream ? "BackendVisionStreamDetector" : "BackendVisionDetector"} · mode{" "}
+          {isStream ? "backend-edgecrafter-stream" : "backend-deimv2"}
         </div>
-        <div>
-          video: {status.videoWidth}×{status.videoHeight} · jpeg b64: {status.lastB64Bytes} B
-        </div>
+        {isStream ? (
+          <>
+            <div>
+              frames sent: {status.requestCount} · vision msgs: {status.responseCount} · dropped:{" "}
+              {fmt(status.droppedFrames)} · queue: {fmt(status.currentQueueDepth)}
+            </div>
+            <div>
+              received: {fmt(status.receivedFps)} fps · processed: {fmt(status.processedFps)} fps
+            </div>
+            <div>
+              avg inference:{" "}
+              {status.lastInferenceMs != null ? `${Math.round(status.lastInferenceMs)} ms` : "—"} ·
+              avg latency:{" "}
+              {status.avgEndToEndLatencyMs != null ? `${status.avgEndToEndLatencyMs} ms` : "—"}
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              requests: {status.requestCount} · responses: {status.responseCount}
+            </div>
+            <div>
+              video: {status.videoWidth}×{status.videoHeight} · jpeg b64: {status.lastB64Bytes} B
+            </div>
+            <div>
+              last inference:{" "}
+              {status.lastInferenceMs != null ? `${Math.round(status.lastInferenceMs)} ms` : "—"}
+            </div>
+          </>
+        )}
         <div>model: {status.model ?? "—"}</div>
-        <div>
-          last inference:{" "}
-          {status.lastInferenceMs != null ? `${Math.round(status.lastInferenceMs)} ms` : "—"}
-        </div>
         <div>
           last success:{" "}
           {status.lastSuccessAt ? new Date(status.lastSuccessAt).toLocaleTimeString() : "—"}
@@ -76,14 +110,31 @@ function BackendDebugPanel({
           </div>
         )}
       </div>
-      {/* Transport note — this dry-run pipeline is HTTP-only today. */}
-      <div className="mt-2 border-t border-border/60 pt-2 text-[10px] not-italic text-muted-foreground">
-        <span className="font-semibold text-foreground">HTTP dry-run mode.</span> Frames go to the
-        worker over HTTP via the Supabase <code>deimv2-proxy</code>. WebSocket streaming is{" "}
-        <span className="font-semibold">not enabled yet</span>. The worker&rsquo;s{" "}
-        <code>/ws/echo</code> is only a connectivity probe (not used by this frontend); the real{" "}
-        <code>/ws/vision</code> streaming route will be added later, once worker support exists.
-      </div>
+      {/* Transport note. */}
+      {isStream ? (
+        <div className="mt-2 border-t border-border/60 pt-2 text-[10px] not-italic text-muted-foreground">
+          {status.wsConfigured ? (
+            <>
+              <span className="font-semibold text-foreground">WebSocket stream (beta).</span> Frames
+              stream to <code>VITE_EDGECRAFT_STREAM_WS_URL</code>; the browser never sends a RunPod
+              API key. HTTP dry-run remains available as a fallback.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-amber-500">Stream URL not configured.</span> Set{" "}
+              <code>VITE_EDGECRAFT_STREAM_WS_URL</code> to a public stream gateway to enable
+              streaming. Until then, use &ldquo;EdgeCrafter backend — dry run&rdquo; (HTTP).
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="mt-2 border-t border-border/60 pt-2 text-[10px] not-italic text-muted-foreground">
+          <span className="font-semibold text-foreground">HTTP dry-run mode.</span> Frames go to the
+          worker over HTTP via the Supabase <code>deimv2-proxy</code>. The worker&rsquo;s{" "}
+          <code>/ws/echo</code> is only a connectivity probe; the real <code>/ws/vision</code>{" "}
+          streaming route is the separate &ldquo;EdgeCrafter stream — beta&rdquo; mode.
+        </div>
+      )}
     </div>
   );
 }
@@ -127,6 +178,13 @@ export default function Live() {
   });
 
   const topAlert = useMemo(() => alerts.find((a) => a.isIncident) ?? null, [alerts]);
+
+  // Both EdgeCrafter modes (HTTP dry-run + WebSocket stream beta) share the same
+  // dry-run overlays + debug panel. The single-frame test button is HTTP-only.
+  const isBackendMode =
+    config.detectionMode === "backend-deimv2" ||
+    config.detectionMode === "backend-edgecrafter-stream";
+  const isHttpDryRun = config.detectionMode === "backend-deimv2";
 
   const handleStart = useCallback(async () => {
     if (!active) await startCamera();
@@ -195,7 +253,7 @@ export default function Live() {
             showSkeleton={import.meta.env.DEV}
             backendEntities={backendEntities as BackendEntity[]}
             backendPoses={backendPoses as BackendPose[]}
-            backendDryRun={config.detectionMode === "backend-deimv2"}
+            backendDryRun={isBackendMode}
             zones={zones}
             editingZones={editingZones}
             onZoneCreate={(points) =>
@@ -296,10 +354,11 @@ export default function Live() {
 
           {import.meta.env.DEV && debug && <PoseDebugPanel debug={debug} perf={perf} />}
 
-          {/* EdgeCrafter dry-run debug — visible whenever backend-deimv2 mode is
-              selected (not gated to dev builds) so the pipeline is observable in
-              the deployed app. Dry-run only: no alerts, no incidents. */}
-          {config.detectionMode === "backend-deimv2" && (
+          {/* EdgeCrafter dry-run debug — visible in either EdgeCrafter mode (HTTP
+              dry-run or WebSocket stream beta), not gated to dev builds so the
+              pipeline is observable in the deployed app. Dry-run only: no alerts,
+              no incidents. */}
+          {isBackendMode && (
             <div className="space-y-2">
               {backendStatus != null && (
                 <BackendDebugPanel
@@ -308,42 +367,44 @@ export default function Live() {
                   poses={backendPoses as BackendPose[]}
                 />
               )}
-              <div className="rounded-xl border border-border bg-background/40 p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">
-                    EdgeCrafter dry-run · single-frame test
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={testBackendFrame}
-                    disabled={!active || backendTesting}
-                  >
-                    {backendTesting ? "Testing…" : "Test EdgeCrafter frame"}
-                  </Button>
-                </div>
-                {(backendTestImg || backendTest) && (
-                  <div className="mt-2 space-y-2">
-                    {backendTestImg && (
-                      <div>
-                        <div className="mb-1 text-[10px] text-muted-foreground">
-                          captured frame sent to /detect (check it isn't black/blank/rotated):
-                        </div>
-                        <img
-                          src={backendTestImg}
-                          alt="captured frame"
-                          className="max-h-40 rounded border border-border"
-                        />
-                      </div>
-                    )}
-                    {backendTest && (
-                      <pre className="max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[10px] leading-snug">
-                        {backendTest}
-                      </pre>
-                    )}
+              {isHttpDryRun && (
+                <div className="rounded-xl border border-border bg-background/40 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      EdgeCrafter dry-run · single-frame test
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={testBackendFrame}
+                      disabled={!active || backendTesting}
+                    >
+                      {backendTesting ? "Testing…" : "Test EdgeCrafter frame"}
+                    </Button>
                   </div>
-                )}
-              </div>
+                  {(backendTestImg || backendTest) && (
+                    <div className="mt-2 space-y-2">
+                      {backendTestImg && (
+                        <div>
+                          <div className="mb-1 text-[10px] text-muted-foreground">
+                            captured frame sent to /detect (check it isn't black/blank/rotated):
+                          </div>
+                          <img
+                            src={backendTestImg}
+                            alt="captured frame"
+                            className="max-h-40 rounded border border-border"
+                          />
+                        </div>
+                      )}
+                      {backendTest && (
+                        <pre className="max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[10px] leading-snug">
+                          {backendTest}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

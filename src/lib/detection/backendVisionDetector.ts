@@ -89,7 +89,28 @@ export interface BackendStatus {
   videoHeight: number;
   lastB64Bytes: number;
   lastRawResponse: string | null; // truncated raw JSON for the debug panel
+  // Transport discriminator + optional WebSocket-stream metrics. The HTTP
+  // dry-run detector reports "http" and leaves the stream fields undefined; the
+  // WebSocket stream detector reports "ws" and fills them in.
+  transport: "http" | "ws";
+  wsConfigured?: boolean;
+  streamState?: StreamState;
+  receivedFps?: number | null;
+  processedFps?: number | null;
+  droppedFrames?: number | null;
+  currentQueueDepth?: number | null;
+  avgEndToEndLatencyMs?: number | null;
 }
+
+/** Lifecycle of the optional WebSocket stream transport (beta). */
+export type StreamState =
+  | "unconfigured" // no VITE_EDGECRAFT_STREAM_WS_URL configured
+  | "connecting"
+  | "connected"
+  | "warming"
+  | "ready"
+  | "error"
+  | "closed";
 
 function emptyStatus(state: BackendStatus["state"]): BackendStatus {
   return {
@@ -110,6 +131,7 @@ function emptyStatus(state: BackendStatus["state"]): BackendStatus {
     videoHeight: 0,
     lastB64Bytes: 0,
     lastRawResponse: null,
+    transport: "http",
   };
 }
 

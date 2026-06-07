@@ -67,9 +67,11 @@ export default function Settings() {
       <section className="glass-panel rounded-2xl border p-5">
         <h2 className="font-display text-sm font-semibold">Detection engine</h2>
         <p className="mb-4 text-xs text-muted-foreground">
-          Three modes: Simulated drives the demo. Pose (beta) uses your camera with MediaPipe to
+          Four modes: Simulated drives the demo. Pose (beta) uses your camera with MediaPipe to
           detect real unsafe lifting on-device. EdgeCrafter backend (dry run) runs object detection
-          + pose on a backend and previews boxes/skeletons in a dry-run overlay only.
+          + pose on a backend over HTTP and previews boxes/skeletons in a dry-run overlay only.
+          EdgeCrafter stream (beta) does the same over a real-time WebSocket when a stream gateway
+          is configured.
         </p>
         <Select
           value={draft.detectionMode}
@@ -82,6 +84,7 @@ export default function Settings() {
             <SelectItem value="simulated">Simulated</SelectItem>
             <SelectItem value="pose-beta">Pose — unsafe lifting (beta)</SelectItem>
             <SelectItem value="backend-deimv2">EdgeCrafter backend — dry run</SelectItem>
+            <SelectItem value="backend-edgecrafter-stream">EdgeCrafter stream — beta</SelectItem>
           </SelectContent>
         </Select>
         {draft.detectionMode === "pose-beta" && (
@@ -94,6 +97,15 @@ export default function Settings() {
           <p className="mt-2 text-xs text-muted-foreground">
             EdgeCrafter backend via RunPod. Previews object boxes and pose skeletons in a dry-run
             overlay only — no safety alerts fire yet (Sprint 4A dry-run).
+          </p>
+        )}
+        {draft.detectionMode === "backend-edgecrafter-stream" && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Beta: streams camera frames to the EdgeCrafter worker over a WebSocket and previews
+            boxes/skeletons in real time — dry-run overlay only, no safety alerts. Needs a public
+            stream-gateway URL (<code>VITE_EDGECRAFT_STREAM_WS_URL</code>); without it you&rsquo;ll
+            see &ldquo;Stream URL not configured&rdquo; and can keep using the HTTP dry-run mode.
+            The browser never holds the RunPod API key.
           </p>
         )}
       </section>

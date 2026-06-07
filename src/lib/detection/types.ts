@@ -2,7 +2,11 @@ export type { HazardType, Severity } from "@/integrations/supabase/db";
 import type { HazardType, Severity } from "@/integrations/supabase/db";
 
 /** Which detector the live loop uses. */
-export type DetectionMode = "simulated" | "pose-beta" | "backend-deimv2";
+export type DetectionMode =
+  | "simulated"
+  | "pose-beta"
+  | "backend-deimv2"
+  | "backend-edgecrafter-stream";
 
 /** Bounding box, normalized to 0..1 relative to the video frame. */
 export interface BBox {
