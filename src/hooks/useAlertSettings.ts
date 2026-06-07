@@ -22,7 +22,12 @@ export const DEFAULT_ALERT_CONFIG: AlertConfig = {
   detectionMode: "simulated",
 };
 
-const VALID_MODES: DetectionMode[] = ["simulated", "pose-beta", "backend-deimv2"];
+const VALID_MODES: DetectionMode[] = [
+  "simulated",
+  "pose-beta",
+  "backend-deimv2",
+  "backend-edgecrafter-stream",
+];
 
 function coerceMode(v: unknown): DetectionMode {
   if (typeof v === "string" && (VALID_MODES as string[]).includes(v)) {

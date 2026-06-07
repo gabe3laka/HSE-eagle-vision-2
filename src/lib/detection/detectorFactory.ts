@@ -2,6 +2,7 @@ import type { Detector, DetectionMode } from "./types";
 import { SimulatedDetector } from "./simulatedDetector";
 import { RealPoseDetector } from "./realPoseDetector";
 import { BackendVisionDetector } from "./backendVisionDetector";
+import { BackendVisionStreamDetector } from "./backendVisionStreamDetector";
 
 /**
  * Returns the detector for the chosen mode. Every detector implements the same
@@ -11,7 +12,9 @@ import { BackendVisionDetector } from "./backendVisionDetector";
  * Modes:
  *  "simulated"       – SimulatedDetector (synthetic random hazards, default)
  *  "pose-beta"       – RealPoseDetector (MediaPipe Pose, in-browser)
- *  "backend-deimv2"  – BackendVisionDetector (DEIMv2 via RunPod, Sprint 4A dry-run)
+ *  "backend-deimv2"  – BackendVisionDetector (EdgeCrafter via RunPod, HTTP dry-run)
+ *  "backend-edgecrafter-stream"
+ *                    – BackendVisionStreamDetector (EdgeCrafter over WebSocket, beta)
  */
 export function createDetector(mode: DetectionMode): Detector {
   switch (mode) {
@@ -19,6 +22,8 @@ export function createDetector(mode: DetectionMode): Detector {
       return new RealPoseDetector();
     case "backend-deimv2":
       return new BackendVisionDetector();
+    case "backend-edgecrafter-stream":
+      return new BackendVisionStreamDetector();
     case "simulated":
     default:
       return new SimulatedDetector();
