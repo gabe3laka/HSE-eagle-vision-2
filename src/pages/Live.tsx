@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/own-client";
 import { BUILD_MARKER, buildTime } from "@/lib/buildInfo";
 
-/** Readout of the DEIMv2 backend dry-run state (shown in backend-deimv2 mode). */
+/** Readout of the EdgeCrafter backend dry-run state (shown in backend-deimv2 mode). */
 function BackendDebugPanel({
   status,
   entities,
@@ -75,6 +75,13 @@ function BackendDebugPanel({
             raw: {status.lastRawResponse}
           </div>
         )}
+      </div>
+      {/* Transport note — this dry-run pipeline is HTTP-only today. */}
+      <div className="mt-2 border-t border-border/60 pt-2 text-[10px] not-italic text-muted-foreground">
+        <span className="font-semibold text-foreground">HTTP dry-run mode.</span> Frames go to the
+        worker over HTTP via the Supabase <code>deimv2-proxy</code>. WebSocket streaming is{" "}
+        <span className="font-semibold">not enabled yet</span>. The worker&rsquo;s{" "}
+        <code>/ws/echo</code> is a worker-only connectivity probe and is not used by this frontend.
       </div>
     </div>
   );
@@ -288,7 +295,7 @@ export default function Live() {
 
           {import.meta.env.DEV && debug && <PoseDebugPanel debug={debug} perf={perf} />}
 
-          {/* DEIMv2 dry-run debug — visible whenever backend-deimv2 mode is
+          {/* EdgeCrafter dry-run debug — visible whenever backend-deimv2 mode is
               selected (not gated to dev builds) so the pipeline is observable in
               the deployed app. Dry-run only: no alerts, no incidents. */}
           {config.detectionMode === "backend-deimv2" && (
