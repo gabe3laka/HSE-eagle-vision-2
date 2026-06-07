@@ -81,7 +81,8 @@ function BackendDebugPanel({
         <span className="font-semibold text-foreground">HTTP dry-run mode.</span> Frames go to the
         worker over HTTP via the Supabase <code>deimv2-proxy</code>. WebSocket streaming is{" "}
         <span className="font-semibold">not enabled yet</span>. The worker&rsquo;s{" "}
-        <code>/ws/echo</code> is a worker-only connectivity probe and is not used by this frontend.
+        <code>/ws/echo</code> is only a connectivity probe (not used by this frontend); the real{" "}
+        <code>/ws/vision</code> streaming route will be added later, once worker support exists.
       </div>
     </div>
   );
