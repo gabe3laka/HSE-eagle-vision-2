@@ -1,5 +1,6 @@
 import type { BackendEntity, BackendPose } from "./types";
 import { normalizeEntities, normalizePoses, type StreamState } from "./backendVisionDetector";
+import { supabase } from "@/integrations/supabase/own-client";
 
 /**
  * BackendVisionStreamClient — browser-safe WebSocket client for the EdgeCrafter
@@ -26,6 +27,58 @@ const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 16000;
 const METRIC_WINDOW_MS = 3000; // rolling window for client-side fallback fps
 const SAMPLE_CAP = 60;
+const WS_OPEN = 1; // WebSocket.OPEN — decoupled from the global for testability
+
+/** Minimal socket surface so a fake can be injected in tests. The browser's
+ *  native WebSocket satisfies this structurally. */
+export interface StreamSocketLike {
+  onopen: ((ev?: unknown) => void) | null;
+  onmessage: ((ev: { data: unknown }) => void) | null;
+  onerror: ((ev?: unknown) => void) | null;
+  onclose: ((ev?: unknown) => void) | null;
+  readyState: number;
+  send(data: string): void;
+  close(): void;
+}
+export type StreamSocketFactory = (url: string) => StreamSocketLike;
+
+/** Provides a short-lived gateway session token. Throws StreamAuthError when the
+ *  user isn't authenticated, or a generic Error on any other failure. */
+export type StreamTokenProvider = (cameraId: string) => Promise<string>;
+
+/** Thrown when the session-token endpoint reports the user is not authenticated. */
+export class StreamAuthError extends Error {
+  constructor(message = "not_authenticated") {
+    super(message);
+    this.name = "StreamAuthError";
+  }
+}
+
+/** Append the short-lived session token to the gateway URL as `?token=`. */
+export function buildStreamUrl(base: string, token: string): string {
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Default token provider: asks the Supabase Edge Function `create-stream-session`
+ * (authenticated by the caller's Supabase session) for a short-lived token. The
+ * HMAC signing secret and the RunPod key stay server-side — only the minted token
+ * ever reaches the browser.
+ */
+async function defaultStreamTokenProvider(cameraId: string): Promise<string> {
+  const { data, error } = await supabase.functions.invoke("create-stream-session", {
+    body: { camera_id: cameraId },
+  });
+  if (error) {
+    const status = (error as { context?: { status?: number } }).context?.status;
+    if (status === 401) throw new StreamAuthError("not_authenticated");
+    throw new Error("stream_token_failed");
+  }
+  const token = (data as { token?: unknown } | null)?.token;
+  if (typeof token !== "string" || !token) throw new Error("stream_token_failed");
+  return token;
+}
 
 export interface StreamClientState {
   configured: boolean; // VITE_EDGECRAFT_STREAM_WS_URL present
@@ -69,7 +122,7 @@ export class BackendVisionStreamClient {
   readonly url: string | null;
   readonly cameraId: string;
 
-  private ws: WebSocket | null = null;
+  private ws: StreamSocketLike | null = null;
   private running = false;
   private frameId = 0;
   private reconnectAttempts = 0;
@@ -119,9 +172,19 @@ export class BackendVisionStreamClient {
     lastRawResponse: string | null;
   };
 
-  constructor(opts?: { url?: string | null; cameraId?: string }) {
+  private readonly tokenProvider: StreamTokenProvider;
+  private readonly wsFactory: StreamSocketFactory | null;
+
+  constructor(opts?: {
+    url?: string | null;
+    cameraId?: string;
+    tokenProvider?: StreamTokenProvider;
+    webSocketFactory?: StreamSocketFactory;
+  }) {
     this.url = opts && "url" in opts ? (opts.url ?? null) : readEnvUrl();
     this.cameraId = opts?.cameraId ?? "browser-test";
+    this.tokenProvider = opts?.tokenProvider ?? defaultStreamTokenProvider;
+    this.wsFactory = opts?.webSocketFactory ?? null;
     this.s = {
       state: this.url ? "closed" : "unconfigured",
       backend: null,
@@ -182,31 +245,75 @@ export class BackendVisionStreamClient {
     };
   }
 
-  /** Open the socket (no-op when unconfigured or outside a browser). */
+  /** Begin connecting: mint a token, then open the socket. Safe no-op when
+   *  unconfigured or when no WebSocket is available. */
   connect(): void {
     this.running = true;
     if (!this.url) {
       this.s.state = "unconfigured";
+      this.s.lastError = null;
       return;
     }
-    if (typeof WebSocket === "undefined") {
+    if (!this.wsFactory && typeof WebSocket === "undefined") {
       this.s.state = "error";
       this.s.lastError = "websocket_unavailable";
       return;
     }
-    this._open();
+    void this._openWithToken();
   }
 
-  private _open(): void {
-    if (!this.url || typeof WebSocket === "undefined") return;
+  /** Fetch a short-lived session token (Supabase), then open the gateway socket
+   *  with `?token=`. Never carries a RunPod key or the signing secret. */
+  private async _openWithToken(): Promise<void> {
+    if (!this.url) return;
+    this.s.state = "connecting";
+    let token: string;
     try {
-      this.s.state = "connecting";
-      const ws = new WebSocket(this.url);
+      token = await this.tokenProvider(this.cameraId);
+    } catch (e) {
+      if (!this.running) return;
+      this.s.state = "error";
+      this.s.errorCount += 1;
+      if (e instanceof StreamAuthError) {
+        // User isn't signed in — don't hammer the endpoint; wait for a re-start.
+        this.s.lastError = "not_authenticated";
+      } else {
+        this.s.lastError = "stream_token_failed";
+        this._scheduleReconnect();
+      }
+      return;
+    }
+    if (!this.running) return; // stopped while the token was in flight
+    if (!token) {
+      this.s.state = "error";
+      this.s.lastError = "stream_token_failed";
+      this.s.errorCount += 1;
+      this._scheduleReconnect();
+      return;
+    }
+    this._open(token);
+  }
+
+  private _newSocket(url: string): StreamSocketLike | null {
+    if (this.wsFactory) return this.wsFactory(url);
+    if (typeof WebSocket === "undefined") return null;
+    return new WebSocket(url) as unknown as StreamSocketLike;
+  }
+
+  private _open(token: string): void {
+    if (!this.url) return;
+    try {
+      const ws = this._newSocket(buildStreamUrl(this.url, token));
+      if (!ws) {
+        this.s.state = "error";
+        this.s.lastError = "websocket_unavailable";
+        return;
+      }
       this.ws = ws;
       ws.onopen = () => {
         this.reconnectAttempts = 0; // wait for the server's "connected" frame
       };
-      ws.onmessage = (ev: MessageEvent) => {
+      ws.onmessage = (ev) => {
         this.handleMessage(typeof ev.data === "string" ? ev.data : "");
       };
       ws.onerror = () => {
@@ -231,7 +338,7 @@ export class BackendVisionStreamClient {
     this.reconnectAttempts += 1;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      if (this.running) this._open();
+      if (this.running) void this._openWithToken();
     }, delay);
   }
 
@@ -325,7 +432,7 @@ export class BackendVisionStreamClient {
   sendFrameFromVideo(video: HTMLVideoElement): boolean {
     if (!this.running || !this.url || typeof document === "undefined") return false;
     const ws = this.ws;
-    if (!ws || typeof WebSocket === "undefined" || ws.readyState !== WebSocket.OPEN) return false;
+    if (!ws || ws.readyState !== WS_OPEN) return false;
     if (!this.canvas) {
       this.canvas = document.createElement("canvas");
       this.canvas.width = STREAM_CAPTURE_WIDTH;
@@ -346,7 +453,7 @@ export class BackendVisionStreamClient {
   /** Send a base64 JPEG frame over the socket. Never includes any API key. */
   sendFrame(frame_b64: string): boolean {
     const ws = this.ws;
-    if (!ws || typeof WebSocket === "undefined" || ws.readyState !== WebSocket.OPEN) return false;
+    if (!ws || ws.readyState !== WS_OPEN) return false;
     const id = ++this.frameId;
     const payload = {
       type: "frame",

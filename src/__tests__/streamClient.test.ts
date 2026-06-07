@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import type { StreamSocketLike } from "../lib/detection/backendVisionStreamClient";
 
 const VISION = JSON.stringify({
   type: "vision",
@@ -180,5 +183,142 @@ describe("EdgeCrafter stream mode (beta)", () => {
       [],
     );
     det.stop();
+  });
+});
+
+describe("EdgeCrafter stream — Supabase token flow + frontend secret safety", () => {
+  function fakeSocket(): StreamSocketLike {
+    return {
+      readyState: 1,
+      onopen: null,
+      onmessage: null,
+      onerror: null,
+      onclose: null,
+      send() {},
+      close() {},
+    };
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it("missing stream URL does not request a token or connect", async () => {
+    const { BackendVisionStreamClient } =
+      await import("../lib/detection/backendVisionStreamClient");
+    const order: string[] = [];
+    const c = new BackendVisionStreamClient({
+      url: null,
+      tokenProvider: async () => {
+        order.push("token");
+        return "tok";
+      },
+      webSocketFactory: (u) => {
+        order.push(`ws:${u}`);
+        return fakeSocket();
+      },
+    });
+    c.connect();
+    await flush();
+    await flush();
+    expect(order).toEqual([]); // never fetched a token, never opened a socket
+    expect(c.getState().state).toBe("unconfigured");
+  });
+
+  it("requests a token BEFORE connecting and opens the gateway with ?token=", async () => {
+    const { BackendVisionStreamClient } =
+      await import("../lib/detection/backendVisionStreamClient");
+    const order: string[] = [];
+    const openedUrls: string[] = [];
+    const c = new BackendVisionStreamClient({
+      url: "wss://gw.example/ws/vision",
+      tokenProvider: async (cameraId) => {
+        order.push(`token:${cameraId}`);
+        return "tok.sig";
+      },
+      webSocketFactory: (u) => {
+        order.push("ws");
+        openedUrls.push(u);
+        return fakeSocket();
+      },
+    });
+    c.connect();
+    await flush();
+    await flush();
+    expect(order).toEqual(["token:browser-test", "ws"]); // token minted before socket
+    expect(openedUrls).toEqual(["wss://gw.example/ws/vision?token=tok.sig"]);
+  });
+
+  it("token failure -> state error / stream_token_failed, no socket opened", async () => {
+    const { BackendVisionStreamClient } =
+      await import("../lib/detection/backendVisionStreamClient");
+    let wsCalls = 0;
+    const c = new BackendVisionStreamClient({
+      url: "wss://gw.example/ws/vision",
+      tokenProvider: async () => {
+        throw new Error("boom");
+      },
+      webSocketFactory: () => {
+        wsCalls += 1;
+        return fakeSocket();
+      },
+    });
+    c.connect();
+    await flush();
+    await flush();
+    expect(wsCalls).toBe(0);
+    expect(c.getState().state).toBe("error");
+    expect(c.getState().lastError).toBe("stream_token_failed");
+  });
+
+  it("not authenticated -> lastError not_authenticated, no socket opened", async () => {
+    const { BackendVisionStreamClient, StreamAuthError } =
+      await import("../lib/detection/backendVisionStreamClient");
+    let wsCalls = 0;
+    const c = new BackendVisionStreamClient({
+      url: "wss://gw.example/ws/vision",
+      tokenProvider: async () => {
+        throw new StreamAuthError();
+      },
+      webSocketFactory: () => {
+        wsCalls += 1;
+        return fakeSocket();
+      },
+    });
+    c.connect();
+    await flush();
+    await flush();
+    expect(wsCalls).toBe(0);
+    expect(c.getState().state).toBe("error");
+    expect(c.getState().lastError).toBe("not_authenticated");
+  });
+
+  it("buildStreamUrl appends ?token= (URL-encoded)", async () => {
+    const { buildStreamUrl } = await import("../lib/detection/backendVisionStreamClient");
+    expect(buildStreamUrl("wss://gw.example/ws/vision", "a.b.c")).toBe(
+      "wss://gw.example/ws/vision?token=a.b.c",
+    );
+    const withQuery = buildStreamUrl("wss://gw.example/ws/vision?x=1", "t k");
+    expect(withQuery).toContain("x=1");
+    expect(withQuery).toContain("token=t%20k");
+  });
+
+  it("frontend src/ contains no RunPod key or signing-secret references", () => {
+    const forbidden = ["RUNPOD_API_KEY", "STREAM_SESSION_SIGNING_SECRET", "rpa_"];
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const p = join(dir, name);
+        if (statSync(p).isDirectory()) {
+          walk(p);
+        } else if (
+          /\.(ts|tsx|js|jsx)$/.test(name) &&
+          !p.includes("__tests__") &&
+          !name.includes(".test.")
+        ) {
+          const text = readFileSync(p, "utf8");
+          for (const bad of forbidden) if (text.includes(bad)) offenders.push(`${p} :: ${bad}`);
+        }
+      }
+    };
+    walk(join(process.cwd(), "src"));
+    expect(offenders).toEqual([]);
   });
 });

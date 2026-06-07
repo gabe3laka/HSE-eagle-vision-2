@@ -116,8 +116,9 @@ function BackendDebugPanel({
           {status.wsConfigured ? (
             <>
               <span className="font-semibold text-foreground">WebSocket stream (beta).</span> Frames
-              stream to <code>VITE_EDGECRAFT_STREAM_WS_URL</code>; the browser never sends a RunPod
-              API key. HTTP dry-run remains available as a fallback.
+              stream to <code>VITE_EDGECRAFT_STREAM_WS_URL</code>, authenticated with a short-lived
+              Supabase-issued session token (<code>?token=</code>). The browser never holds the
+              RunPod API key or the signing secret. HTTP dry-run remains available as a fallback.
             </>
           ) : (
             <>
