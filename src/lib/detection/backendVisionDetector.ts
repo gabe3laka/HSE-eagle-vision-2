@@ -89,10 +89,11 @@ export interface BackendStatus {
   videoHeight: number;
   lastB64Bytes: number;
   lastRawResponse: string | null; // truncated raw JSON for the debug panel
-  // Transport discriminator + optional WebSocket-stream metrics. The HTTP
-  // dry-run detector reports "http" and leaves the stream fields undefined; the
-  // WebSocket stream detector reports "ws" and fills them in.
-  transport: "http" | "ws";
+  // Transport discriminator + optional per-transport metrics. The legacy HTTP
+  // dry-run detector (via Supabase proxy) reports "http"; the WebSocket stream
+  // detector reports "ws" and fills in the stream fields; the fast Cloudflare
+  // HTTP detector reports "http-cloudflare" and fills in targetFps/lastLatencyMs.
+  transport: "http" | "ws" | "http-cloudflare";
   wsConfigured?: boolean;
   streamState?: StreamState;
   receivedFps?: number | null;
@@ -100,6 +101,9 @@ export interface BackendStatus {
   droppedFrames?: number | null;
   currentQueueDepth?: number | null;
   avgEndToEndLatencyMs?: number | null;
+  // Fast Cloudflare HTTP transport extras.
+  targetFps?: number | null; // requested frame cadence (~3 FPS)
+  lastLatencyMs?: number | null; // last request round-trip (wall-clock), ms
 }
 
 /** Lifecycle of the optional WebSocket stream transport (beta). */

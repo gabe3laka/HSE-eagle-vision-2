@@ -10,13 +10,14 @@ import { AlertFeed } from "@/components/live/AlertFeed";
 import { SessionControls } from "@/components/live/SessionControls";
 import { PoseDebugPanel } from "@/components/live/PoseDebugPanel";
 import type { BackendStatus } from "@/lib/detection/backendVisionDetector";
+import { postDetectFrame } from "@/lib/detection/backendVisionHttpDetector";
 import type { BackendEntity, BackendPose } from "@/lib/detection/types";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/own-client";
 import { BUILD_MARKER, buildTime } from "@/lib/buildInfo";
 
-/** Readout of the EdgeCrafter backend — HTTP dry-run or WebSocket stream (beta). */
+/** Readout of the EdgeCrafter backend — fast Cloudflare HTTP, legacy HTTP dry-run, or WebSocket stream. */
 function BackendDebugPanel({
   status,
   entities,
@@ -29,7 +30,24 @@ function BackendDebugPanel({
   const firstEntity = entities[0];
   const firstPose = poses[0];
   const isStream = status.transport === "ws";
+  const isCloudflare = status.transport === "http-cloudflare";
   const fmt = (v?: number | null) => (v != null ? `${v}` : "—");
+  const ms = (v?: number | null) => (v != null ? `${Math.round(v)} ms` : "—");
+  const transportLabel = isStream
+    ? "WebSocket stream (beta)"
+    : isCloudflare
+      ? "http-cloudflare"
+      : "HTTP dry-run";
+  const detectorName = isStream
+    ? "BackendVisionStreamDetector"
+    : isCloudflare
+      ? "BackendVisionHttpDetector"
+      : "BackendVisionDetector";
+  const modeName = isStream
+    ? "backend-edgecrafter-stream"
+    : isCloudflare
+      ? "backend-edgecrafter-http"
+      : "backend-deimv2";
   return (
     <div className="rounded-xl border border-border bg-card/70 p-3 font-mono text-[11px] leading-relaxed">
       <div className="mb-2 flex items-center justify-between">
@@ -43,19 +61,15 @@ function BackendDebugPanel({
       </div>
       <div className="space-y-0.5 text-muted-foreground">
         <div>
-          transport:{" "}
-          <span className="text-foreground">
-            {isStream ? "WebSocket stream (beta)" : "HTTP dry-run"}
-          </span>
+          transport: <span className="text-foreground">{transportLabel}</span>
         </div>
         <div>
           backend: {status.backend ?? "—"} · tasks: {status.tasks?.join(",") ?? "—"}
         </div>
         <div>
-          detector: {isStream ? "BackendVisionStreamDetector" : "BackendVisionDetector"} · mode{" "}
-          {isStream ? "backend-edgecrafter-stream" : "backend-deimv2"}
+          detector: {detectorName} · mode {modeName}
         </div>
-        {isStream ? (
+        {isStream && (
           <>
             <div>
               frames sent: {status.requestCount} · vision msgs: {status.responseCount} · dropped:{" "}
@@ -65,13 +79,27 @@ function BackendDebugPanel({
               received: {fmt(status.receivedFps)} fps · processed: {fmt(status.processedFps)} fps
             </div>
             <div>
-              avg inference:{" "}
-              {status.lastInferenceMs != null ? `${Math.round(status.lastInferenceMs)} ms` : "—"} ·
-              avg latency:{" "}
+              avg inference: {ms(status.lastInferenceMs)} · avg latency:{" "}
               {status.avgEndToEndLatencyMs != null ? `${status.avgEndToEndLatencyMs} ms` : "—"}
             </div>
           </>
-        ) : (
+        )}
+        {isCloudflare && (
+          <>
+            <div>
+              target: {fmt(status.targetFps)} fps · requests: {status.requestCount} · responses:{" "}
+              {status.responseCount}
+            </div>
+            <div>
+              video: {status.videoWidth}×{status.videoHeight} · jpeg b64: {status.lastB64Bytes} B
+            </div>
+            <div>
+              latency: {ms(status.lastLatencyMs)} (round-trip) · inference:{" "}
+              {ms(status.lastInferenceMs)}
+            </div>
+          </>
+        )}
+        {!isStream && !isCloudflare && (
           <>
             <div>
               requests: {status.requestCount} · responses: {status.responseCount}
@@ -79,10 +107,7 @@ function BackendDebugPanel({
             <div>
               video: {status.videoWidth}×{status.videoHeight} · jpeg b64: {status.lastB64Bytes} B
             </div>
-            <div>
-              last inference:{" "}
-              {status.lastInferenceMs != null ? `${Math.round(status.lastInferenceMs)} ms` : "—"}
-            </div>
+            <div>last inference: {ms(status.lastInferenceMs)}</div>
           </>
         )}
         <div>model: {status.model ?? "—"}</div>
@@ -110,20 +135,28 @@ function BackendDebugPanel({
         )}
       </div>
       {/* Transport note. */}
-      {isStream ? (
+      {isStream && (
         <div className="mt-2 border-t border-border/60 pt-2 text-[10px] not-italic text-muted-foreground">
           <span className="font-semibold text-foreground">WebSocket stream (beta).</span>{" "}
           Authenticated with a short-lived Supabase-issued session token (<code>?token=</code>); the
           gateway URL comes from the session (override with{" "}
           <code>VITE_EDGECRAFT_STREAM_WS_URL</code>). The browser never holds the RunPod API key or
-          the signing secret. HTTP dry-run remains available as a fallback.
+          the signing secret.
         </div>
-      ) : (
+      )}
+      {isCloudflare && (
+        <div className="mt-2 border-t border-border/60 pt-2 text-[10px] not-italic text-muted-foreground">
+          <span className="font-semibold text-foreground">Fast HTTP dry-run.</span> Frames POST
+          directly to the Cloudflare <code>/detect</code> Worker, which holds the RunPod API key and
+          forwards to the worker. Authenticated with a short-lived Supabase session token (
+          <code>?token=</code>, reused from <code>create-stream-session</code>). One request in
+          flight, newest frame only — no alerts, no incidents.
+        </div>
+      )}
+      {!isStream && !isCloudflare && (
         <div className="mt-2 border-t border-border/60 pt-2 text-[10px] not-italic text-muted-foreground">
           <span className="font-semibold text-foreground">HTTP dry-run mode.</span> Frames go to the
-          worker over HTTP via the Supabase <code>deimv2-proxy</code>. The worker&rsquo;s{" "}
-          <code>/ws/echo</code> is only a connectivity probe; the real <code>/ws/vision</code>{" "}
-          streaming route is the separate &ldquo;EdgeCrafter stream — beta&rdquo; mode.
+          worker over HTTP via the Supabase <code>deimv2-proxy</code> (legacy path).
         </div>
       )}
     </div>
@@ -170,20 +203,24 @@ export default function Live() {
 
   const topAlert = useMemo(() => alerts.find((a) => a.isIncident) ?? null, [alerts]);
 
-  // Both EdgeCrafter modes (HTTP dry-run + WebSocket stream beta) share the same
-  // dry-run overlays + debug panel. The single-frame test button is HTTP-only.
+  // All EdgeCrafter modes share the same dry-run overlays + debug panel. The
+  // single-frame test button is for the HTTP modes (fast Cloudflare /detect, or
+  // the legacy Supabase-proxy path).
+  const isCloudflareHttp = config.detectionMode === "backend-edgecrafter-http";
+  const isLegacyHttp = config.detectionMode === "backend-deimv2";
   const isBackendMode =
-    config.detectionMode === "backend-deimv2" ||
-    config.detectionMode === "backend-edgecrafter-stream";
-  const isHttpDryRun = config.detectionMode === "backend-deimv2";
+    isCloudflareHttp || isLegacyHttp || config.detectionMode === "backend-edgecrafter-stream";
+  const showFrameTest = isCloudflareHttp || isLegacyHttp;
 
   const handleStart = useCallback(async () => {
     if (!active) await startCamera();
     await start();
   }, [active, startCamera, start]);
 
-  // Dev/debug: capture the current frame and send one request to deimv2-proxy,
-  // showing the raw response. Dry-run only — never enters the risk engine.
+  // Dev/debug: capture the current frame and send one request, showing the raw
+  // response. The fast mode hits the Cloudflare /detect Worker (with a token);
+  // the legacy mode hits the Supabase deimv2-proxy. Dry-run only — never enters
+  // the risk engine.
   const testBackendFrame = useCallback(async () => {
     const video = videoRef.current;
     if (!video || !video.videoWidth) {
@@ -204,16 +241,23 @@ export default function Live() {
       const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
       setBackendTestImg(dataUrl); // preview the exact frame we send
       const image_b64 = dataUrl.split(",")[1];
-      const { data, error } = await supabase.functions.invoke("deimv2-proxy", {
-        body: { image_b64, conf: 0.15, img_size: 640, classes: null },
-      });
-      setBackendTest(JSON.stringify(error ?? data, null, 2));
+      if (isCloudflareHttp) {
+        const t0 = performance.now();
+        const resp = await postDetectFrame(image_b64, { conf: 0.15 });
+        const latency = Math.round(performance.now() - t0);
+        setBackendTest(`round-trip ${latency} ms\n${JSON.stringify(resp, null, 2)}`);
+      } else {
+        const { data, error } = await supabase.functions.invoke("deimv2-proxy", {
+          body: { image_b64, conf: 0.15, img_size: 640, classes: null },
+        });
+        setBackendTest(JSON.stringify(error ?? data, null, 2));
+      }
     } catch (e) {
       setBackendTest(e instanceof Error ? e.message : String(e));
     } finally {
       setBackendTesting(false);
     }
-  }, [videoRef]);
+  }, [videoRef, isCloudflareHttp]);
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -358,7 +402,7 @@ export default function Live() {
                   poses={backendPoses as BackendPose[]}
                 />
               )}
-              {isHttpDryRun && (
+              {showFrameTest && (
                 <div className="rounded-xl border border-border bg-background/40 p-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium">

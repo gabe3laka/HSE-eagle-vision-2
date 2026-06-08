@@ -5,6 +5,7 @@ import type { HazardType, Severity } from "@/integrations/supabase/db";
 export type DetectionMode =
   | "simulated"
   | "pose-beta"
+  | "backend-edgecrafter-http"
   | "backend-deimv2"
   | "backend-edgecrafter-stream";
 
