@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { StreamSocketLike } from "../lib/detection/backendVisionStreamClient";
@@ -65,6 +65,7 @@ describe("EdgeCrafter stream mode (beta)", () => {
     expect(s.modelReady).toBe(true);
     expect(s.backend).toBe("edgecrafter");
     expect(s.tasks).toEqual(["det", "pose"]);
+    c.close(); // clears the keepalive interval started on connected/ready
   });
 
   it("parses vision messages and updates entities + poses", async () => {
@@ -373,5 +374,87 @@ describe("EdgeCrafter stream — Supabase session flow + frontend secret safety"
     };
     walk(join(process.cwd(), "src"));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("WebSocket keepalive (ping/pong)", () => {
+  function openSocket(): { sock: StreamSocketLike; sent: string[] } {
+    const sent: string[] = [];
+    const sock: StreamSocketLike = {
+      readyState: 1, // WS_OPEN
+      onopen: null,
+      onmessage: null,
+      onerror: null,
+      onclose: null,
+      send: (d: string) => {
+        sent.push(d);
+      },
+      close() {},
+    };
+    return { sock, sent };
+  }
+
+  async function connectedClient(sock: StreamSocketLike) {
+    const { BackendVisionStreamClient } =
+      await import("../lib/detection/backendVisionStreamClient");
+    const c = new BackendVisionStreamClient({
+      url: null,
+      tokenProvider: async () => ({
+        token: "t",
+        wsUrl: "wss://gw.example/ws/vision",
+        expiresAt: null,
+      }),
+      webSocketFactory: () => sock,
+    });
+    c.connect();
+    await new Promise((r) => setTimeout(r, 0)); // real-timer flush -> socket opened
+    return c;
+  }
+
+  it("sends a {type:'ping'} over the OPEN socket every 10s after 'connected'", async () => {
+    const { sock, sent } = openSocket();
+    const c = await connectedClient(sock);
+    vi.useFakeTimers();
+    try {
+      c.handleMessage(JSON.stringify({ type: "connected" })); // starts keepalive
+      expect(sent).toEqual([]); // nothing sent until the interval fires
+      vi.advanceTimersByTime(10000);
+      expect(sent).toContain(JSON.stringify({ type: "ping" }));
+    } finally {
+      c.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("handleMessage('{type:pong}') does not throw and leaves framesSent/visionCount untouched", async () => {
+    const { BackendVisionStreamClient } =
+      await import("../lib/detection/backendVisionStreamClient");
+    const c = new BackendVisionStreamClient({ url: "wss://gw.example/ws/vision" });
+    const before = c.getState();
+    expect(() => c.handleMessage('{"type":"pong"}')).not.toThrow();
+    const after = c.getState();
+    expect(after.framesSent).toBe(before.framesSent);
+    expect(after.visionCount).toBe(before.visionCount);
+    expect(after.framesSent).toBe(0);
+    expect(after.visionCount).toBe(0);
+  });
+
+  it("framesSent increments only for sendFrame — never for ping/pong", async () => {
+    const { sock } = openSocket();
+    const c = await connectedClient(sock);
+    try {
+      expect(c.getState().framesSent).toBe(0);
+      c.handleMessage('{"type":"pong"}'); // pong: no increment
+      expect(c.getState().framesSent).toBe(0);
+      // a raw ping over the socket (as keepalive does, via ws.send not sendFrame)
+      sock.send(JSON.stringify({ type: "ping" }));
+      expect(c.getState().framesSent).toBe(0);
+      // a real frame increments exactly once
+      expect(c.sendFrame("AAAA")).toBe(true);
+      expect(c.getState().framesSent).toBe(1);
+      expect(c.getState().visionCount).toBe(0);
+    } finally {
+      c.close();
+    }
   });
 });

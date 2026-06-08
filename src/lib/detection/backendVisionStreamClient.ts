@@ -141,6 +141,8 @@ export class BackendVisionStreamClient {
   private frameId = 0;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private lastPongAt: number | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
 
@@ -335,10 +337,12 @@ export class BackendVisionStreamClient {
         this.handleMessage(typeof ev.data === "string" ? ev.data : "");
       };
       ws.onerror = () => {
+        this.stopKeepalive();
         this.s.lastError = "ws_error";
         this.s.errorCount += 1;
       };
       ws.onclose = () => {
+        this.stopKeepalive();
         this.ws = null;
         this.s.state = "closed";
         if (this.running) this._scheduleReconnect();
@@ -351,6 +355,7 @@ export class BackendVisionStreamClient {
   }
 
   private _scheduleReconnect(): void {
+    this.stopKeepalive();
     if (!this.running || this.reconnectTimer) return;
     const delay = Math.min(RECONNECT_BASE_MS * 2 ** this.reconnectAttempts, RECONNECT_MAX_MS);
     this.reconnectAttempts += 1;
@@ -358,6 +363,29 @@ export class BackendVisionStreamClient {
       this.reconnectTimer = null;
       if (this.running) void this._openWithToken();
     }, delay);
+  }
+
+  /** WebSocket keepalive: ping the gateway every 10s while the socket is OPEN so
+   *  idle connections aren't dropped by intermediaries. Sends a bare control
+   *  frame via ws.send (NOT sendFrame), so framesSent is never incremented. */
+  private startKeepalive(): void {
+    this.stopKeepalive();
+    this.pingTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === WS_OPEN) {
+        try {
+          this.ws.send(JSON.stringify({ type: "ping" }));
+        } catch {
+          /* best-effort keepalive */
+        }
+      }
+    }, 10000);
+  }
+
+  private stopKeepalive(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
   }
 
   /**
@@ -379,6 +407,7 @@ export class BackendVisionStreamClient {
     switch (type) {
       case "connected":
         this.s.state = "connected";
+        this.startKeepalive();
         break;
       case "warming":
         this.s.state = "warming";
@@ -389,12 +418,18 @@ export class BackendVisionStreamClient {
         this.s.modelReady = true;
         if (typeof msg.backend === "string") this.s.backend = msg.backend;
         if (Array.isArray(msg.tasks)) this.s.tasks = msg.tasks as string[];
+        this.startKeepalive();
         break;
       case "vision":
         this._onVision(msg);
         break;
       case "metrics":
         this._onMetrics(msg);
+        break;
+      case "pong":
+        // keepalive ack — record the time only; do NOT touch entities/poses or
+        // visionCount. (lastRawResponse above already reflects it for debug.)
+        this.lastPongAt = Date.now();
         break;
       case "error":
         this.s.lastError = typeof msg.error === "string" ? msg.error : "error";
@@ -494,6 +529,7 @@ export class BackendVisionStreamClient {
 
   close(): void {
     this.running = false;
+    this.stopKeepalive();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

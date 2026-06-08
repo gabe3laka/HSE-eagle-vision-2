@@ -162,7 +162,7 @@ export default function Live() {
     stop,
     dismissAlert,
   } = useDetectionSession({
-    video: videoRef.current,
+    videoRef,
     config,
     zones,
     onIncidentSaved,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/own-client";
 import { useAuth } from "@/contexts/AuthContext";
 import { createDetector } from "@/lib/detection/detectorFactory";
@@ -65,7 +65,7 @@ const EMPTY_PERF: PerfMetrics = {
 };
 
 interface Options {
-  video: HTMLVideoElement | null;
+  videoRef: RefObject<HTMLVideoElement | null>;
   config: AlertConfig;
   /** Operator-drawn restricted zones (for restricted_zone detection). */
   zones?: DetectionZone[];
@@ -79,7 +79,7 @@ interface Options {
  * when supported, with a timer fallback; detection is synchronous and never
  * overlaps, while persistence is fire-and-forget so the loop stays responsive.
  */
-export function useDetectionSession({ video, config, zones, onIncidentSaved }: Options) {
+export function useDetectionSession({ videoRef, config, zones, onIncidentSaved }: Options) {
   const { user } = useAuth();
   const [running, setRunning] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -101,7 +101,6 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
   const sessionIdRef = useRef<string | null>(null);
   const framesRef = useRef(0);
   const configRef = useRef(config);
-  const videoRef = useRef(video);
   const onSavedRef = useRef(onIncidentSaved);
   const zonesRef = useRef(zones);
 
@@ -120,9 +119,6 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
   useEffect(() => {
     configRef.current = config;
   }, [config]);
-  useEffect(() => {
-    videoRef.current = video;
-  }, [video]);
   useEffect(() => {
     onSavedRef.current = onIncidentSaved;
   }, [onIncidentSaved]);
@@ -284,7 +280,7 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
         setBackendPoses((det as { getLastPoses?: () => unknown[] }).getLastPoses?.() ?? []);
       }
     },
-    [persistDetection, persistIncident],
+    [persistDetection, persistIncident, videoRef],
   );
 
   const start = useCallback(async () => {
@@ -376,7 +372,7 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
     } else {
       timerRef.current = window.setTimeout(onTimer, intervalRef.current);
     }
-  }, [cycle, user]);
+  }, [cycle, user, videoRef]);
 
   const stop = useCallback(async () => {
     runningRef.current = false;
@@ -417,7 +413,7 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
           () => undefined,
         );
     }
-  }, [user]);
+  }, [user, videoRef]);
 
   useEffect(
     () => () => {
@@ -432,7 +428,7 @@ export function useDetectionSession({ video, config, zones, onIncidentSaved }: O
         }
       }
     },
-    [],
+    [videoRef],
   );
 
   const dismissAlert = useCallback((id: string) => {
