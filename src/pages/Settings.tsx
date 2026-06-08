@@ -67,11 +67,10 @@ export default function Settings() {
       <section className="glass-panel rounded-2xl border p-5">
         <h2 className="font-display text-sm font-semibold">Detection engine</h2>
         <p className="mb-4 text-xs text-muted-foreground">
-          Four modes: Simulated drives the demo. Pose (beta) uses your camera with MediaPipe to
-          detect real unsafe lifting on-device. EdgeCrafter backend (dry run) runs object detection
-          + pose on a backend over HTTP and previews boxes/skeletons in a dry-run overlay only.
-          EdgeCrafter stream (beta) does the same over a real-time WebSocket when a stream gateway
-          is configured.
+          Three modes: Simulated drives the demo. Pose (beta) uses your camera with MediaPipe to
+          detect real unsafe lifting on-device. EdgeCrafter HTTP (fast dry run) posts camera frames
+          to the EdgeCrafter worker over a fast Cloudflare HTTP endpoint and previews
+          boxes/skeletons in a dry-run overlay only.
         </p>
         <Select
           value={draft.detectionMode}
@@ -83,8 +82,9 @@ export default function Settings() {
           <SelectContent>
             <SelectItem value="simulated">Simulated</SelectItem>
             <SelectItem value="pose-beta">Pose — unsafe lifting (beta)</SelectItem>
-            <SelectItem value="backend-deimv2">EdgeCrafter backend — dry run</SelectItem>
-            <SelectItem value="backend-edgecrafter-stream">EdgeCrafter stream — beta</SelectItem>
+            <SelectItem value="backend-edgecrafter-http">
+              EdgeCrafter HTTP — fast dry run
+            </SelectItem>
           </SelectContent>
         </Select>
         {draft.detectionMode === "pose-beta" && (
@@ -93,18 +93,12 @@ export default function Settings() {
             model on first start (needs network).
           </p>
         )}
-        {draft.detectionMode === "backend-deimv2" && (
+        {draft.detectionMode === "backend-edgecrafter-http" && (
           <p className="mt-2 text-xs text-muted-foreground">
-            EdgeCrafter backend via RunPod. Previews object boxes and pose skeletons in a dry-run
-            overlay only — no safety alerts fire yet (Sprint 4A dry-run).
-          </p>
-        )}
-        {draft.detectionMode === "backend-edgecrafter-stream" && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Beta: streams camera frames to the EdgeCrafter worker over a WebSocket and previews
-            boxes/skeletons in real time — dry-run overlay only, no safety alerts. Authenticated
-            with a short-lived Supabase session token; the gateway URL is provided by the session,
-            so no build-time URL is required. The browser never holds the RunPod API key.
+            Fast dry run: posts camera frames (~3 fps) to the EdgeCrafter worker via a Cloudflare
+            HTTP <code>/detect</code> endpoint and previews object boxes + pose skeletons — dry-run
+            overlay only, no safety alerts. Authenticated with a short-lived Supabase session token;
+            the browser never holds the RunPod API key.
           </p>
         )}
       </section>

@@ -25,13 +25,23 @@ export const DEFAULT_ALERT_CONFIG: AlertConfig = {
 const VALID_MODES: DetectionMode[] = [
   "simulated",
   "pose-beta",
+  "backend-edgecrafter-http",
   "backend-deimv2",
   "backend-edgecrafter-stream",
 ];
 
+// The slow Supabase-proxy HTTP path and the WebSocket stream mode have been
+// retired from the UI in favour of the fast Cloudflare `/detect` HTTP mode. Any
+// previously-saved value for them migrates to the new mode on load.
+const MODE_ALIASES: Record<string, DetectionMode> = {
+  "backend-deimv2": "backend-edgecrafter-http",
+  "backend-edgecrafter-stream": "backend-edgecrafter-http",
+};
+
 function coerceMode(v: unknown): DetectionMode {
-  if (typeof v === "string" && (VALID_MODES as string[]).includes(v)) {
-    return v as DetectionMode;
+  if (typeof v === "string") {
+    if (v in MODE_ALIASES) return MODE_ALIASES[v];
+    if ((VALID_MODES as string[]).includes(v)) return v as DetectionMode;
   }
   return "simulated";
 }
