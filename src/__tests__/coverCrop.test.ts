@@ -51,3 +51,16 @@ describe("isMobilePortraitViewport", () => {
     expect(isMobilePortraitViewport(0, 0)).toBe(false);
   });
 });
+
+describe("isMobileViewport", () => {
+  it("is true for any orientation under the mobile breakpoint", () => {
+    expect(isMobileViewport(390)).toBe(true); // portrait phone
+    expect(isMobileViewport(720)).toBe(true); // wide phone / small split
+    expect(isMobileViewport(767)).toBe(true); // just under breakpoint
+  });
+  it("is false at and above the mobile breakpoint", () => {
+    expect(isMobileViewport(768)).toBe(false);
+    expect(isMobileViewport(1024)).toBe(false);
+    expect(isMobileViewport(0)).toBe(false);
+  });
+});
