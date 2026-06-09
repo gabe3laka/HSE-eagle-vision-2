@@ -381,6 +381,8 @@ export class BackendVisionHttpDetector implements Detector {
 
       this.lastEntities = normalizeEntities(resp.entities, resp.img_w, resp.img_h);
       this.lastPoses = normalizePoses(resp.poses, resp.img_w, resp.img_h);
+      this.status.lastBackendImgW = typeof resp.img_w === "number" ? resp.img_w : null;
+      this.status.lastBackendImgH = typeof resp.img_h === "number" ? resp.img_h : null;
       this.status.state = "ready";
       this.status.error = null;
       this.status.model = resp.model ?? this.status.model;
