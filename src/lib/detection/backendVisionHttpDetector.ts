@@ -426,14 +426,23 @@ export class BackendVisionHttpDetector implements Detector {
   private _captureFrame(video: HTMLVideoElement): string | null {
     if (!this.captureCtx || !this.captureCanvas) return null;
     try {
-      const { cw, ch } = computeCaptureSize(
-        video.videoWidth || CAPTURE_MAX_SIDE,
-        video.videoHeight || CAPTURE_MAX_SIDE,
-        CAPTURE_MAX_SIDE,
-      );
+      const srcW = video.videoWidth || CAPTURE_MAX_SIDE;
+      const srcH = video.videoHeight || CAPTURE_MAX_SIDE;
+      const targetAspect = resolveViewportTargetAspect();
+      // Crop the SAME rectangle the user sees on mobile portrait. Overlays use
+      // normalized 0..1 coords inside this rect, so backend boxes/poses align
+      // with the visible video. Desktop/tablet → null → no crop.
+      const crop = targetAspect != null ? computeCoverCrop(srcW, srcH, targetAspect) : null;
+      const sw = crop ? crop.sw : srcW;
+      const sh = crop ? crop.sh : srcH;
+      const { cw, ch } = computeCaptureSize(sw, sh, CAPTURE_MAX_SIDE);
       if (this.captureCanvas.width !== cw) this.captureCanvas.width = cw;
       if (this.captureCanvas.height !== ch) this.captureCanvas.height = ch;
-      this.captureCtx.drawImage(video, 0, 0, cw, ch);
+      if (crop) {
+        this.captureCtx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, cw, ch);
+      } else {
+        this.captureCtx.drawImage(video, 0, 0, cw, ch);
+      }
       this.status.lastCaptureW = cw;
       this.status.lastCaptureH = ch;
       const dataUrl = this.captureCanvas.toDataURL("image/jpeg", CAPTURE_QUALITY);
