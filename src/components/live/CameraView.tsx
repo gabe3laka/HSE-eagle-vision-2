@@ -197,8 +197,8 @@ export function CameraView({
       : undefined;
   const shellSource = isMobile ? "css-mobile" : sized ? "js-desktop" : "css-fallback";
 
-  // TEMP: visible in production too, so the mobile shell can be verified on-device.
-  const showDebug = true;
+  // DEV-only: the on-screen shell/crop readout. Hidden in the deployed app.
+  const showDebug = import.meta.env.DEV;
 
   // Mobile: a FIXED centered portrait card driven purely by CSS
   // (w-[min(88vw,340px)] aspect-[3/4]) — never inline JS sizing, so it stays
