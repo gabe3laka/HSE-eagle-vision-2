@@ -11,7 +11,10 @@ import { AlertFeed } from "@/components/live/AlertFeed";
 import { SessionControls } from "@/components/live/SessionControls";
 import { PoseDebugPanel } from "@/components/live/PoseDebugPanel";
 import type { BackendStatus } from "@/lib/detection/backendVisionDetector";
-import { postDetectFrame } from "@/lib/detection/backendVisionHttpDetector";
+import {
+  postDetectFrame,
+  captureVideoFrameBase64,
+} from "@/lib/detection/backendVisionHttpDetector";
 import type { BackendEntity, BackendPose } from "@/lib/detection/types";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
