@@ -191,8 +191,9 @@ export class BackendVisionHttpDetector implements Detector {
     }
     if (typeof document !== "undefined") {
       this.captureCanvas = document.createElement("canvas");
-      this.captureCanvas.width = CAPTURE_WIDTH;
-      this.captureCanvas.height = CAPTURE_HEIGHT;
+      // Sized lazily per frame in _captureFrame() to match the video aspect.
+      this.captureCanvas.width = CAPTURE_MAX_SIDE;
+      this.captureCanvas.height = CAPTURE_MAX_SIDE;
       this.captureCtx = this.captureCanvas.getContext("2d");
     }
     // Pre-warm the session token so the first frame doesn't pay for it.
