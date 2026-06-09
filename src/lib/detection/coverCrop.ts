@@ -44,7 +44,9 @@ export function computeCoverCrop(
     sourceH <= 0 ||
     targetAspect <= 0
   ) {
-    return { sx: 0, sy: 0, sw: Math.max(0, sourceW), sh: Math.max(0, sourceH) };
+    const sw = Number.isFinite(sourceW) && sourceW > 0 ? sourceW : 0;
+    const sh = Number.isFinite(sourceH) && sourceH > 0 ? sourceH : 0;
+    return { sx: 0, sy: 0, sw, sh };
   }
   const sourceAspect = sourceW / sourceH;
   if (sourceAspect > targetAspect) {
