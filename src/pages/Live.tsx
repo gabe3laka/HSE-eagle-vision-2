@@ -103,8 +103,11 @@ function BackendDebugPanel({
               {status.responseCount}
             </div>
             <div>
-              video: {status.videoWidth}×{status.videoHeight} · jpeg b64: {status.lastB64Bytes} B
+              video: {status.videoWidth}×{status.videoHeight} · capture:{" "}
+              {fmt(status.lastCaptureW)}×{fmt(status.lastCaptureH)} · backend img:{" "}
+              {fmt(status.lastBackendImgW)}×{fmt(status.lastBackendImgH)}
             </div>
+            <div>jpeg b64: {status.lastB64Bytes} B</div>
             <div>
               latency: {ms(status.lastLatencyMs)} (round-trip) · inference:{" "}
               {ms(status.lastInferenceMs)}
