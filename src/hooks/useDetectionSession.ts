@@ -286,6 +286,14 @@ export function useDetectionSession({ videoRef, config, zones, onIncidentSaved }
   const start = useCallback(async () => {
     if (runningRef.current) return;
     const detector = createDetector(configRef.current.detectionMode);
+    // Backend dry-run modes must keep submitting frames even when the camera's
+    // mediaTime is static. Mobile Safari can hold mediaTime constant while the
+    // preview is live, which would otherwise starve the backend of frames.
+    const mode = configRef.current.detectionMode;
+    const isBackendDryRun =
+      mode === "backend-edgecrafter-http" ||
+      mode === "backend-edgecrafter-stream" ||
+      mode === "backend-deimv2";
     await detector.start();
     detectorRef.current = detector;
     engineRef.current = new RiskEngine();
@@ -336,9 +344,13 @@ export function useDetectionSession({ videoRef, config, zones, onIncidentSaved }
     // (video not advanced) and over-budget frames (target FPS / backoff) are
     // counted and skipped.
     const step = (now: number, mediaTime: number, presented?: number) => {
+      // Stale frame: the video time hasn't advanced. Normally we skip it, but
+      // backend dry-run modes must NOT stall here — mobile Safari can keep
+      // mediaTime constant even while the camera preview is live. The wall-clock
+      // interval below still rate-limits submissions, so RunPod isn't spammed.
       if (mediaTime === lastMediaTimeRef.current) {
         staleRef.current++;
-        return;
+        if (!isBackendDryRun) return;
       }
       if (now - lastProcessedAtRef.current < intervalRef.current) {
         skippedRef.current++;

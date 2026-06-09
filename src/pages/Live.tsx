@@ -4,6 +4,7 @@ import { BellRing, Check, Shapes, Trash2 } from "lucide-react";
 import { useCamera } from "@/hooks/useCamera";
 import { useAlertSettings } from "@/hooks/useAlertSettings";
 import { useDetectionSession } from "@/hooks/useDetectionSession";
+import type { PerfMetrics, SessionStats } from "@/hooks/useDetectionSession";
 import { useZones, useCreateZone, useDeleteZone } from "@/hooks/useZones";
 import { CameraView } from "@/components/live/CameraView";
 import { AlertFeed } from "@/components/live/AlertFeed";
@@ -22,10 +23,14 @@ function BackendDebugPanel({
   status,
   entities,
   poses,
+  perf,
+  stats,
 }: {
   status: BackendStatus;
   entities: BackendEntity[];
   poses: BackendPose[];
+  perf: PerfMetrics;
+  stats: SessionStats;
 }) {
   const firstEntity = entities[0];
   const firstPose = poses[0];
@@ -68,6 +73,10 @@ function BackendDebugPanel({
         </div>
         <div>
           detector: {detectorName} · mode {modeName}
+        </div>
+        <div>
+          sched: <span className="text-foreground">{perf.mode}</span> · processed: {perf.fps}/s ·
+          frames: {stats.frames} · stale: {perf.staleFrames} · skipped: {perf.skippedFrames}
         </div>
         {isStream && (
           <>
@@ -400,6 +409,8 @@ export default function Live() {
                   status={backendStatus as BackendStatus}
                   entities={backendEntities as BackendEntity[]}
                   poses={backendPoses as BackendPose[]}
+                  perf={perf}
+                  stats={stats}
                 />
               )}
               {showFrameTest && (
