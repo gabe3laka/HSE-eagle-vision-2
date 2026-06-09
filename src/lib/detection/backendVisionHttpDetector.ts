@@ -24,8 +24,11 @@ import { supabase } from "@/integrations/supabase/own-client";
 
 const TARGET_INTERVAL_MS = 333; // ~3 FPS ceiling — fast, but one request at a time
 const TARGET_FPS = Math.round(1000 / TARGET_INTERVAL_MS); // ~3
-const CAPTURE_WIDTH = 640;
-const CAPTURE_HEIGHT = 480;
+// Aspect-preserving capture: keep longest side at most CAPTURE_MAX_SIDE so the
+// frame we send mirrors the visible video's shape (portrait → portrait,
+// landscape → landscape). Avoids the 4:3-only 640×480 distortion that
+// mis-aligned overlays on phones.
+const CAPTURE_MAX_SIDE = 640;
 const CAPTURE_QUALITY = 0.7;
 // Dry-run confidence — kept low so more entities surface for visual validation.
 const DRY_RUN_CONF = 0.2;
