@@ -174,10 +174,10 @@ export function CameraView({
   const shellW = Math.max(0, Math.floor(shellRect.width));
   const shellH = Math.max(0, Math.floor(shellRect.height));
 
-  // Debug-only: cover-crop rect the detector will send to /detect on mobile
-  // portrait. Mirrors `BackendVisionHttpDetector._captureFrame`.
+  // Debug-only: cover-crop rect the detector will send to /detect on mobile.
+  // Mirrors `BackendVisionHttpDetector._captureFrame`.
   const debugCrop =
-    mobilePortrait && haveAspect
+    mobileShellMode && haveAspect
       ? computeCoverCrop(videoSize.w, videoSize.h, MOBILE_VISUAL_ASPECT)
       : null;
 
@@ -200,9 +200,9 @@ export function CameraView({
     ? "relative overflow-hidden border border-border bg-black sm:rounded-2xl"
     : "relative flex aspect-[3/4] w-full max-h-[calc(100svh-260px)] items-center justify-center overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl";
 
-  // Video fit: cover-crop on mobile portrait (fills shell, crops sides to match
-  // the bytes we send to /detect); contain everywhere else.
-  const videoFitClass = mobilePortrait ? "object-cover" : "object-contain";
+  // Video fit: cover-crop on mobile (fills shell, crops sides to match the
+  // bytes we send to /detect); contain everywhere else.
+  const videoFitClass = mobileShellMode ? "object-cover" : "object-contain";
 
 
   return (
