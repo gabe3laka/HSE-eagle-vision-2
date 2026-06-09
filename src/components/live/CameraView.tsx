@@ -123,8 +123,6 @@ export function CameraView({
     maxHeight: "100%",
   };
 
-  const mirror = facing === "user";
-
   // Re-measure when the video stream becomes active so the inner layer sizes
   // correctly even if metadata fired before mount.
   useEffect(() => {
@@ -137,11 +135,19 @@ export function CameraView({
 
   const showDebug = import.meta.env.DEV;
   const isMobile = useIsMobile();
-  const shrinkWrap =
-    isMobile && mediaW > 0 && mediaH > 0 && container.w > 0 && mediaW < container.w - 1;
-  const cardStyle: React.CSSProperties | undefined = shrinkWrap
-    ? { width: mediaW, height: mediaH }
-    : undefined;
+  // Mobile: size the camera card to the video's REAL aspect ratio, bounded by
+  // the available height, so it visually wraps the media rectangle (no full-width
+  // black stage / no large side bars) and centers inside the outer flex. Pure CSS
+  // derived from the video aspect + viewport — no measure→shrink→re-measure
+  // feedback loop. Desktop/tablet keep the wide sm:aspect-video card (className).
+  const cardStyle: React.CSSProperties | undefined =
+    isMobile && videoSize.w > 0 && videoSize.h > 0
+      ? {
+          width: `min(100%, calc((100svh - 220px) * ${aspect}))`,
+          aspectRatio: `${aspect}`,
+          maxHeight: "calc(100svh - 220px)",
+        }
+      : undefined;
 
   return (
     <div className="-mx-3 flex w-[calc(100%+1.5rem)] justify-center sm:mx-0 sm:w-full">
@@ -152,15 +158,15 @@ export function CameraView({
         "relative flex aspect-[3/4] max-h-[calc(100svh-220px)] w-full items-center justify-center overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl"
       }
     >
-      {/* Counter-mirror style for text inside the flipped mirror layer. */}
-      <style>{`.mirror-flip [data-counter-mirror]{transform:scaleX(-1);transform-origin:center}`}</style>
-      {/* Inner media layer — measured contain-fit rect, no transform. */}
+      {/* Inner media layer — measured contain-fit rect (the visible video). */}
       <div style={innerStyle}>
-        {/* Mirror layer — applies front-camera flip to video + overlays at once. */}
-        <div
-          className={`absolute inset-0 ${mirror ? "scale-x-[-1] mirror-flip" : ""}`}
-          style={{ transformOrigin: "center" }}
-        >
+        {/* Orientation layer — the video and ALL overlays share this single layer
+            so boxes/poses/zones stay aligned to the visible video. The front/
+            selfie camera is intentionally NOT mirrored: a mirrored preview makes
+            real-world text, signs and labels read backwards, which matters more
+            for a safety camera than a natural selfie. The capture canvas also
+            sees the un-mirrored frame, so overlays stay aligned. */}
+        <div className="absolute inset-0">
           <video
             ref={videoRef}
             playsInline
@@ -246,6 +252,8 @@ export function CameraView({
           inner {mediaW}×{mediaH}
           <br />
           video {videoSize.w}×{videoSize.h}
+          <br />
+          facing {facing} · mirror off
         </div>
       )}
 
