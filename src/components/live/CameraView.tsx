@@ -136,7 +136,7 @@ export function CameraView({
   const shellH = Math.max(0, Math.floor(rect.height));
 
   const shellStyle: React.CSSProperties | undefined =
-    haveAspect && shellW > 0 && shellH > 0
+    !isMobile && haveAspect && shellW > 0 && shellH > 0
       ? {
           width: `${shellW}px`,
           height: `${shellH}px`,
@@ -148,12 +148,15 @@ export function CameraView({
   const showDebug = import.meta.env.DEV;
 
   // Shell classes:
-  //  - haveAspect: shrink-wrapped via inline style; just visuals here.
-  //  - Fallback (pre-stream): portrait 3/4 on mobile, landscape aspect-video
-  //    on desktop so the "Enable camera" empty state renders nicely.
-  const shellClass = haveAspect
-    ? "relative overflow-hidden border border-border bg-black sm:rounded-2xl"
-    : "relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl";
+  //  - Mobile: ALWAYS locked to the pre-stream portrait 3/4 frame so the shape
+  //    does not change when the video starts. Video letterboxes inside.
+  //  - Desktop + haveAspect: shrink-wrapped via inline style to real video aspect.
+  //  - Desktop pre-stream: landscape aspect-video fallback.
+  const shellClass = isMobile
+    ? "relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black"
+    : haveAspect
+      ? "relative overflow-hidden border border-border bg-black sm:rounded-2xl"
+      : "relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl";
 
 
   return (
