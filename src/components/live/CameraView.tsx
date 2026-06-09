@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Camera, CameraOff, Loader2, SwitchCamera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DetectionOverlay } from "./DetectionOverlay";
@@ -46,6 +46,24 @@ interface Props {
   onZoneCreate?: (points: ZonePoint[]) => void;
 }
 
+/**
+ * Contain-fit rectangle: returns the largest width×height that preserves
+ * `videoAspect` AND fits entirely inside the container. Mirrors CSS
+ * `object-fit: contain` — letterboxes with empty space when aspects differ.
+ */
+export function computeContainRect(cw: number, ch: number, va: number) {
+  if (cw <= 0 || ch <= 0 || !Number.isFinite(va) || va <= 0) {
+    return { width: cw, height: ch };
+  }
+  const ca = cw / ch;
+  if (ca > va) {
+    const height = ch;
+    return { width: height * va, height };
+  }
+  const width = cw;
+  return { width, height: width / va };
+}
+
 export function CameraView({
   videoRef,
   active,
@@ -70,89 +88,114 @@ export function CameraView({
 }: Props) {
   const TopIcon = topAlert ? HAZARD_ICONS[topAlert.hazardType] : null;
   const topSev = topAlert ? SEVERITY_META[topAlert.severity] : null;
-  // Track the camera's real aspect ratio so the INNER media layer can match it.
-  // The OUTER viewport stays at a fixed, screen-bounded size so the camera card
-  // never pushes the rest of the UI down on mobile.
-  const [aspect, setAspect] = useState<number | null>(null);
 
-  // Inner media layer: sized to the real video aspect ratio, capped by the
-  // outer viewport. Setting width+height to 100% plus aspect-ratio + the max
-  // constraints lets the browser shrink either dimension so the box fits
-  // inside the outer viewport without distortion. Overlays sit on this layer
-  // so coords align with the visible video (not the letterbox area).
+  // Outer viewport is bounded (mobile: max height; desktop: aspect-video).
+  // We measure its REAL pixel size and then size the inner media layer to a
+  // contain-fit rect so the visible video + overlays never overflow.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [container, setContainer] = useState({ w: 0, h: 0 });
+  const [videoSize, setVideoSize] = useState({ w: 0, h: 0 });
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setContainer({ w: r.width, h: r.height });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const aspect = videoSize.w > 0 && videoSize.h > 0 ? videoSize.w / videoSize.h : 16 / 9;
+  const rect = computeContainRect(container.w, container.h, aspect);
+  const mediaW = Math.max(0, Math.floor(rect.width));
+  const mediaH = Math.max(0, Math.floor(rect.height));
+
   const innerStyle: React.CSSProperties = {
-    aspectRatio: aspect ?? 16 / 9,
-    width: "100%",
-    height: "100%",
+    position: "relative",
+    width: mediaW || undefined,
+    height: mediaH || undefined,
     maxWidth: "100%",
     maxHeight: "100%",
   };
 
+  const mirror = facing === "user";
+
+  // Re-measure when the video stream becomes active so the inner layer sizes
+  // correctly even if metadata fired before mount.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.videoWidth > 0 && v.videoHeight > 0) {
+      setVideoSize({ w: v.videoWidth, h: v.videoHeight });
+    }
+  }, [active, videoRef]);
+
+  const showDebug = import.meta.env.DEV;
+
   return (
     <div
+      ref={containerRef}
       className={
-        // Outer viewport: stable, bounded by the phone screen on mobile.
-        // - mobile: max height ~ viewport minus app chrome so the camera card
-        //   never overflows the visible area
-        // - desktop: standard 16:9 card
         "relative -mx-3 flex aspect-[3/4] max-h-[calc(100svh-220px)] w-[calc(100%+1.5rem)] items-center justify-center overflow-hidden border border-border bg-black sm:mx-0 sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl"
       }
     >
-      {/* Inner media layer — owns the visible video AND every overlay so
-          normalized coords align with what the user actually sees. */}
-      <div className="relative" style={innerStyle}>
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          autoPlay
-          onLoadedMetadata={(e) => {
-            const v = e.currentTarget;
-            if (v.videoWidth > 0 && v.videoHeight > 0) setAspect(v.videoWidth / v.videoHeight);
-          }}
-          className={`h-full w-full object-contain transition-opacity ${active ? "opacity-100" : "opacity-0"} ${facing === "user" ? "scale-x-[-1]" : ""}`}
-        />
-
-        {active && (
-          <ZoneOverlay
-            zones={zones ?? []}
-            editing={!!editingZones}
-            onCreate={onZoneCreate ?? (() => undefined)}
+      {/* Inner media layer — measured contain-fit rect, no transform. */}
+      <div style={innerStyle}>
+        {/* Mirror layer — applies front-camera flip to video + overlays at once. */}
+        <div
+          className={`absolute inset-0 ${mirror ? "scale-x-[-1]" : ""}`}
+          style={{ transformOrigin: "center" }}
+        >
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            autoPlay
+            onLoadedMetadata={(e) => {
+              const v = e.currentTarget;
+              if (v.videoWidth > 0 && v.videoHeight > 0) {
+                setVideoSize({ w: v.videoWidth, h: v.videoHeight });
+              }
+            }}
+            className={`h-full w-full object-contain transition-opacity ${active ? "opacity-100" : "opacity-0"}`}
           />
-        )}
 
-        {active && running && <DetectionOverlay boxes={boxes} />}
+          {active && (
+            <ZoneOverlay
+              zones={zones ?? []}
+              editing={!!editingZones}
+              onCreate={onZoneCreate ?? (() => undefined)}
+            />
+          )}
 
-        {active && running && backendDryRun && (
-          <div
-            className={`pointer-events-none absolute inset-0 ${facing === "user" ? "scale-x-[-1]" : ""}`}
-          >
-            <BackendEntityOverlay entities={backendEntities ?? []} />
-            <BackendPoseOverlay poses={backendPoses ?? []} />
-          </div>
-        )}
+          {active && running && <DetectionOverlay boxes={boxes} />}
 
-        {active && running && showSkeleton && debug && (
-          <div
-            className={`pointer-events-none absolute inset-0 ${facing === "user" ? "scale-x-[-1]" : ""}`}
-          >
-            <SkeletonOverlay debug={debug} />
-          </div>
-        )}
+          {active && running && backendDryRun && (
+            <>
+              <BackendEntityOverlay entities={backendEntities ?? []} />
+              <BackendPoseOverlay poses={backendPoses ?? []} />
+            </>
+          )}
 
-        {active && running && (
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 animate-scan bg-gradient-to-r from-transparent via-primary to-transparent" />
-        )}
+          {active && running && showSkeleton && debug && <SkeletonOverlay debug={debug} />}
+
+          {active && running && (
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-1 animate-scan bg-gradient-to-r from-transparent via-primary to-transparent" />
+          )}
+        </div>
       </div>
 
-      {/* Chips and banners live on the OUTER viewport so they stay anchored to
-          the visible card edges even when the inner media layer is letterboxed. */}
+      {/* Chips and banners on the OUTER viewport — stay anchored regardless of letterboxing. */}
       {active && (
         <Button
           onClick={onFlip}
           variant="glass"
           size="icon"
-          className="absolute bottom-24 right-4 h-12 w-12 rounded-full shadow-xl sm:bottom-auto sm:top-3 sm:h-9 sm:w-9"
+          className="absolute bottom-24 right-4 z-30 h-12 w-12 rounded-full shadow-xl sm:bottom-auto sm:top-3 sm:h-9 sm:w-9"
           aria-label="Flip camera"
         >
           <SwitchCamera className="h-5 w-5 sm:h-4 sm:w-4" />
@@ -171,13 +214,13 @@ export function CameraView({
       )}
 
       {active && running && poseStatus && (
-        <div className="pointer-events-none absolute left-3 top-12 max-w-[80%] rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-white backdrop-blur">
+        <div className="pointer-events-none absolute left-3 top-12 z-20 max-w-[80%] rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-white backdrop-blur">
           {topAlert ? "Hazard detected" : POSE_STATUS_LABEL[poseStatus]}
         </div>
       )}
 
       {active && (
-        <div className="absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/55 px-3 py-1 text-xs font-medium text-white backdrop-blur">
+        <div className="absolute left-3 top-3 z-20 flex items-center gap-2 rounded-full bg-black/55 px-3 py-1 text-xs font-medium text-white backdrop-blur">
           <span
             className={`h-2 w-2 rounded-full ${running ? "animate-pulse bg-red-500" : "bg-muted-foreground"}`}
           />
@@ -185,9 +228,19 @@ export function CameraView({
         </div>
       )}
 
+      {showDebug && active && (
+        <div className="pointer-events-none absolute bottom-2 left-2 z-30 rounded bg-black/60 px-2 py-1 font-mono text-[10px] leading-tight text-white/80">
+          outer {Math.round(container.w)}×{Math.round(container.h)}
+          <br />
+          inner {mediaW}×{mediaH}
+          <br />
+          video {videoSize.w}×{videoSize.h}
+        </div>
+      )}
+
       {active && running && topAlert && TopIcon && topSev && (
         <div
-          className={`absolute inset-x-3 bottom-3 flex items-center gap-3 rounded-xl border ${topSev.border} bg-black/70 px-4 py-3 text-white shadow-2xl backdrop-blur animate-slide-in-right`}
+          className={`absolute inset-x-3 bottom-3 z-20 flex items-center gap-3 rounded-xl border ${topSev.border} bg-black/70 px-4 py-3 text-white shadow-2xl backdrop-blur animate-slide-in-right`}
         >
           <div className={`rounded-lg bg-white/10 p-2 ${topSev.text}`}>
             <TopIcon className="h-5 w-5" />
