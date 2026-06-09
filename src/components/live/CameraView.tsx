@@ -123,44 +123,45 @@ export function CameraView({
   const haveAspect = videoSize.w > 0 && videoSize.h > 0;
   const aspect = haveAspect ? videoSize.w / videoSize.h : 16 / 9;
 
-  // Mobile: compute the contain-fit rect from the measurement wrapper and apply
-  // it to the SHELL itself so the black background hugs the visible video — no
-  // wide side bars. Bounded by viewport height for portrait phones in landscape
-  // video and vice versa.
-  const mobileAvailH =
-    typeof window !== "undefined" ? Math.max(0, window.innerHeight - 260) : container.h;
-  const availH = container.h > 0 ? Math.min(container.h, mobileAvailH) : mobileAvailH;
+  // Shrink-wrap the shell to the real video aspect on every breakpoint so a
+  // portrait camera stream never gets pillarboxed inside a forced landscape
+  // shell (the black-side-bars bug). Mobile reserves more chrome height than
+  // desktop.
+  const reservedH = isMobile ? 260 : 180;
+  const viewportAvailH =
+    typeof window !== "undefined" ? Math.max(0, window.innerHeight - reservedH) : container.h;
+  const availH = container.h > 0 ? Math.min(container.h, viewportAvailH) : viewportAvailH;
   const rect = computeContainRect(container.w || 0, availH || 0, aspect);
   const shellW = Math.max(0, Math.floor(rect.width));
   const shellH = Math.max(0, Math.floor(rect.height));
 
-  const mobileShellStyle: React.CSSProperties | undefined =
-    isMobile && haveAspect && shellW > 0 && shellH > 0
+  const shellStyle: React.CSSProperties | undefined =
+    haveAspect && shellW > 0 && shellH > 0
       ? {
           width: `${shellW}px`,
           height: `${shellH}px`,
           maxWidth: "100%",
-          maxHeight: "calc(100svh - 260px)",
+          maxHeight: `calc(100svh - ${reservedH}px)`,
         }
       : undefined;
 
   const showDebug = import.meta.env.DEV;
 
   // Shell classes:
-  //  - Mobile fallback (no metadata yet): aspect-[3/4] full width so the enable-
-  //    camera empty state still renders nicely.
-  //  - Desktop (sm:): wide aspect-video; `!w-full !h-auto` overrides any inline
-  //    mobile px so the layout doesn't leak across breakpoints.
+  //  - haveAspect: shrink-wrapped via inline style; just visuals here.
+  //  - Fallback (pre-stream): portrait 3/4 on mobile, landscape aspect-video
+  //    on desktop so the "Enable camera" empty state renders nicely.
   const shellClass = haveAspect
-    ? "relative overflow-hidden border border-border bg-black sm:aspect-video sm:!w-full sm:!h-auto sm:rounded-2xl"
-    : "relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:!w-full sm:!h-auto sm:rounded-2xl";
+    ? "relative overflow-hidden border border-border bg-black sm:rounded-2xl"
+    : "relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl";
+
 
   return (
     <div
       ref={containerRef}
       className="-mx-3 flex w-[calc(100%+1.5rem)] justify-center sm:mx-0 sm:w-full"
     >
-    <div style={mobileShellStyle} className={shellClass}>
+    <div style={shellStyle} className={shellClass}>
       {/* Orientation layer — the video and ALL overlays share this single layer
           so boxes/poses/zones stay aligned to the visible video. The front/
           selfie camera is intentionally NOT mirrored: a mirrored preview makes
