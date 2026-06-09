@@ -250,7 +250,7 @@ export default function Live() {
       // mobile portrait this cover-crops to MOBILE_VISUAL_ASPECT — the preview
       // image below is proof that the backend receives exactly what the user
       // sees on the camera card.
-      const targetAspect = isMobilePortraitViewport(window.innerWidth, window.innerHeight)
+      const targetAspect = isMobileViewport(window.innerWidth)
         ? MOBILE_VISUAL_ASPECT
         : null;
       const captured = captureVideoFrameBase64(video, { targetAspect });
