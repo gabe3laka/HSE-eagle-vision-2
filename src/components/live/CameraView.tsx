@@ -144,7 +144,10 @@ export function CameraView({
   // coords also match the visible card.
   const iw = typeof window !== "undefined" ? window.innerWidth : 0;
   const ih = typeof window !== "undefined" ? window.innerHeight : 0;
-  const mobilePortrait = isMobilePortraitViewport(iw, ih);
+  // Mobile-portrait classification MUST agree with `useIsMobile()` (768px), so
+  // viewports in the 640–767 range still get the portrait crop. `isMobile` is
+  // the source of truth; `ih > iw` adds the orientation check.
+  const mobilePortrait = isMobile && ih > iw;
   const visualAspect = mobilePortrait ? MOBILE_VISUAL_ASPECT : videoAspect;
 
   // Available space from stable references (measured full-bleed wrapper width +
