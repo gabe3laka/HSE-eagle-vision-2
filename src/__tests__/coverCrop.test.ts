@@ -29,7 +29,8 @@ describe("computeCoverCrop", () => {
 
   it("returns a safe fallback for degenerate inputs", () => {
     expect(computeCoverCrop(0, 720, 3 / 4)).toEqual({ sx: 0, sy: 0, sw: 0, sh: 720 });
-    expect(computeCoverCrop(NaN, NaN, 3 / 4).sw).toBeGreaterThanOrEqual(0);
+    expect(computeCoverCrop(NaN, NaN, 3 / 4)).toEqual({ sx: 0, sy: 0, sw: 0, sh: 0 });
+    expect(computeCoverCrop(1280, 720, 0)).toEqual({ sx: 0, sy: 0, sw: 1280, sh: 720 });
   });
 });
 
