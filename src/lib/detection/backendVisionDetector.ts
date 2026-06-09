@@ -104,6 +104,12 @@ export interface BackendStatus {
   // Fast Cloudflare HTTP transport extras.
   targetFps?: number | null; // requested frame cadence (~3 FPS)
   lastLatencyMs?: number | null; // last request round-trip (wall-clock), ms
+  // Aspect-preserving capture diagnostics (HTTP transports). Help diagnose
+  // overlay alignment vs the visible video on mobile portrait streams.
+  lastCaptureW?: number | null;
+  lastCaptureH?: number | null;
+  lastBackendImgW?: number | null;
+  lastBackendImgH?: number | null;
 }
 
 /** Lifecycle of the optional WebSocket stream transport (beta). */
