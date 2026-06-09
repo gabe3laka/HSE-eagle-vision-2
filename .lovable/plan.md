@@ -1,83 +1,59 @@
-# Mobile camera proportions + selfie text-flip patch
+# Shrink-wrap mobile camera shell
 
-Scope: `src/components/live/CameraView.tsx` only. No detector, capture, backend, or `Live.tsx` changes. EdgeCrafter stays dry-run.
+## Problem
+Mobile camera shell currently spans full width with `object-contain` video inside, producing large black side bars when the video is portrait. The shell should hug the fitted media rectangle on mobile only.
 
-## Problem recap
-1. Contain-fit works, but the outer card stays full-width on mobile, so the contained video floats inside a wide black stage — visually unbalanced.
-2. When the front (selfie) camera is active, the whole mirror layer is `scale-x-[-1]`. Overlay text (pose status chip, EdgeCrafter counts, top hazard banner) currently lives on the outer viewport and is not flipped — but anything text-like rendered inside overlays (e.g. labels on `BackendEntityOverlay` / `BackendPoseOverlay`) reads mirrored. We need text to always read correctly regardless of mirror.
+## Change scope
+Layout-only edit to `src/components/live/CameraView.tsx`. No detector, hook, capture, or backend changes.
 
-## Approach
+## Structure (mobile)
 
-### A. Two-stage outer container (shrink-wrap on mobile)
-
-Replace the current single bounded card with:
-
-```
-<div className="-mx-3 flex w-[calc(100%+1.5rem)] justify-center sm:mx-0 sm:w-full">
-  <div ref={containerRef}
-       className="relative flex max-h-[calc(100svh-220px)] items-center justify-center overflow-hidden border border-border bg-black
-                  aspect-[3/4] w-full
-                  sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl"
-       style={ isMobile ? { width: mediaW || undefined, height: mediaH || undefined } : undefined }>
-    ...
-  </div>
-</div>
+```text
+outer wrapper:  w-full flex justify-center                (measurement / centering)
+  camera shell: relative overflow-hidden bg-black border  (shrink-wrapped, mobile)
+    media layer:  absolute inset-0 (or w/h 100%)
+      video (object-contain, h-full w-full)
+      ZoneOverlay / DetectionOverlay / BackendEntity / BackendPose / Skeleton / scan-line
+    chips, flip button, status pill, alert banner (anchored to shell)
 ```
 
-Two-pass measurement:
-1. First render with no inline style → `aspect-[3/4]` mobile stage measures normally. `ResizeObserver` captures `container.w/h`. `computeContainRect` produces `mediaRect`.
-2. On mobile (`useIsMobile()` from `@/hooks/use-mobile`), apply inline `width: mediaW; height: mediaH` to the bounded card. The outer wrapper (`flex justify-center`) centers it. Card now wraps the actual video; black side-stage disappears.
-3. Desktop ignores the inline style — keeps `sm:aspect-video sm:w-full`.
+Desktop (`sm:` and up) keeps the existing `sm:aspect-video sm:w-full sm:rounded-2xl` behavior.
 
-Guard against feedback loop: only apply the inline size when `mediaW > 0 && mediaH > 0 && mediaW < container.w` (i.e. only shrink horizontally; if container already matches video, no-op). This prevents oscillation between the unsized aspect-[3/4] measurement and the sized state.
+## Implementation steps in `CameraView.tsx`
 
-Bounded by:
-- `max-width: 100%` (CSS) — already implicit through parent
-- `max-height: calc(100svh - 220px)` retained on the card
-
-### B. Selfie text counter-flip
-
-Two layers of text:
-1. **Chips/banners on the OUTER viewport** (status pill, EdgeCrafter counts, pose-status chip, top hazard banner, flip button) — these already sit outside the mirror layer and are unaffected. Leave as-is.
-2. **Text rendered inside overlays** (`BackendEntityOverlay` and `BackendPoseOverlay` may draw labels; debug readouts) — these live inside the mirror layer and currently invert.
-
-Fix: keep the single `scale-x-[-1]` on the mirror layer, then add a one-line CSS rule that re-flips any element marked `data-counter-mirror` so text/labels inside the mirror read correctly:
-
-```tsx
-{/* inside the mirror layer wrapper, after the video, before overlays */}
-<style>{`.mirror-flip [data-counter-mirror]{transform:scaleX(-1);transform-origin:center}`}</style>
-```
-
-And add `className="mirror-flip"` to the mirror wrapper when `facing === "user"`. Overlay components that render text can opt in by setting `data-counter-mirror` on their label nodes. For this patch, also wrap the existing DEV debug readout with `data-counter-mirror` so it always reads correctly.
-
-Note: this patch only wires the mechanism + applies it to the DEV debug readout. Adding `data-counter-mirror` to label spans inside `BackendEntityOverlay` / `BackendPoseOverlay` is a small follow-up if those overlays actually render text (out of scope for this patch unless they already do).
-
-### C. Layer order (unchanged)
-
-```
-outer centering wrapper (flex justify-center, mobile shrink-wrap)
-  bounded card (containerRef, overflow-hidden, optional inline w/h on mobile)
-    inner media layer (explicit mediaRect, no transform)
-      mirror layer (absolute inset-0, scale-x-[-1] when facing==='user', class mirror-flip)
-        <video>
-        ZoneOverlay
-        DetectionOverlay
-        BackendEntityOverlay
-        BackendPoseOverlay
-        SkeletonOverlay
-        scan-line
-    chips/banners (outer viewport, anchored to card edges)
-```
-
-Stop-monitoring button and bottom stats live OUTSIDE this component in `Live.tsx` — untouched, will render below the (now narrower) card without horizontal clipping because the outer centering wrapper is full width.
+1. Keep `containerRef` + `ResizeObserver` measuring the outer wrapper width/height, and `videoSize` from `onLoadedMetadata`. The outer wrapper is the measurement area only.
+2. Compute `mediaRect = computeContainRect(container.w, available.h, aspect)` where on mobile `available.h = min(container.h, viewport - chrome)`. Use existing util.
+3. Build `shellStyle`:
+   - Mobile (when `isMobile` and `videoSize` known): `{ width: `${mediaRect.width}px`, height: `${mediaRect.height}px`, maxWidth: "100%", maxHeight: "calc(100svh - 260px)" }`.
+   - Otherwise: leave undefined; rely on Tailwind classes for desktop.
+4. Camera shell `<div>` classes:
+   - Common: `relative overflow-hidden border border-border bg-black`
+   - Mobile-only fallback when video aspect not yet known: keep `aspect-[3/4] max-h-[calc(100svh-260px)] w-full` so the shell still appears before metadata.
+   - Desktop: `sm:aspect-video sm:w-full sm:rounded-2xl sm:max-h-none` and reset mobile width via `sm:!w-full sm:!h-auto` so inline px width doesn't leak to desktop.
+5. Inner media/orientation layer becomes `absolute inset-0` (single layer) holding the `<video>` and all overlays. Drop the explicit pixel-sized inner div — the shell IS the visible media rect now, so overlays using `inset-0` align exactly to the visible video.
+6. Front/selfie: keep current behavior (no mirror) per existing comment. Single shared orientation layer for video + overlays.
+7. Outer wrapper: `-mx-3 w-[calc(100%+1.5rem)] sm:mx-0 sm:w-full flex justify-center` stays (full-bleed centering on mobile). Background of this wrapper is transparent — only the shell is black.
+8. DEV debug overlay updated to:
+   ```
+   measure {cw}×{ch}
+   shell {shellW}×{shellH}
+   video {vw}×{vh}
+   mirror off · facing {facing}
+   ```
+   `shellW/shellH` come from `mediaRect` (mobile) or shell `getBoundingClientRect` (desktop).
+9. Chips, flip button, pose status pill, EdgeCrafter count chips, top alert banner, and the enable-camera empty state stay as direct children of the shell so they hug the visible rectangle.
+10. Remove the previous explicit-pixel inner `innerStyle` div; overlays now use the shell directly.
 
 ## Edge cases
-- First paint before measurement: `mediaW=0` → no inline size → card uses `aspect-[3/4]`, fine.
-- Camera not active yet: `videoSize=0`, `aspect` falls back to 16/9 — card still shrink-wraps to a sensible 16/9 box inside the 3/4 stage. Acceptable; flips correctly once metadata arrives.
-- Orientation change: `ResizeObserver` re-fires, mediaRect recomputes.
-- Desktop (`sm:`): inline style is gated by `isMobile`, so desktop keeps `aspect-video w-full`.
+- Before `onLoadedMetadata` fires: shell falls back to `aspect-[3/4]` mobile placeholder so the enable-camera state still renders nicely.
+- Landscape phone: `mediaRect` is width-limited by `100svw` (via `maxWidth: 100%`), height shrinks; no overflow.
+- Desktop ≥640px: inline mobile width/height are overridden by `sm:!w-full sm:!h-auto` and `sm:aspect-video`, preserving current layout.
+- Front camera: not mirrored (matches current code + comment).
 
 ## Verification
-- `bunx vitest run` — expect 96/96 still green (`computeContainRect` unit behavior unchanged).
-- Lovable auto build / typecheck.
-- Manual mobile portrait: card visibly shrink-wraps the video, no wide black stage. Front-camera toggle: video mirrors, overlay labels (and DEV readout) read correctly. Detection/pose overlays remain pixel-aligned to the visible video. Desktop layout unchanged.
+- `bunx vitest run` — existing `computeContainRect` tests should still pass (96/96). No new tests required (pure layout).
+- Lovable auto build.
+- Manual: mobile portrait shows shell hugging the video with negligible side bars; overlays aligned; desktop unchanged; landscape no overflow.
+
+## Out of scope
+`useCamera.ts`, `Live.tsx`, detectors (backend/HTTP/stream), EdgeCrafter, RunPod, Cloudflare, Supabase, capture pipeline.

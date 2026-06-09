@@ -90,9 +90,9 @@ export function CameraView({
   const TopIcon = topAlert ? HAZARD_ICONS[topAlert.hazardType] : null;
   const topSev = topAlert ? SEVERITY_META[topAlert.severity] : null;
 
-  // Outer viewport is bounded (mobile: max height; desktop: aspect-video).
-  // We measure its REAL pixel size and then size the inner media layer to a
-  // contain-fit rect so the visible video + overlays never overflow.
+  // Measurement wrapper (full-bleed on mobile) provides the available width/
+  // height for the contain-fit calc. The visible black SHELL then shrink-wraps
+  // to the fitted media rectangle so there are no side letterbox bars.
   const containerRef = useRef<HTMLDivElement>(null);
   const [container, setContainer] = useState({ w: 0, h: 0 });
   const [videoSize, setVideoSize] = useState({ w: 0, h: 0 });
@@ -110,21 +110,7 @@ export function CameraView({
     return () => ro.disconnect();
   }, []);
 
-  const aspect = videoSize.w > 0 && videoSize.h > 0 ? videoSize.w / videoSize.h : 16 / 9;
-  const rect = computeContainRect(container.w, container.h, aspect);
-  const mediaW = Math.max(0, Math.floor(rect.width));
-  const mediaH = Math.max(0, Math.floor(rect.height));
-
-  const innerStyle: React.CSSProperties = {
-    position: "relative",
-    width: mediaW || undefined,
-    height: mediaH || undefined,
-    maxWidth: "100%",
-    maxHeight: "100%",
-  };
-
-  // Re-measure when the video stream becomes active so the inner layer sizes
-  // correctly even if metadata fired before mount.
+  // Re-grab metadata in case it fired before mount.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -133,40 +119,55 @@ export function CameraView({
     }
   }, [active, videoRef]);
 
-  const showDebug = import.meta.env.DEV;
   const isMobile = useIsMobile();
-  // Mobile: size the camera card to the video's REAL aspect ratio, bounded by
-  // the available height, so it visually wraps the media rectangle (no full-width
-  // black stage / no large side bars) and centers inside the outer flex. Pure CSS
-  // derived from the video aspect + viewport — no measure→shrink→re-measure
-  // feedback loop. Desktop/tablet keep the wide sm:aspect-video card (className).
-  const cardStyle: React.CSSProperties | undefined =
-    isMobile && videoSize.w > 0 && videoSize.h > 0
+  const haveAspect = videoSize.w > 0 && videoSize.h > 0;
+  const aspect = haveAspect ? videoSize.w / videoSize.h : 16 / 9;
+
+  // Mobile: compute the contain-fit rect from the measurement wrapper and apply
+  // it to the SHELL itself so the black background hugs the visible video — no
+  // wide side bars. Bounded by viewport height for portrait phones in landscape
+  // video and vice versa.
+  const mobileAvailH =
+    typeof window !== "undefined" ? Math.max(0, window.innerHeight - 260) : container.h;
+  const availH = container.h > 0 ? Math.min(container.h, mobileAvailH) : mobileAvailH;
+  const rect = computeContainRect(container.w || 0, availH || 0, aspect);
+  const shellW = Math.max(0, Math.floor(rect.width));
+  const shellH = Math.max(0, Math.floor(rect.height));
+
+  const mobileShellStyle: React.CSSProperties | undefined =
+    isMobile && haveAspect && shellW > 0 && shellH > 0
       ? {
-          width: `min(100%, calc((100svh - 220px) * ${aspect}))`,
-          aspectRatio: `${aspect}`,
-          maxHeight: "calc(100svh - 220px)",
+          width: `${shellW}px`,
+          height: `${shellH}px`,
+          maxWidth: "100%",
+          maxHeight: "calc(100svh - 260px)",
         }
       : undefined;
 
+  const showDebug = import.meta.env.DEV;
+
+  // Shell classes:
+  //  - Mobile fallback (no metadata yet): aspect-[3/4] full width so the enable-
+  //    camera empty state still renders nicely.
+  //  - Desktop (sm:): wide aspect-video; `!w-full !h-auto` overrides any inline
+  //    mobile px so the layout doesn't leak across breakpoints.
+  const shellClass = haveAspect
+    ? "relative overflow-hidden border border-border bg-black sm:aspect-video sm:!w-full sm:!h-auto sm:rounded-2xl"
+    : "relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:!w-full sm:!h-auto sm:rounded-2xl";
+
   return (
-    <div className="-mx-3 flex w-[calc(100%+1.5rem)] justify-center sm:mx-0 sm:w-full">
     <div
       ref={containerRef}
-      style={cardStyle}
-      className={
-        "relative flex aspect-[3/4] max-h-[calc(100svh-220px)] w-full items-center justify-center overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl"
-      }
+      className="-mx-3 flex w-[calc(100%+1.5rem)] justify-center sm:mx-0 sm:w-full"
     >
-      {/* Inner media layer — measured contain-fit rect (the visible video). */}
-      <div style={innerStyle}>
-        {/* Orientation layer — the video and ALL overlays share this single layer
-            so boxes/poses/zones stay aligned to the visible video. The front/
-            selfie camera is intentionally NOT mirrored: a mirrored preview makes
-            real-world text, signs and labels read backwards, which matters more
-            for a safety camera than a natural selfie. The capture canvas also
-            sees the un-mirrored frame, so overlays stay aligned. */}
-        <div className="absolute inset-0">
+    <div style={mobileShellStyle} className={shellClass}>
+      {/* Orientation layer — the video and ALL overlays share this single layer
+          so boxes/poses/zones stay aligned to the visible video. The front/
+          selfie camera is intentionally NOT mirrored: a mirrored preview makes
+          real-world text, signs and labels read backwards, which matters more
+          for a safety camera than a natural selfie. The capture canvas also
+          sees the un-mirrored frame, so overlays stay aligned. */}
+      <div className="absolute inset-0">
           <video
             ref={videoRef}
             playsInline
@@ -203,10 +204,9 @@ export function CameraView({
           {active && running && (
             <div className="pointer-events-none absolute inset-x-0 top-0 h-1 animate-scan bg-gradient-to-r from-transparent via-primary to-transparent" />
           )}
-        </div>
       </div>
 
-      {/* Chips and banners on the OUTER viewport — stay anchored regardless of letterboxing. */}
+      {/* Chips and banners anchored to the SHELL (which IS the visible video rect on mobile). */}
       {active && (
         <Button
           onClick={onFlip}
