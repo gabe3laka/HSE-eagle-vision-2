@@ -161,7 +161,7 @@ export function CameraView({
       ref={containerRef}
       className="-mx-3 flex w-[calc(100%+1.5rem)] justify-center sm:mx-0 sm:w-full"
     >
-    <div style={mobileShellStyle} className={shellClass}>
+    <div style={shellStyle} className={shellClass}>
       {/* Orientation layer — the video and ALL overlays share this single layer
           so boxes/poses/zones stay aligned to the visible video. The front/
           selfie camera is intentionally NOT mirrored: a mirrored preview makes
