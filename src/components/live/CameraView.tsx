@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Camera, CameraOff, Loader2, SwitchCamera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DetectionOverlay } from "./DetectionOverlay";
@@ -69,15 +70,26 @@ export function CameraView({
 }: Props) {
   const TopIcon = topAlert ? HAZARD_ICONS[topAlert.hazardType] : null;
   const topSev = topAlert ? SEVERITY_META[topAlert.severity] : null;
+  // Size the frame to the camera's real aspect ratio so the full sensor frame
+  // shows (no object-cover crop = no "zoom"), with no letterbox bars and with
+  // the detection overlays aligned to exactly what the backend captured.
+  const [aspect, setAspect] = useState<number | null>(null);
 
   return (
-    <div className="relative -mx-3 aspect-[3/4] w-[calc(100%+1.5rem)] overflow-hidden border border-border bg-black sm:mx-0 sm:aspect-video sm:w-full sm:rounded-2xl">
+    <div
+      className="relative -mx-3 aspect-[3/4] w-[calc(100%+1.5rem)] overflow-hidden border border-border bg-black sm:mx-0 sm:aspect-video sm:w-full sm:rounded-2xl"
+      style={aspect ? { aspectRatio: aspect } : undefined}
+    >
       <video
         ref={videoRef}
         playsInline
         muted
         autoPlay
-        className={`h-full w-full object-cover transition-opacity ${active ? "opacity-100" : "opacity-0"} ${facing === "user" ? "scale-x-[-1]" : ""}`}
+        onLoadedMetadata={(e) => {
+          const v = e.currentTarget;
+          if (v.videoWidth > 0 && v.videoHeight > 0) setAspect(v.videoWidth / v.videoHeight);
+        }}
+        className={`h-full w-full object-contain transition-opacity ${active ? "opacity-100" : "opacity-0"} ${facing === "user" ? "scale-x-[-1]" : ""}`}
       />
 
       {active && (
