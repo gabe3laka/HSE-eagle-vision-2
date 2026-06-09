@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeCoverCrop,
   isMobilePortraitViewport,
+  isMobileViewport,
   MOBILE_VISUAL_ASPECT,
 } from "@/lib/detection/coverCrop";
 
