@@ -247,13 +247,13 @@ export function CameraView({
 
       {showDebug && active && (
         <div className="pointer-events-none absolute bottom-2 left-2 z-30 rounded bg-black/60 px-2 py-1 font-mono text-[10px] leading-tight text-white/80">
-          outer {Math.round(container.w)}×{Math.round(container.h)}
+          measure {Math.round(container.w)}×{Math.round(container.h)}
           <br />
-          inner {mediaW}×{mediaH}
+          shell {shellW}×{shellH}
           <br />
           video {videoSize.w}×{videoSize.h}
           <br />
-          facing {facing} · mirror off
+          mirror off · facing {facing}
         </div>
       )}
 
