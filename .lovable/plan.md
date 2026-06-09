@@ -1,47 +1,46 @@
-# Fix: black side bars when phone camera stream is portrait
+# Lock mobile camera shell to the pre-stream shape
 
-## What's actually happening
+## Problem
 
-The camera shell currently behaves like this:
+Right now the mobile shell shrink-wraps to the real video aspect once the stream starts. A portrait phone camera (e.g. 720×1280) gives one shape, the pre-stream empty state gives another (3/4), and a landscape feed gives a third. The frame visibly changes the moment the video plays, and in some cases it can extend past what feels right on a phone.
 
-```
-mobile breakpoint (<768px)  →  shrink-wrap to video aspect (correct)
-sm: and up (≥768px)         →  forced sm:aspect-video sm:!w-full (landscape rectangle)
-```
+You want: the mobile frame the user sees BEFORE the stream starts is the canonical shape. After play, the frame must not change and must never exceed the mobile viewport width.
 
-When you hold the phone in landscape (or the preview is wider than 768px) the second branch kicks in. The shell becomes a wide 16:9 box, but the actual camera stream from a phone front/rear sensor is usually portrait (e.g. 720×1280). `object-contain` then pillarboxes the portrait video inside the wide shell — that's the black left/right bars you're seeing.
+## Plan (CameraView.tsx only)
 
-The fix is to stop forcing `aspect-video` and always shrink-wrap the shell to the real `computeContainRect` rectangle, regardless of breakpoint. The shell follows the video, not the viewport.
+1. **Mobile: lock shell to the pre-stream aspect (3/4 portrait), always.**
+   - On mobile (`isMobile === true`), ignore the measured video aspect for shell sizing.
+   - Shell classes on mobile: `relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black` — identical to today's pre-stream fallback.
+   - No inline `width`/`height` style on mobile. Width is naturally clamped to the parent (`w-full`), so it can never exceed the mobile screen.
 
-## Changes (CameraView.tsx only)
+2. **Video fit inside the locked shell.**
+   - Keep `object-contain` on the `<video>`. When the real stream is landscape inside a portrait shell, it letterboxes top/bottom (thin black bars above/below the video). When the stream is portrait, it fills the shell cleanly.
+   - This is the intentional trade-off: shell stability over filling every pixel. Overlays (`DetectionOverlay`, `BackendEntityOverlay`, `BackendPoseOverlay`, `SkeletonOverlay`, `ZoneOverlay`) already sit in `absolute inset-0` over the same `<video>` element, so they remain aligned to the visible video rectangle via the existing contain math — no overlay changes needed.
 
-1. **Drop the `isMobile` gate on shell sizing.** Once `haveAspect` is true, apply the computed `width`/`height` inline style on every breakpoint. The shell width comes from `computeContainRect(containerW, availH, videoAspect)`, so portrait video → narrower shell, landscape video → wider shell. No pillarboxes either way.
+3. **Desktop/tablet unchanged from current behavior.**
+   - When `!isMobile` and `haveAspect`, keep the shrink-wrap-to-video shell (inline `width`/`height` from `computeContainRect`) so wide screens still get a proportional landscape frame.
+   - Pre-stream desktop fallback unchanged (`sm:aspect-video sm:rounded-2xl`).
 
-2. **Recompute `availH` per breakpoint.**
-   - Mobile: `min(container.h, 100svh - 260)` (unchanged).
-   - Desktop: `min(container.h, 100svh - 180)` or a sensible cap (e.g. `min(container.h, 720)`), so a portrait camera on a tall desktop window doesn't stretch the shell to full page height.
+4. **Outer wrapper unchanged.**
+   - `-mx-3 w-[calc(100%+1.5rem)] sm:mx-0 sm:w-full flex justify-center` stays. On mobile the full-bleed wrapper plus `w-full` shell gives a clean edge-to-edge portrait card; on desktop `justify-center` keeps the shrink-wrapped shell centered.
 
-3. **Remove the forced landscape classes** `sm:aspect-video sm:!w-full sm:!h-auto` from `shellClass`. Keep `sm:rounded-2xl` for the rounded corners on desktop. The shell becomes:
-   - `haveAspect` true: `relative overflow-hidden border border-border bg-black sm:rounded-2xl` plus inline width/height.
-   - `haveAspect` false (pre-stream): keep the existing `aspect-[3/4] w-full max-h-[calc(100svh-260px)] sm:aspect-video sm:max-h-none sm:rounded-2xl` fallback so the "Enable camera" empty state still looks right.
-
-4. **Outer measurement wrapper unchanged** — still `-mx-3 w-[calc(100%+1.5rem)] sm:mx-0 sm:w-full flex justify-center`. The `justify-center` keeps the shrink-wrapped shell centered when the video is portrait on a wide screen.
-
-5. **Dev debug readout** updates automatically (already prints `shell W×H` and `video W×H`).
+5. **Dev debug readout** keeps printing `measure`, `shell`, `video` — useful to confirm shell W stays constant across pre-stream → playing on mobile.
 
 ## Out of scope
 
-- `useCamera.ts` — not changing requested resolution or facing logic.
-- `Live.tsx`, detectors, overlays, EdgeCrafter, Supabase, Cloudflare — untouched.
-- Mirror / capture pipeline — untouched.
+- `useCamera.ts` (no change to requested resolution or facing).
+- `Live.tsx`, detectors, overlays, EdgeCrafter, Supabase, Cloudflare.
+- Mirror / capture pipeline.
 
 ## Verification
 
-- `bunx vitest run` (existing `cameraContain.test.ts` already covers the contain math; should stay green).
-- Lovable auto build.
-- Manual:
-  - Mobile portrait + portrait camera → tall shell, no side bars.
-  - Mobile landscape + portrait camera → centered portrait shell, black background on either side of the *page*, but the shell itself has no internal bars.
-  - Desktop wide + landscape camera → landscape shell, capped height, no top/bottom bars.
-  - Desktop wide + portrait camera → centered portrait shell, no side bars inside it.
-  - Purple pose lines and teal boxes still align over the visible video.
+- `bunx vitest run` — existing `cameraContain.test.ts` still passes (function unchanged; only mobile shell stops calling it).
+- Manual on mobile:
+  - Pre-stream "Enable camera" card shape ≡ post-stream playing shape.
+  - Portrait phone camera → fills the 3/4 shell, no side bars.
+  - Landscape phone camera → letterboxed top/bottom inside the same 3/4 shell, no horizontal overflow.
+  - Shell never extends past the mobile screen width.
+- Manual on desktop:
+  - Landscape feed → wide proportional shell as today.
+  - Portrait feed → centered narrower shell as today.
+- Purple pose lines and teal boxes remain aligned over the visible video.
