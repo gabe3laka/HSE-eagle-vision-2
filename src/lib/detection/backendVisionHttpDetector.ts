@@ -1,6 +1,27 @@
 import type { BackendEntity, BackendPose, Detector, DetectorInput, Observation } from "./types";
 import { type BackendStatus, normalizeEntities, normalizePoses } from "./backendVisionDetector";
 import { supabase } from "@/integrations/supabase/own-client";
+import {
+  computeCoverCrop,
+  isMobilePortraitViewport,
+  MOBILE_VISUAL_ASPECT,
+} from "./coverCrop";
+
+/**
+ * Resolve the visual crop aspect that mirrors what the user sees right now.
+ * Mobile portrait → MOBILE_VISUAL_ASPECT (3/4). Anywhere else → null, meaning
+ * "no cover-crop, keep the source aspect" (desktop/tablet behavior).
+ *
+ * Single source of truth for both the live detector and the single-frame test
+ * button — keeps the capture rectangle in lockstep with CameraView's shell so
+ * EdgeCrafter receives exactly what the user sees.
+ */
+function resolveViewportTargetAspect(): number | null {
+  if (typeof window === "undefined") return null;
+  return isMobilePortraitViewport(window.innerWidth, window.innerHeight)
+    ? MOBILE_VISUAL_ASPECT
+    : null;
+}
 
 /**
  * BackendVisionHttpDetector — "EdgeCrafter HTTP — fast dry run".
