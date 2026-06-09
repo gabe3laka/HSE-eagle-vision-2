@@ -16,7 +16,6 @@ import type { DetectionZone, ZonePoint } from "@/lib/detection/types";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   computeCoverCrop,
-  isMobilePortraitViewport,
   MOBILE_VISUAL_ASPECT,
 } from "@/lib/detection/coverCrop";
 
