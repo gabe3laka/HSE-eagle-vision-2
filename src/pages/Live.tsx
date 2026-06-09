@@ -246,8 +246,14 @@ export default function Live() {
     setBackendTesting(true);
     try {
       // Use the SAME aspect-preserving capture as the live detector so the
-      // single-frame test mirrors what the live stream actually sends.
-      const captured = captureVideoFrameBase64(video);
+      // single-frame test mirrors what the live stream actually sends. On
+      // mobile portrait this cover-crops to MOBILE_VISUAL_ASPECT — the preview
+      // image below is proof that the backend receives exactly what the user
+      // sees on the camera card.
+      const targetAspect = isMobilePortraitViewport(window.innerWidth, window.innerHeight)
+        ? MOBILE_VISUAL_ASPECT
+        : null;
+      const captured = captureVideoFrameBase64(video, { targetAspect });
       if (!captured) {
         setBackendTest("Frame capture failed.");
         return;
