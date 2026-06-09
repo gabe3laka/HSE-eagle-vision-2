@@ -213,7 +213,7 @@ export function CameraView({
                 setVideoSize({ w: v.videoWidth, h: v.videoHeight });
               }
             }}
-            className={`h-full w-full object-contain transition-opacity ${active ? "opacity-100" : "opacity-0"}`}
+            className={`h-full w-full ${videoFitClass} transition-opacity ${active ? "opacity-100" : "opacity-0"}`}
           />
 
           {active && (
