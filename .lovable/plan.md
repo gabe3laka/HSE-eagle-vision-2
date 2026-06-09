@@ -1,46 +1,51 @@
-# Lock mobile camera shell to the pre-stream shape
+# Fix mobile-portrait landscape expansion (640–767px gap)
 
-## Problem
+## Root cause
 
-Right now the mobile shell shrink-wraps to the real video aspect once the stream starts. A portrait phone camera (e.g. 720×1280) gives one shape, the pre-stream empty state gives another (3/4), and a landscape feed gives a third. The frame visibly changes the moment the video plays, and in some cases it can extend past what feels right on a phone.
+`isMobilePortraitViewport()` in `src/lib/detection/coverCrop.ts` uses a 640px threshold, but `useIsMobile()` uses 768px. On viewports 640–767px wide and portrait, the app is "mobile" but `mobilePortrait` is false, so `visualAspect` falls back to the raw stream aspect (often 1280×720 = 1.78) and the shell expands to landscape when the camera starts.
 
-You want: the mobile frame the user sees BEFORE the stream starts is the canonical shape. After play, the frame must not change and must never exceed the mobile viewport width.
+## Changes
 
-## Plan (CameraView.tsx only)
+### 1. `src/lib/detection/coverCrop.ts`
+- Export `MOBILE_BREAKPOINT = 768` (single source of truth, matches `useIsMobile`).
+- Update `isMobilePortraitViewport(w, h)` to use `w < MOBILE_BREAKPOINT && h > w`.
+- Update the existing unit test cases:
+  - `768×1024` (tablet) → now **true** (it IS a mobile-portrait layout under the 768 breakpoint — actually `768 < 768` is false, so still false; keep this assertion).
+  - Add a new case: `720×1280` → **true** (covers the previously-broken 640–767 gap).
+  - Existing 390×844 / 360×800 true cases stay green.
 
-1. **Mobile: lock shell to the pre-stream aspect (3/4 portrait), always.**
-   - On mobile (`isMobile === true`), ignore the measured video aspect for shell sizing.
-   - Shell classes on mobile: `relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black` — identical to today's pre-stream fallback.
-   - No inline `width`/`height` style on mobile. Width is naturally clamped to the parent (`w-full`), so it can never exceed the mobile screen.
+### 2. `src/components/live/CameraView.tsx`
+- Replace the local `iw/ih` viewport read with a combined check:
+  ```ts
+  const mobilePortrait = isMobile && ih > iw;
+  ```
+  (`isMobile` already comes from `useIsMobile()`; `ih`/`iw` stay for debug.)
+  This guarantees mobile-portrait classification matches the app's mobile layout exactly, no matter which breakpoint constant drifts.
+- `visualAspect` continues to be `MOBILE_VISUAL_ASPECT` (3/4) when `mobilePortrait`, otherwise `videoAspect`. No other shell-sizing inputs change.
+- Confirm the shell size depends ONLY on `availW`, `availH`, and `visualAspect` — not on `running`, backend entity/pose counts, or overlay state. (Current code already meets this; no edits needed beyond the condition above.)
+- Extend the DEV debug overlay to include `useIsMobile` and `raw videoAspect` explicitly:
+  ```
+  win {iw}×{ih} · useIsMobile {isMobile} · mobilePortrait {mobilePortrait}
+  raw {videoSize.w}×{videoSize.h} · rawAspect {videoAspect.toFixed(3)} · vis {visualAspect.toFixed(3)}
+  shell {shellW}×{shellH} · fit {videoFitClass}
+  crop {…}
+  running {running}
+  ```
 
-2. **Video fit inside the locked shell.**
-   - Keep `object-contain` on the `<video>`. When the real stream is landscape inside a portrait shell, it letterboxes top/bottom (thin black bars above/below the video). When the stream is portrait, it fills the shell cleanly.
-   - This is the intentional trade-off: shell stability over filling every pixel. Overlays (`DetectionOverlay`, `BackendEntityOverlay`, `BackendPoseOverlay`, `SkeletonOverlay`, `ZoneOverlay`) already sit in `absolute inset-0` over the same `<video>` element, so they remain aligned to the visible video rectangle via the existing contain math — no overlay changes needed.
-
-3. **Desktop/tablet unchanged from current behavior.**
-   - When `!isMobile` and `haveAspect`, keep the shrink-wrap-to-video shell (inline `width`/`height` from `computeContainRect`) so wide screens still get a proportional landscape frame.
-   - Pre-stream desktop fallback unchanged (`sm:aspect-video sm:rounded-2xl`).
-
-4. **Outer wrapper unchanged.**
-   - `-mx-3 w-[calc(100%+1.5rem)] sm:mx-0 sm:w-full flex justify-center` stays. On mobile the full-bleed wrapper plus `w-full` shell gives a clean edge-to-edge portrait card; on desktop `justify-center` keeps the shrink-wrapped shell centered.
-
-5. **Dev debug readout** keeps printing `measure`, `shell`, `video` — useful to confirm shell W stays constant across pre-stream → playing on mobile.
+### 3. Detector parity
+`backendVisionHttpDetector.ts` and `Live.tsx` already call `isMobilePortraitViewport(window.innerWidth, window.innerHeight)`. Bumping the helper's threshold to 768 automatically widens the crop coverage to match — no separate edits required there.
 
 ## Out of scope
-
-- `useCamera.ts` (no change to requested resolution or facing).
-- `Live.tsx`, detectors, overlays, EdgeCrafter, Supabase, Cloudflare.
-- Mirror / capture pipeline.
+useCamera constraints, RunPod, Cloudflare, Supabase, EdgeCrafter backend, WebSocket, on-device detectors, alerts/incidents, desktop/tablet behavior.
 
 ## Verification
-
-- `bunx vitest run` — existing `cameraContain.test.ts` still passes (function unchanged; only mobile shell stops calling it).
-- Manual on mobile:
-  - Pre-stream "Enable camera" card shape ≡ post-stream playing shape.
-  - Portrait phone camera → fills the 3/4 shell, no side bars.
-  - Landscape phone camera → letterboxed top/bottom inside the same 3/4 shell, no horizontal overflow.
-  - Shell never extends past the mobile screen width.
-- Manual on desktop:
-  - Landscape feed → wide proportional shell as today.
-  - Portrait feed → centered narrower shell as today.
-- Purple pose lines and teal boxes remain aligned over the visible video.
+- `bunx vitest run` — new + existing coverCrop tests pass, full suite stays green.
+- `npm run build` — clean.
+- Manual on a 720×1280-class phone:
+  - Inactive: portrait card.
+  - Enable camera → portrait card (no landscape jump on metadata load).
+  - Start Monitoring → shell stays exactly the same size; overlays appear inside it.
+  - Stop Monitoring → no resize.
+  - DEV overlay shows `useIsMobile=true`, `mobilePortrait=true`, `visualAspect=0.750` even when `raw 1280×720`.
+- Desktop/tablet ≥768px: unchanged contain-fit behavior.
+- EdgeCrafter single-frame test preview matches the visible crop.
