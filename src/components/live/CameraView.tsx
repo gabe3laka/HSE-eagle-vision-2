@@ -299,7 +299,7 @@ export function CameraView({
           <br />
           raw {videoSize.w}×{videoSize.h} · rawAspect {videoAspect.toFixed(3)} · vis {visualAspect.toFixed(3)}
           <br />
-          shell {shellW}×{shellH} · fit {videoFitClass}
+          avail {Math.round(availW)} → eff {Math.round(effectiveAvailW)} · shell {shellW}×{shellH} · fit {videoFitClass}
           <br />
           crop{" "}
           {debugCrop
