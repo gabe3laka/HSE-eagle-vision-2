@@ -69,7 +69,7 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
     );
   });
 
-  it("reports transport http-cloudflare and a ~3 fps target", async () => {
+  it("reports transport http-cloudflare and a ~4 fps target", async () => {
     const { BackendVisionHttpDetector } =
       await import("../lib/detection/backendVisionHttpDetector");
     const det = new BackendVisionHttpDetector({
@@ -79,7 +79,7 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
     });
     const st = det.getBackendStatus();
     expect(st.transport).toBe("http-cloudflare");
-    expect(st.targetFps).toBe(3);
+    expect(st.targetFps).toBe(4);
     expect(st.requestCount).toBe(0);
   });
 
