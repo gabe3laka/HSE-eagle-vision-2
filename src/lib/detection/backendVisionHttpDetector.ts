@@ -399,13 +399,72 @@ export class BackendVisionHttpDetector implements Detector {
   private _captureFrame(video: HTMLVideoElement): string | null {
     if (!this.captureCtx || !this.captureCanvas) return null;
     try {
-      this.captureCtx.drawImage(video, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+      const { cw, ch } = computeCaptureSize(
+        video.videoWidth || CAPTURE_MAX_SIDE,
+        video.videoHeight || CAPTURE_MAX_SIDE,
+        CAPTURE_MAX_SIDE,
+      );
+      if (this.captureCanvas.width !== cw) this.captureCanvas.width = cw;
+      if (this.captureCanvas.height !== ch) this.captureCanvas.height = ch;
+      this.captureCtx.drawImage(video, 0, 0, cw, ch);
+      this.status.lastCaptureW = cw;
+      this.status.lastCaptureH = ch;
       const dataUrl = this.captureCanvas.toDataURL("image/jpeg", CAPTURE_QUALITY);
       return dataUrl.split(",")[1] ?? null;
     } catch {
       return null;
     }
   }
+}
+
+/**
+ * Compute aspect-preserving capture dims from the source video, capping the
+ * longest side at `maxSide`. Exported so the single-frame test button and the
+ * detector share one implementation — keeps overlay alignment consistent.
+ */
+export function computeCaptureSize(
+  srcW: number,
+  srcH: number,
+  maxSide = CAPTURE_MAX_SIDE,
+): { cw: number; ch: number } {
+  if (!Number.isFinite(srcW) || !Number.isFinite(srcH) || srcW <= 0 || srcH <= 0) {
+    return { cw: maxSide, ch: maxSide };
+  }
+  if (srcW >= srcH) {
+    const cw = Math.min(srcW, maxSide);
+    const ch = Math.max(1, Math.round((cw * srcH) / srcW));
+    return { cw: Math.round(cw), ch };
+  }
+  const ch = Math.min(srcH, maxSide);
+  const cw = Math.max(1, Math.round((ch * srcW) / srcH));
+  return { cw, ch: Math.round(ch) };
+}
+
+/**
+ * Capture a frame from a video element to JPEG base64 (no data: prefix) with
+ * aspect-preserving sizing. Shared by the live detector and the single-frame
+ * test button so both send the same shape to /detect.
+ */
+export function captureVideoFrameBase64(
+  video: HTMLVideoElement,
+  opts?: { maxSide?: number; quality?: number },
+): { image_b64: string; cw: number; ch: number } | null {
+  if (typeof document === "undefined") return null;
+  const { cw, ch } = computeCaptureSize(
+    video.videoWidth,
+    video.videoHeight,
+    opts?.maxSide ?? CAPTURE_MAX_SIDE,
+  );
+  const canvas = document.createElement("canvas");
+  canvas.width = cw;
+  canvas.height = ch;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, cw, ch);
+  const dataUrl = canvas.toDataURL("image/jpeg", opts?.quality ?? CAPTURE_QUALITY);
+  const image_b64 = dataUrl.split(",")[1] ?? "";
+  if (!image_b64) return null;
+  return { image_b64, cw, ch };
 }
 
 async function safeText(res: Response): Promise<string> {
