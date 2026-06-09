@@ -261,7 +261,7 @@ export function CameraView({
           <br />
           video {videoSize.w}×{videoSize.h}
           <br />
-          mirror off · facing {facing}
+          running {String(running)} · mirror off · facing {facing}
         </div>
       )}
 
