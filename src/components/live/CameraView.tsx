@@ -143,11 +143,12 @@ export function CameraView({
   // coords also match the visible card.
   const iw = typeof window !== "undefined" ? window.innerWidth : 0;
   const ih = typeof window !== "undefined" ? window.innerHeight : 0;
-  // Mobile-portrait classification MUST agree with `useIsMobile()` (768px), so
-  // viewports in the 640–767 range still get the portrait crop. `isMobile` is
-  // the source of truth; `ih > iw` adds the orientation check.
-  const mobilePortrait = isMobile && ih > iw;
-  const visualAspect = mobilePortrait ? MOBILE_VISUAL_ASPECT : videoAspect;
+  // SHELL sizing is based on `isMobile` ALONE (768px breakpoint). We never let
+  // the raw stream aspect or a transient `iw >= ih` flip the shell into
+  // landscape. Portrait-only behavior (if any) is kept under a separate flag.
+  const mobileShellMode = isMobile;
+  const mobilePortraitCropMode = isMobile && ih > iw;
+  const visualAspect = mobileShellMode ? MOBILE_VISUAL_ASPECT : videoAspect;
 
   // Available space from stable references (measured full-bleed wrapper width +
   // viewport height); the ResizeObserver re-renders this on resize / rotation.
@@ -155,11 +156,11 @@ export function CameraView({
   const availW = container.w || 0;
   const availH = ih > 0 ? Math.max(0, ih - reservedH) : container.h;
 
-  // Mobile portrait: cap shell width so the card looks like a centered phone
-  // camera card instead of stretching edge-to-edge of the full-bleed wrapper.
+  // Mobile: cap shell width so the card looks like a centered phone camera
+  // card instead of stretching edge-to-edge of the full-bleed wrapper.
   const MOBILE_SHELL_MAX_W = 340;
   const MOBILE_SHELL_VW = 0.88;
-  const effectiveAvailW = mobilePortrait
+  const effectiveAvailW = mobileShellMode
     ? Math.min(
         availW || Number.POSITIVE_INFINITY,
         Math.round((iw || 0) * MOBILE_SHELL_VW),
