@@ -121,42 +121,61 @@ export function CameraView({
 
   const isMobile = useIsMobile();
   const haveAspect = videoSize.w > 0 && videoSize.h > 0;
-  const aspect = haveAspect ? videoSize.w / videoSize.h : 16 / 9;
+  const videoAspect = haveAspect ? videoSize.w / videoSize.h : 16 / 9;
 
-  // Shrink-wrap the shell to the real video aspect on every breakpoint so a
-  // portrait camera stream never gets pillarboxed inside a forced landscape
-  // shell (the black-side-bars bug). Mobile reserves more chrome height than
-  // desktop.
+  // Mobile PORTRAIT locks the SHELL to a stable 3/4 frame so it does NOT reshape
+  // into landscape when the (often 1280×720) stream metadata loads. Everywhere
+  // else the shell follows the real video aspect. This aspect is purely VISUAL —
+  // overlay alignment always uses the real video aspect (see mediaRect below).
+  const iw = typeof window !== "undefined" ? window.innerWidth : 0;
+  const ih = typeof window !== "undefined" ? window.innerHeight : 0;
+  const isMobilePortrait = iw > 0 && iw < 640 && ih > iw;
+  const MOBILE_SHELL_ASPECT = 3 / 4;
+  const visualAspect = isMobilePortrait ? MOBILE_SHELL_ASPECT : videoAspect;
+
+  // Available space from stable references (measured full-bleed wrapper width +
+  // viewport height); the ResizeObserver re-renders this on resize / rotation.
   const reservedH = isMobile ? 260 : 180;
-  const viewportAvailH =
-    typeof window !== "undefined" ? Math.max(0, window.innerHeight - reservedH) : container.h;
-  const availH = container.h > 0 ? Math.min(container.h, viewportAvailH) : viewportAvailH;
-  const rect = computeContainRect(container.w || 0, availH || 0, aspect);
-  const shellW = Math.max(0, Math.floor(rect.width));
-  const shellH = Math.max(0, Math.floor(rect.height));
+  const availW = container.w || 0;
+  const availH = ih > 0 ? Math.max(0, ih - reservedH) : container.h;
 
-  const shellStyle: React.CSSProperties | undefined =
-    !isMobile && haveAspect && shellW > 0 && shellH > 0
-      ? {
-          width: `${shellW}px`,
-          height: `${shellH}px`,
-          maxWidth: "100%",
-          maxHeight: `calc(100svh - ${reservedH}px)`,
-        }
-      : undefined;
+  // SHELL rect: the largest box with the VISUAL aspect that fits the available
+  // space. On mobile portrait that's 3/4 regardless of the stream orientation.
+  const shellRect = computeContainRect(availW, availH, visualAspect);
+  const shellW = Math.max(0, Math.floor(shellRect.width));
+  const shellH = Math.max(0, Math.floor(shellRect.height));
+
+  // MEDIA rect: contain-fit of the REAL video inside the shell. The video AND all
+  // overlays live in this rect, so boxes / pose lines / zones / scan-line stay
+  // aligned to the visible (letterboxed) video — never the portrait shell.
+  const mediaRect = computeContainRect(shellW, shellH, videoAspect);
+  const mediaW = Math.max(0, Math.floor(mediaRect.width));
+  const mediaH = Math.max(0, Math.floor(mediaRect.height));
+
+  const sized = haveAspect && shellW > 0 && shellH > 0;
+  const shellStyle: React.CSSProperties | undefined = sized
+    ? {
+        width: `${shellW}px`,
+        height: `${shellH}px`,
+        maxWidth: "100%",
+        maxHeight: `calc(100svh - ${reservedH}px)`,
+      }
+    : undefined;
+
+  const mediaStyle: React.CSSProperties =
+    sized && mediaW > 0 && mediaH > 0
+      ? { position: "relative", width: `${mediaW}px`, height: `${mediaH}px` }
+      : { position: "absolute", inset: 0 };
 
   const showDebug = import.meta.env.DEV;
 
   // Shell classes:
-  //  - Mobile: ALWAYS locked to the pre-stream portrait 3/4 frame so the shape
-  //    does not change when the video starts. Video letterboxes inside.
-  //  - Desktop + haveAspect: shrink-wrapped via inline style to real video aspect.
-  //  - Desktop pre-stream: landscape aspect-video fallback.
-  const shellClass = isMobile
-    ? "relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black"
-    : haveAspect
-      ? "relative overflow-hidden border border-border bg-black sm:rounded-2xl"
-      : "relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl";
+  //  - sized (video aspect known + measured): inline shellStyle drives the size;
+  //    `flex` centers the media rect inside the (letterboxing) shell.
+  //  - pre-stream fallback: mobile portrait 3/4, desktop landscape aspect-video.
+  const shellClass = sized
+    ? "relative flex items-center justify-center overflow-hidden border border-border bg-black sm:rounded-2xl"
+    : "relative flex aspect-[3/4] w-full max-h-[calc(100svh-260px)] items-center justify-center overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl";
 
 
   return (
@@ -165,13 +184,13 @@ export function CameraView({
       className="-mx-3 flex w-[calc(100%+1.5rem)] justify-center sm:mx-0 sm:w-full"
     >
     <div style={shellStyle} className={shellClass}>
-      {/* Orientation layer — the video and ALL overlays share this single layer
-          so boxes/poses/zones stay aligned to the visible video. The front/
-          selfie camera is intentionally NOT mirrored: a mirrored preview makes
-          real-world text, signs and labels read backwards, which matters more
-          for a safety camera than a natural selfie. The capture canvas also
-          sees the un-mirrored frame, so overlays stay aligned. */}
-      <div className="absolute inset-0">
+      {/* Media / orientation layer — the contain-fit rect of the REAL video. The
+          video AND all overlays live in this one rect (centered in the shell), so
+          boxes / pose lines / zones / scan-line stay aligned to the visible video
+          even when the shell letterboxes a landscape stream inside the locked
+          mobile-portrait frame. NOT mirrored, so real-world text / signs stay
+          readable and nothing double-flips. */}
+      <div style={mediaStyle} className="overflow-hidden">
           <video
             ref={videoRef}
             playsInline
@@ -251,13 +270,14 @@ export function CameraView({
 
       {showDebug && active && (
         <div className="pointer-events-none absolute bottom-2 left-2 z-30 rounded bg-black/60 px-2 py-1 font-mono text-[10px] leading-tight text-white/80">
-          measure {Math.round(container.w)}×{Math.round(container.h)}
+          screen {iw}×{ih} · portrait {String(isMobilePortrait)}
           <br />
-          shell {shellW}×{shellH}
+          video {videoSize.w}×{videoSize.h} · raw {videoAspect.toFixed(3)} → vis{" "}
+          {visualAspect.toFixed(3)}
           <br />
-          video {videoSize.w}×{videoSize.h}
+          shell {shellW}×{shellH} · media {mediaW}×{mediaH}
           <br />
-          mirror off · facing {facing}
+          running {String(running)} · mirror off · facing {facing}
         </div>
       )}
 
