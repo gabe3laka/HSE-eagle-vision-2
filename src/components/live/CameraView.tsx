@@ -13,6 +13,7 @@ import { SkeletonOverlay } from "./SkeletonOverlay";
 import { ZoneOverlay } from "./ZoneOverlay";
 import type { PoseDebug, PoseStatus } from "@/lib/detection/poseGeometry";
 import type { DetectionZone, ZonePoint } from "@/lib/detection/types";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const POSE_STATUS_LABEL: Record<PoseStatus, string> = {
   loading: "Loading pose model",
@@ -135,19 +136,29 @@ export function CameraView({
   }, [active, videoRef]);
 
   const showDebug = import.meta.env.DEV;
+  const isMobile = useIsMobile();
+  const shrinkWrap =
+    isMobile && mediaW > 0 && mediaH > 0 && container.w > 0 && mediaW < container.w - 1;
+  const cardStyle: React.CSSProperties | undefined = shrinkWrap
+    ? { width: mediaW, height: mediaH }
+    : undefined;
 
   return (
+    <div className="-mx-3 flex w-[calc(100%+1.5rem)] justify-center sm:mx-0 sm:w-full">
     <div
       ref={containerRef}
+      style={cardStyle}
       className={
-        "relative -mx-3 flex aspect-[3/4] max-h-[calc(100svh-220px)] w-[calc(100%+1.5rem)] items-center justify-center overflow-hidden border border-border bg-black sm:mx-0 sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl"
+        "relative flex aspect-[3/4] max-h-[calc(100svh-220px)] w-full items-center justify-center overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl"
       }
     >
+      {/* Counter-mirror style for text inside the flipped mirror layer. */}
+      <style>{`.mirror-flip [data-counter-mirror]{transform:scaleX(-1);transform-origin:center}`}</style>
       {/* Inner media layer — measured contain-fit rect, no transform. */}
       <div style={innerStyle}>
         {/* Mirror layer — applies front-camera flip to video + overlays at once. */}
         <div
-          className={`absolute inset-0 ${mirror ? "scale-x-[-1]" : ""}`}
+          className={`absolute inset-0 ${mirror ? "scale-x-[-1] mirror-flip" : ""}`}
           style={{ transformOrigin: "center" }}
         >
           <video
@@ -295,6 +306,7 @@ export function CameraView({
           )}
         </div>
       )}
+    </div>
     </div>
   );
 }
