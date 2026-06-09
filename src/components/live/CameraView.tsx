@@ -182,23 +182,30 @@ export function CameraView({
       : null;
 
   const sized = haveAspect && shellW > 0 && shellH > 0;
-  const shellStyle: React.CSSProperties | undefined = sized
-    ? {
-        width: `${shellW}px`,
-        height: `${shellH}px`,
-        maxWidth: "100%",
-        maxHeight: `calc(100svh - ${reservedH}px)`,
-      }
-    : undefined;
+  // JS sizing is DESKTOP/TABLET ONLY. On mobile the shell is a FIXED centered
+  // portrait card driven purely by CSS, so it can NEVER resize when the stream
+  // metadata loads or monitoring starts — independent of videoWidth / videoAspect
+  // / computeContainRect / running / overlays.
+  const shellStyle: React.CSSProperties | undefined =
+    !isMobile && sized
+      ? {
+          width: `${shellW}px`,
+          height: `${shellH}px`,
+          maxWidth: "100%",
+          maxHeight: `calc(100svh - ${reservedH}px)`,
+        }
+      : undefined;
+  const shellSource = isMobile ? "css-mobile" : sized ? "js-desktop" : "css-fallback";
 
-  const showDebug = import.meta.env.DEV;
+  // TEMP: visible in production too, so the mobile shell can be verified on-device.
+  const showDebug = true;
 
-  // Shell classes:
-  //  - sized (video aspect known + measured): inline shellStyle drives the size.
-  //  - pre-stream fallback: mobile portrait 3/4, desktop landscape aspect-video.
-  const shellClass = sized
-    ? "relative overflow-hidden border border-border bg-black sm:rounded-2xl"
-    : "relative flex aspect-[3/4] w-full max-h-[calc(100svh-260px)] items-center justify-center overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl";
+  // Mobile: a FIXED centered portrait card driven purely by CSS
+  // (w-[min(88vw,340px)] aspect-[3/4]) — never inline JS sizing, so it stays
+  // identical before/after Start. Desktop/tablet: sm:aspect-video full-width,
+  // optionally overridden by the desktop-only shellStyle (viewport cap).
+  const shellClass =
+    "relative mx-auto aspect-[3/4] w-[min(88vw,340px)] overflow-hidden border border-border bg-black sm:aspect-video sm:w-full sm:rounded-2xl";
 
   // Video fit: cover-crop on mobile (fills shell, crops sides to match the
   // bytes we send to /detect); contain everywhere else.
@@ -206,10 +213,7 @@ export function CameraView({
 
 
   return (
-    <div
-      ref={containerRef}
-      className="-mx-3 flex w-[calc(100%+1.5rem)] justify-center sm:mx-0 sm:w-full"
-    >
+    <div ref={containerRef} className="flex w-full justify-center">
     <div style={shellStyle} className={shellClass}>
       {/* Orientation layer: covers the entire SHELL. The <video> uses
           object-cover on mobile portrait (visible crop = capture crop) and
@@ -296,7 +300,10 @@ export function CameraView({
 
       {showDebug && active && (
         <div className="pointer-events-none absolute bottom-2 left-2 z-30 rounded bg-black/60 px-2 py-1 font-mono text-[10px] leading-tight text-white/80">
-          win {iw}×{ih} · isMobile {String(isMobile)} · shellMode {String(mobileShellMode)} · portraitCrop {String(mobilePortraitCropMode)}
+          shell source: {shellSource} · active {String(active)} · running {String(running)}
+          <br />
+          win {iw}×{ih} · isMobile {String(isMobile)} · shellMode {String(mobileShellMode)} · portraitCrop{" "}
+          {String(mobilePortraitCropMode)}
           <br />
           raw {videoSize.w}×{videoSize.h} · rawAspect {videoAspect.toFixed(3)} · vis {visualAspect.toFixed(3)}
           <br />
