@@ -13,6 +13,7 @@ import { SkeletonOverlay } from "./SkeletonOverlay";
 import { ZoneOverlay } from "./ZoneOverlay";
 import type { PoseDebug, PoseStatus } from "@/lib/detection/poseGeometry";
 import type { DetectionZone, ZonePoint } from "@/lib/detection/types";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const POSE_STATUS_LABEL: Record<PoseStatus, string> = {
   loading: "Loading pose model",
