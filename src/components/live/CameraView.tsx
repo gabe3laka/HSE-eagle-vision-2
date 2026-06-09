@@ -296,7 +296,7 @@ export function CameraView({
 
       {showDebug && active && (
         <div className="pointer-events-none absolute bottom-2 left-2 z-30 rounded bg-black/60 px-2 py-1 font-mono text-[10px] leading-tight text-white/80">
-          win {iw}×{ih} · useIsMobile {String(isMobile)} · mobilePortrait {String(mobilePortrait)}
+          win {iw}×{ih} · isMobile {String(isMobile)} · shellMode {String(mobileShellMode)} · portraitCrop {String(mobilePortraitCropMode)}
           <br />
           raw {videoSize.w}×{videoSize.h} · rawAspect {videoAspect.toFixed(3)} · vis {visualAspect.toFixed(3)}
           <br />
