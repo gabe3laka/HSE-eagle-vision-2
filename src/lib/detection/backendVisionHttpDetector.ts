@@ -134,6 +134,10 @@ function freshStatus(state: BackendStatus["state"]): BackendStatus {
     transport: "http-cloudflare",
     targetFps: TARGET_FPS,
     lastLatencyMs: null,
+    lastCaptureW: null,
+    lastCaptureH: null,
+    lastBackendImgW: null,
+    lastBackendImgH: null,
   };
 }
 
