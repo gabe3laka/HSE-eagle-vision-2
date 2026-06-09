@@ -11,7 +11,10 @@ import { AlertFeed } from "@/components/live/AlertFeed";
 import { SessionControls } from "@/components/live/SessionControls";
 import { PoseDebugPanel } from "@/components/live/PoseDebugPanel";
 import type { BackendStatus } from "@/lib/detection/backendVisionDetector";
-import { postDetectFrame } from "@/lib/detection/backendVisionHttpDetector";
+import {
+  postDetectFrame,
+  captureVideoFrameBase64,
+} from "@/lib/detection/backendVisionHttpDetector";
 import type { BackendEntity, BackendPose } from "@/lib/detection/types";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -100,8 +103,11 @@ function BackendDebugPanel({
               {status.responseCount}
             </div>
             <div>
-              video: {status.videoWidth}×{status.videoHeight} · jpeg b64: {status.lastB64Bytes} B
+              video: {status.videoWidth}×{status.videoHeight} · capture:{" "}
+              {fmt(status.lastCaptureW)}×{fmt(status.lastCaptureH)} · backend img:{" "}
+              {fmt(status.lastBackendImgW)}×{fmt(status.lastBackendImgH)}
             </div>
+            <div>jpeg b64: {status.lastB64Bytes} B</div>
             <div>
               latency: {ms(status.lastLatencyMs)} (round-trip) · inference:{" "}
               {ms(status.lastInferenceMs)}
@@ -238,28 +244,29 @@ export default function Live() {
     }
     setBackendTesting(true);
     try {
-      const canvas = document.createElement("canvas");
-      canvas.width = 640;
-      canvas.height = 480;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        setBackendTest("Canvas 2D context unavailable.");
+      // Use the SAME aspect-preserving capture as the live detector so the
+      // single-frame test mirrors what the live stream actually sends.
+      const captured = captureVideoFrameBase64(video);
+      if (!captured) {
+        setBackendTest("Frame capture failed.");
         return;
       }
-      ctx.drawImage(video, 0, 0, 640, 480);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-      setBackendTestImg(dataUrl); // preview the exact frame we send
-      const image_b64 = dataUrl.split(",")[1];
+      const { image_b64, cw, ch } = captured;
+      setBackendTestImg(`data:image/jpeg;base64,${image_b64}`); // preview the exact frame we send
       if (isCloudflareHttp) {
         const t0 = performance.now();
         const resp = await postDetectFrame(image_b64, { conf: 0.15 });
         const latency = Math.round(performance.now() - t0);
-        setBackendTest(`round-trip ${latency} ms\n${JSON.stringify(resp, null, 2)}`);
+        setBackendTest(
+          `capture ${cw}×${ch} · round-trip ${latency} ms\n${JSON.stringify(resp, null, 2)}`,
+        );
       } else {
         const { data, error } = await supabase.functions.invoke("deimv2-proxy", {
           body: { image_b64, conf: 0.15, img_size: 640, classes: null },
         });
-        setBackendTest(JSON.stringify(error ?? data, null, 2));
+        setBackendTest(
+          `capture ${cw}×${ch}\n${JSON.stringify(error ?? data, null, 2)}`,
+        );
       }
     } catch (e) {
       setBackendTest(e instanceof Error ? e.message : String(e));

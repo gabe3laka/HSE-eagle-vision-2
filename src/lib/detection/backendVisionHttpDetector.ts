@@ -24,8 +24,11 @@ import { supabase } from "@/integrations/supabase/own-client";
 
 const TARGET_INTERVAL_MS = 333; // ~3 FPS ceiling — fast, but one request at a time
 const TARGET_FPS = Math.round(1000 / TARGET_INTERVAL_MS); // ~3
-const CAPTURE_WIDTH = 640;
-const CAPTURE_HEIGHT = 480;
+// Aspect-preserving capture: keep longest side at most CAPTURE_MAX_SIDE so the
+// frame we send mirrors the visible video's shape (portrait → portrait,
+// landscape → landscape). Avoids the 4:3-only 640×480 distortion that
+// mis-aligned overlays on phones.
+const CAPTURE_MAX_SIDE = 640;
 const CAPTURE_QUALITY = 0.7;
 // Dry-run confidence — kept low so more entities surface for visual validation.
 const DRY_RUN_CONF = 0.2;
@@ -131,6 +134,10 @@ function freshStatus(state: BackendStatus["state"]): BackendStatus {
     transport: "http-cloudflare",
     targetFps: TARGET_FPS,
     lastLatencyMs: null,
+    lastCaptureW: null,
+    lastCaptureH: null,
+    lastBackendImgW: null,
+    lastBackendImgH: null,
   };
 }
 
@@ -188,8 +195,9 @@ export class BackendVisionHttpDetector implements Detector {
     }
     if (typeof document !== "undefined") {
       this.captureCanvas = document.createElement("canvas");
-      this.captureCanvas.width = CAPTURE_WIDTH;
-      this.captureCanvas.height = CAPTURE_HEIGHT;
+      // Sized lazily per frame in _captureFrame() to match the video aspect.
+      this.captureCanvas.width = CAPTURE_MAX_SIDE;
+      this.captureCanvas.height = CAPTURE_MAX_SIDE;
       this.captureCtx = this.captureCanvas.getContext("2d");
     }
     // Pre-warm the session token so the first frame doesn't pay for it.
@@ -373,6 +381,8 @@ export class BackendVisionHttpDetector implements Detector {
 
       this.lastEntities = normalizeEntities(resp.entities, resp.img_w, resp.img_h);
       this.lastPoses = normalizePoses(resp.poses, resp.img_w, resp.img_h);
+      this.status.lastBackendImgW = typeof resp.img_w === "number" ? resp.img_w : null;
+      this.status.lastBackendImgH = typeof resp.img_h === "number" ? resp.img_h : null;
       this.status.state = "ready";
       this.status.error = null;
       this.status.model = resp.model ?? this.status.model;
@@ -395,13 +405,72 @@ export class BackendVisionHttpDetector implements Detector {
   private _captureFrame(video: HTMLVideoElement): string | null {
     if (!this.captureCtx || !this.captureCanvas) return null;
     try {
-      this.captureCtx.drawImage(video, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+      const { cw, ch } = computeCaptureSize(
+        video.videoWidth || CAPTURE_MAX_SIDE,
+        video.videoHeight || CAPTURE_MAX_SIDE,
+        CAPTURE_MAX_SIDE,
+      );
+      if (this.captureCanvas.width !== cw) this.captureCanvas.width = cw;
+      if (this.captureCanvas.height !== ch) this.captureCanvas.height = ch;
+      this.captureCtx.drawImage(video, 0, 0, cw, ch);
+      this.status.lastCaptureW = cw;
+      this.status.lastCaptureH = ch;
       const dataUrl = this.captureCanvas.toDataURL("image/jpeg", CAPTURE_QUALITY);
       return dataUrl.split(",")[1] ?? null;
     } catch {
       return null;
     }
   }
+}
+
+/**
+ * Compute aspect-preserving capture dims from the source video, capping the
+ * longest side at `maxSide`. Exported so the single-frame test button and the
+ * detector share one implementation — keeps overlay alignment consistent.
+ */
+export function computeCaptureSize(
+  srcW: number,
+  srcH: number,
+  maxSide = CAPTURE_MAX_SIDE,
+): { cw: number; ch: number } {
+  if (!Number.isFinite(srcW) || !Number.isFinite(srcH) || srcW <= 0 || srcH <= 0) {
+    return { cw: maxSide, ch: maxSide };
+  }
+  if (srcW >= srcH) {
+    const cw = Math.min(srcW, maxSide);
+    const ch = Math.max(1, Math.round((cw * srcH) / srcW));
+    return { cw: Math.round(cw), ch };
+  }
+  const ch = Math.min(srcH, maxSide);
+  const cw = Math.max(1, Math.round((ch * srcW) / srcH));
+  return { cw, ch: Math.round(ch) };
+}
+
+/**
+ * Capture a frame from a video element to JPEG base64 (no data: prefix) with
+ * aspect-preserving sizing. Shared by the live detector and the single-frame
+ * test button so both send the same shape to /detect.
+ */
+export function captureVideoFrameBase64(
+  video: HTMLVideoElement,
+  opts?: { maxSide?: number; quality?: number },
+): { image_b64: string; cw: number; ch: number } | null {
+  if (typeof document === "undefined") return null;
+  const { cw, ch } = computeCaptureSize(
+    video.videoWidth,
+    video.videoHeight,
+    opts?.maxSide ?? CAPTURE_MAX_SIDE,
+  );
+  const canvas = document.createElement("canvas");
+  canvas.width = cw;
+  canvas.height = ch;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, cw, ch);
+  const dataUrl = canvas.toDataURL("image/jpeg", opts?.quality ?? CAPTURE_QUALITY);
+  const image_b64 = dataUrl.split(",")[1] ?? "";
+  if (!image_b64) return null;
+  return { image_b64, cw, ch };
 }
 
 async function safeText(res: Response): Promise<string> {
