@@ -39,9 +39,13 @@ describe("isMobilePortraitViewport", () => {
     expect(isMobilePortraitViewport(390, 844)).toBe(true);
     expect(isMobilePortraitViewport(360, 800)).toBe(true);
   });
-  it("is false for landscape, tablet, and desktop", () => {
+  it("is true for the 640–767px portrait gap (previously broken)", () => {
+    expect(isMobilePortraitViewport(720, 1280)).toBe(true);
+    expect(isMobilePortraitViewport(700, 900)).toBe(true);
+  });
+  it("is false for landscape, tablet (>=768), and desktop", () => {
     expect(isMobilePortraitViewport(844, 390)).toBe(false); // landscape phone
-    expect(isMobilePortraitViewport(768, 1024)).toBe(false); // tablet (≥640)
+    expect(isMobilePortraitViewport(768, 1024)).toBe(false); // tablet at breakpoint
     expect(isMobilePortraitViewport(1280, 800)).toBe(false); // desktop
     expect(isMobilePortraitViewport(0, 0)).toBe(false);
   });
