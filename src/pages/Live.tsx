@@ -15,7 +15,7 @@ import {
   postDetectFrame,
   captureVideoFrameBase64,
 } from "@/lib/detection/backendVisionHttpDetector";
-import { isMobilePortraitViewport, MOBILE_VISUAL_ASPECT } from "@/lib/detection/coverCrop";
+import { isMobileViewport, MOBILE_VISUAL_ASPECT } from "@/lib/detection/coverCrop";
 import type { BackendEntity, BackendPose } from "@/lib/detection/types";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
