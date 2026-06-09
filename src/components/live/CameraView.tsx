@@ -307,5 +307,6 @@ export function CameraView({
         </div>
       )}
     </div>
+    </div>
   );
 }
