@@ -281,12 +281,16 @@ export function CameraView({
 
       {showDebug && active && (
         <div className="pointer-events-none absolute bottom-2 left-2 z-30 rounded bg-black/60 px-2 py-1 font-mono text-[10px] leading-tight text-white/80">
-          screen {iw}×{ih} · portrait {String(isMobilePortrait)}
+          screen {iw}×{ih} · mobilePortrait {String(mobilePortrait)}
           <br />
-          video {videoSize.w}×{videoSize.h} · raw {videoAspect.toFixed(3)} → vis{" "}
-          {visualAspect.toFixed(3)}
+          raw video {videoSize.w}×{videoSize.h} · vis aspect {visualAspect.toFixed(3)}
           <br />
-          shell {shellW}×{shellH} · media {mediaW}×{mediaH}
+          shell {shellW}×{shellH} · fit {videoFitClass}
+          <br />
+          crop{" "}
+          {debugCrop
+            ? `sx${Math.round(debugCrop.sx)} sy${Math.round(debugCrop.sy)} sw${Math.round(debugCrop.sw)} sh${Math.round(debugCrop.sh)}`
+            : "—"}
           <br />
           running {String(running)} · mirror off · facing {facing}
         </div>
