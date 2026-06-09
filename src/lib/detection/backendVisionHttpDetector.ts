@@ -1,6 +1,27 @@
 import type { BackendEntity, BackendPose, Detector, DetectorInput, Observation } from "./types";
 import { type BackendStatus, normalizeEntities, normalizePoses } from "./backendVisionDetector";
 import { supabase } from "@/integrations/supabase/own-client";
+import {
+  computeCoverCrop,
+  isMobilePortraitViewport,
+  MOBILE_VISUAL_ASPECT,
+} from "./coverCrop";
+
+/**
+ * Resolve the visual crop aspect that mirrors what the user sees right now.
+ * Mobile portrait → MOBILE_VISUAL_ASPECT (3/4). Anywhere else → null, meaning
+ * "no cover-crop, keep the source aspect" (desktop/tablet behavior).
+ *
+ * Single source of truth for both the live detector and the single-frame test
+ * button — keeps the capture rectangle in lockstep with CameraView's shell so
+ * EdgeCrafter receives exactly what the user sees.
+ */
+function resolveViewportTargetAspect(): number | null {
+  if (typeof window === "undefined") return null;
+  return isMobilePortraitViewport(window.innerWidth, window.innerHeight)
+    ? MOBILE_VISUAL_ASPECT
+    : null;
+}
 
 /**
  * BackendVisionHttpDetector — "EdgeCrafter HTTP — fast dry run".
@@ -405,14 +426,23 @@ export class BackendVisionHttpDetector implements Detector {
   private _captureFrame(video: HTMLVideoElement): string | null {
     if (!this.captureCtx || !this.captureCanvas) return null;
     try {
-      const { cw, ch } = computeCaptureSize(
-        video.videoWidth || CAPTURE_MAX_SIDE,
-        video.videoHeight || CAPTURE_MAX_SIDE,
-        CAPTURE_MAX_SIDE,
-      );
+      const srcW = video.videoWidth || CAPTURE_MAX_SIDE;
+      const srcH = video.videoHeight || CAPTURE_MAX_SIDE;
+      const targetAspect = resolveViewportTargetAspect();
+      // Crop the SAME rectangle the user sees on mobile portrait. Overlays use
+      // normalized 0..1 coords inside this rect, so backend boxes/poses align
+      // with the visible video. Desktop/tablet → null → no crop.
+      const crop = targetAspect != null ? computeCoverCrop(srcW, srcH, targetAspect) : null;
+      const sw = crop ? crop.sw : srcW;
+      const sh = crop ? crop.sh : srcH;
+      const { cw, ch } = computeCaptureSize(sw, sh, CAPTURE_MAX_SIDE);
       if (this.captureCanvas.width !== cw) this.captureCanvas.width = cw;
       if (this.captureCanvas.height !== ch) this.captureCanvas.height = ch;
-      this.captureCtx.drawImage(video, 0, 0, cw, ch);
+      if (crop) {
+        this.captureCtx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, cw, ch);
+      } else {
+        this.captureCtx.drawImage(video, 0, 0, cw, ch);
+      }
       this.status.lastCaptureW = cw;
       this.status.lastCaptureH = ch;
       const dataUrl = this.captureCanvas.toDataURL("image/jpeg", CAPTURE_QUALITY);
@@ -447,26 +477,40 @@ export function computeCaptureSize(
 }
 
 /**
- * Capture a frame from a video element to JPEG base64 (no data: prefix) with
- * aspect-preserving sizing. Shared by the live detector and the single-frame
- * test button so both send the same shape to /detect.
+ * Capture a frame from a video element to JPEG base64 (no data: prefix). Shared
+ * by the live detector and the single-frame test button so both send the same
+ * shape to /detect.
+ *
+ * `targetAspect` (optional): when set, the source video is cover-cropped to that
+ * aspect BEFORE scaling — use it for mobile portrait so the test preview shows
+ * the EXACT bytes the live detector posts. When omitted, the auto-resolved
+ * viewport aspect is used (mobile portrait → 3/4, else no crop), matching the
+ * live detector's behaviour.
  */
 export function captureVideoFrameBase64(
   video: HTMLVideoElement,
-  opts?: { maxSide?: number; quality?: number },
+  opts?: { maxSide?: number; quality?: number; targetAspect?: number | null },
 ): { image_b64: string; cw: number; ch: number } | null {
   if (typeof document === "undefined") return null;
-  const { cw, ch } = computeCaptureSize(
-    video.videoWidth,
-    video.videoHeight,
-    opts?.maxSide ?? CAPTURE_MAX_SIDE,
-  );
+  const maxSide = opts?.maxSide ?? CAPTURE_MAX_SIDE;
+  const srcW = video.videoWidth;
+  const srcH = video.videoHeight;
+  const targetAspect =
+    opts && "targetAspect" in opts ? opts.targetAspect : resolveViewportTargetAspect();
+  const crop = targetAspect != null ? computeCoverCrop(srcW, srcH, targetAspect) : null;
+  const sw = crop ? crop.sw : srcW;
+  const sh = crop ? crop.sh : srcH;
+  const { cw, ch } = computeCaptureSize(sw, sh, maxSide);
   const canvas = document.createElement("canvas");
   canvas.width = cw;
   canvas.height = ch;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
-  ctx.drawImage(video, 0, 0, cw, ch);
+  if (crop) {
+    ctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, cw, ch);
+  } else {
+    ctx.drawImage(video, 0, 0, cw, ch);
+  }
   const dataUrl = canvas.toDataURL("image/jpeg", opts?.quality ?? CAPTURE_QUALITY);
   const image_b64 = dataUrl.split(",")[1] ?? "";
   if (!image_b64) return null;

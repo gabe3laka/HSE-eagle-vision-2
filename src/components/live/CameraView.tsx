@@ -14,6 +14,11 @@ import { ZoneOverlay } from "./ZoneOverlay";
 import type { PoseDebug, PoseStatus } from "@/lib/detection/poseGeometry";
 import type { DetectionZone, ZonePoint } from "@/lib/detection/types";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  computeCoverCrop,
+  isMobilePortraitViewport,
+  MOBILE_VISUAL_ASPECT,
+} from "@/lib/detection/coverCrop";
 
 const POSE_STATUS_LABEL: Record<PoseStatus, string> = {
   loading: "Loading pose model",
@@ -124,14 +129,23 @@ export function CameraView({
   const videoAspect = haveAspect ? videoSize.w / videoSize.h : 16 / 9;
 
   // Mobile PORTRAIT locks the SHELL to a stable 3/4 frame so it does NOT reshape
-  // into landscape when the (often 1280×720) stream metadata loads. Everywhere
-  // else the shell follows the real video aspect. This aspect is purely VISUAL —
-  // overlay alignment always uses the real video aspect (see mediaRect below).
+  // into landscape when the (often 1280×720) stream metadata loads. Elsewhere
+  // the shell follows the real video aspect.
+  //
+  // On mobile portrait the inner <video> uses `object-cover` so the shell is
+  // FILLED (no internal black bars) — and the SAME crop rectangle is sent to
+  // EdgeCrafter from `BackendVisionHttpDetector._captureFrame` via the shared
+  // `computeCoverCrop` helper. Overlays use normalized 0..1 coords inside the
+  // shell, which IS the visible crop, so backend boxes/poses align 1:1 with
+  // what the user sees.
+  //
+  // TODO: when on-device hazards (DetectionOverlay/SkeletonOverlay/zones) are
+  // promoted out of dry-run, route their inputs through the same crop so their
+  // coords also match the visible card.
   const iw = typeof window !== "undefined" ? window.innerWidth : 0;
   const ih = typeof window !== "undefined" ? window.innerHeight : 0;
-  const isMobilePortrait = iw > 0 && iw < 640 && ih > iw;
-  const MOBILE_SHELL_ASPECT = 3 / 4;
-  const visualAspect = isMobilePortrait ? MOBILE_SHELL_ASPECT : videoAspect;
+  const mobilePortrait = isMobilePortraitViewport(iw, ih);
+  const visualAspect = mobilePortrait ? MOBILE_VISUAL_ASPECT : videoAspect;
 
   // Available space from stable references (measured full-bleed wrapper width +
   // viewport height); the ResizeObserver re-renders this on resize / rotation.
@@ -145,12 +159,12 @@ export function CameraView({
   const shellW = Math.max(0, Math.floor(shellRect.width));
   const shellH = Math.max(0, Math.floor(shellRect.height));
 
-  // MEDIA rect: contain-fit of the REAL video inside the shell. The video AND all
-  // overlays live in this rect, so boxes / pose lines / zones / scan-line stay
-  // aligned to the visible (letterboxed) video — never the portrait shell.
-  const mediaRect = computeContainRect(shellW, shellH, videoAspect);
-  const mediaW = Math.max(0, Math.floor(mediaRect.width));
-  const mediaH = Math.max(0, Math.floor(mediaRect.height));
+  // Debug-only: cover-crop rect the detector will send to /detect on mobile
+  // portrait. Mirrors `BackendVisionHttpDetector._captureFrame`.
+  const debugCrop =
+    mobilePortrait && haveAspect
+      ? computeCoverCrop(videoSize.w, videoSize.h, MOBILE_VISUAL_ASPECT)
+      : null;
 
   const sized = haveAspect && shellW > 0 && shellH > 0;
   const shellStyle: React.CSSProperties | undefined = sized
@@ -162,20 +176,18 @@ export function CameraView({
       }
     : undefined;
 
-  const mediaStyle: React.CSSProperties =
-    sized && mediaW > 0 && mediaH > 0
-      ? { position: "relative", width: `${mediaW}px`, height: `${mediaH}px` }
-      : { position: "absolute", inset: 0 };
-
   const showDebug = import.meta.env.DEV;
 
   // Shell classes:
-  //  - sized (video aspect known + measured): inline shellStyle drives the size;
-  //    `flex` centers the media rect inside the (letterboxing) shell.
+  //  - sized (video aspect known + measured): inline shellStyle drives the size.
   //  - pre-stream fallback: mobile portrait 3/4, desktop landscape aspect-video.
   const shellClass = sized
-    ? "relative flex items-center justify-center overflow-hidden border border-border bg-black sm:rounded-2xl"
+    ? "relative overflow-hidden border border-border bg-black sm:rounded-2xl"
     : "relative flex aspect-[3/4] w-full max-h-[calc(100svh-260px)] items-center justify-center overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl";
+
+  // Video fit: cover-crop on mobile portrait (fills shell, crops sides to match
+  // the bytes we send to /detect); contain everywhere else.
+  const videoFitClass = mobilePortrait ? "object-cover" : "object-contain";
 
 
   return (
@@ -184,13 +196,12 @@ export function CameraView({
       className="-mx-3 flex w-[calc(100%+1.5rem)] justify-center sm:mx-0 sm:w-full"
     >
     <div style={shellStyle} className={shellClass}>
-      {/* Media / orientation layer — the contain-fit rect of the REAL video. The
-          video AND all overlays live in this one rect (centered in the shell), so
-          boxes / pose lines / zones / scan-line stay aligned to the visible video
-          even when the shell letterboxes a landscape stream inside the locked
-          mobile-portrait frame. NOT mirrored, so real-world text / signs stay
-          readable and nothing double-flips. */}
-      <div style={mediaStyle} className="overflow-hidden">
+      {/* Orientation layer: covers the entire SHELL. The <video> uses
+          object-cover on mobile portrait (visible crop = capture crop) and
+          object-contain elsewhere. All overlays are absolute inset-0 inside
+          this layer, so their normalized coords map to the visible video.
+          NOT mirrored, so real-world text / signs stay readable. */}
+      <div className="absolute inset-0">
           <video
             ref={videoRef}
             playsInline
@@ -202,7 +213,7 @@ export function CameraView({
                 setVideoSize({ w: v.videoWidth, h: v.videoHeight });
               }
             }}
-            className={`h-full w-full object-contain transition-opacity ${active ? "opacity-100" : "opacity-0"}`}
+            className={`h-full w-full ${videoFitClass} transition-opacity ${active ? "opacity-100" : "opacity-0"}`}
           />
 
           {active && (
@@ -270,12 +281,16 @@ export function CameraView({
 
       {showDebug && active && (
         <div className="pointer-events-none absolute bottom-2 left-2 z-30 rounded bg-black/60 px-2 py-1 font-mono text-[10px] leading-tight text-white/80">
-          screen {iw}×{ih} · portrait {String(isMobilePortrait)}
+          screen {iw}×{ih} · mobilePortrait {String(mobilePortrait)}
           <br />
-          video {videoSize.w}×{videoSize.h} · raw {videoAspect.toFixed(3)} → vis{" "}
-          {visualAspect.toFixed(3)}
+          raw video {videoSize.w}×{videoSize.h} · vis aspect {visualAspect.toFixed(3)}
           <br />
-          shell {shellW}×{shellH} · media {mediaW}×{mediaH}
+          shell {shellW}×{shellH} · fit {videoFitClass}
+          <br />
+          crop{" "}
+          {debugCrop
+            ? `sx${Math.round(debugCrop.sx)} sy${Math.round(debugCrop.sy)} sw${Math.round(debugCrop.sw)} sh${Math.round(debugCrop.sh)}`
+            : "—"}
           <br />
           running {String(running)} · mirror off · facing {facing}
         </div>
