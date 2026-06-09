@@ -293,7 +293,11 @@ export default function Live() {
       </header>
 
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-        <div className="space-y-4">
+        {/* min-w-0: this grid item defaults to min-width:auto, so any non-wrapping
+            child (e.g. the debug panel's 1500-char `raw:` line) would blow the
+            column out to ~10000px — pushing the centered camera card off-screen
+            and making it "jump" as the text length changes each frame. */}
+        <div className="min-w-0 space-y-4">
           <CameraView
             videoRef={videoRef}
             active={active}
