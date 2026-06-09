@@ -152,12 +152,15 @@ export function CameraView({
   const showDebug = import.meta.env.DEV;
 
   // Shell classes:
-  //  - haveAspect: shrink-wrapped via inline style; just visuals here.
-  //  - Fallback (pre-stream): portrait 3/4 on mobile, landscape aspect-video
-  //    on desktop so the "Enable camera" empty state renders nicely.
-  const shellClass = haveAspect
-    ? "relative overflow-hidden border border-border bg-black sm:rounded-2xl"
-    : "relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl";
+  //  - Mobile (<sm): ALWAYS portrait aspect-[3/4], stable across paused/running.
+  //    Tailwind classes win because shellStyle is undefined on mobile.
+  //  - Desktop (sm+): haveAspect → inline width/height (shrink-wrap to video),
+  //    else aspect-video fallback for the "Enable camera" empty state.
+  const shellClass =
+    "relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black " +
+    (haveAspect
+      ? "sm:aspect-auto sm:w-auto sm:max-h-none sm:rounded-2xl"
+      : "sm:aspect-video sm:w-full sm:max-h-none sm:rounded-2xl");
 
 
   return (
