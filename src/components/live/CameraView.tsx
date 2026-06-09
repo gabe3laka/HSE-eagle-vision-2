@@ -143,11 +143,12 @@ export function CameraView({
   // coords also match the visible card.
   const iw = typeof window !== "undefined" ? window.innerWidth : 0;
   const ih = typeof window !== "undefined" ? window.innerHeight : 0;
-  // Mobile-portrait classification MUST agree with `useIsMobile()` (768px), so
-  // viewports in the 640–767 range still get the portrait crop. `isMobile` is
-  // the source of truth; `ih > iw` adds the orientation check.
-  const mobilePortrait = isMobile && ih > iw;
-  const visualAspect = mobilePortrait ? MOBILE_VISUAL_ASPECT : videoAspect;
+  // SHELL sizing is based on `isMobile` ALONE (768px breakpoint). We never let
+  // the raw stream aspect or a transient `iw >= ih` flip the shell into
+  // landscape. Portrait-only behavior (if any) is kept under a separate flag.
+  const mobileShellMode = isMobile;
+  const mobilePortraitCropMode = isMobile && ih > iw;
+  const visualAspect = mobileShellMode ? MOBILE_VISUAL_ASPECT : videoAspect;
 
   // Available space from stable references (measured full-bleed wrapper width +
   // viewport height); the ResizeObserver re-renders this on resize / rotation.
@@ -155,11 +156,11 @@ export function CameraView({
   const availW = container.w || 0;
   const availH = ih > 0 ? Math.max(0, ih - reservedH) : container.h;
 
-  // Mobile portrait: cap shell width so the card looks like a centered phone
-  // camera card instead of stretching edge-to-edge of the full-bleed wrapper.
+  // Mobile: cap shell width so the card looks like a centered phone camera
+  // card instead of stretching edge-to-edge of the full-bleed wrapper.
   const MOBILE_SHELL_MAX_W = 340;
   const MOBILE_SHELL_VW = 0.88;
-  const effectiveAvailW = mobilePortrait
+  const effectiveAvailW = mobileShellMode
     ? Math.min(
         availW || Number.POSITIVE_INFINITY,
         Math.round((iw || 0) * MOBILE_SHELL_VW),
@@ -173,10 +174,10 @@ export function CameraView({
   const shellW = Math.max(0, Math.floor(shellRect.width));
   const shellH = Math.max(0, Math.floor(shellRect.height));
 
-  // Debug-only: cover-crop rect the detector will send to /detect on mobile
-  // portrait. Mirrors `BackendVisionHttpDetector._captureFrame`.
+  // Debug-only: cover-crop rect the detector will send to /detect on mobile.
+  // Mirrors `BackendVisionHttpDetector._captureFrame`.
   const debugCrop =
-    mobilePortrait && haveAspect
+    mobileShellMode && haveAspect
       ? computeCoverCrop(videoSize.w, videoSize.h, MOBILE_VISUAL_ASPECT)
       : null;
 
@@ -199,9 +200,9 @@ export function CameraView({
     ? "relative overflow-hidden border border-border bg-black sm:rounded-2xl"
     : "relative flex aspect-[3/4] w-full max-h-[calc(100svh-260px)] items-center justify-center overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:w-full sm:rounded-2xl";
 
-  // Video fit: cover-crop on mobile portrait (fills shell, crops sides to match
-  // the bytes we send to /detect); contain everywhere else.
-  const videoFitClass = mobilePortrait ? "object-cover" : "object-contain";
+  // Video fit: cover-crop on mobile (fills shell, crops sides to match the
+  // bytes we send to /detect); contain everywhere else.
+  const videoFitClass = mobileShellMode ? "object-cover" : "object-contain";
 
 
   return (
@@ -295,7 +296,7 @@ export function CameraView({
 
       {showDebug && active && (
         <div className="pointer-events-none absolute bottom-2 left-2 z-30 rounded bg-black/60 px-2 py-1 font-mono text-[10px] leading-tight text-white/80">
-          win {iw}×{ih} · useIsMobile {String(isMobile)} · mobilePortrait {String(mobilePortrait)}
+          win {iw}×{ih} · isMobile {String(isMobile)} · shellMode {String(mobileShellMode)} · portraitCrop {String(mobilePortraitCropMode)}
           <br />
           raw {videoSize.w}×{videoSize.h} · rawAspect {videoAspect.toFixed(3)} · vis {visualAspect.toFixed(3)}
           <br />

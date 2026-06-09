@@ -1,51 +1,50 @@
-# Fix mobile-portrait landscape expansion (640–767px gap)
+# Stabilize mobile camera shell during live stream
 
-## Root cause
+## Problem
 
-`isMobilePortraitViewport()` in `src/lib/detection/coverCrop.ts` uses a 640px threshold, but `useIsMobile()` uses 768px. On viewports 640–767px wide and portrait, the app is "mobile" but `mobilePortrait` is false, so `visualAspect` falls back to the raw stream aspect (often 1280×720 = 1.78) and the shell expands to landscape when the camera starts.
+`CameraView.tsx` gates both the shell width cap AND the locked 3/4 `visualAspect` on `mobilePortrait = isMobile && ih > iw`. When the live stream metadata arrives (or orientation/keyboard nudges briefly flip `ih > iw`), `mobilePortrait` can become false and the shell falls back to `availW` + raw `videoAspect` (often 1280×720 → 1.78), so the card expands edge-to-edge in a landscape shape.
 
-## Changes
+## Fix (single file: `src/components/live/CameraView.tsx`)
 
-### 1. `src/lib/detection/coverCrop.ts`
-- Export `MOBILE_BREAKPOINT = 768` (single source of truth, matches `useIsMobile`).
-- Update `isMobilePortraitViewport(w, h)` to use `w < MOBILE_BREAKPOINT && h > w`.
-- Update the existing unit test cases:
-  - `768×1024` (tablet) → now **true** (it IS a mobile-portrait layout under the 768 breakpoint — actually `768 < 768` is false, so still false; keep this assertion).
-  - Add a new case: `720×1280` → **true** (covers the previously-broken 640–767 gap).
-  - Existing 390×844 / 360×800 true cases stay green.
+1. Split the two concerns:
+   ```ts
+   const mobileShellMode = isMobile;                   // shell sizing
+   const mobilePortraitCropMode = isMobile && ih > iw; // (kept for future crop-only gating)
+   ```
 
-### 2. `src/components/live/CameraView.tsx`
-- Replace the local `iw/ih` viewport read with a combined check:
-  ```ts
-  const mobilePortrait = isMobile && ih > iw;
-  ```
-  (`isMobile` already comes from `useIsMobile()`; `ih`/`iw` stay for debug.)
-  This guarantees mobile-portrait classification matches the app's mobile layout exactly, no matter which breakpoint constant drifts.
-- `visualAspect` continues to be `MOBILE_VISUAL_ASPECT` (3/4) when `mobilePortrait`, otherwise `videoAspect`. No other shell-sizing inputs change.
-- Confirm the shell size depends ONLY on `availW`, `availH`, and `visualAspect` — not on `running`, backend entity/pose counts, or overlay state. (Current code already meets this; no edits needed beyond the condition above.)
-- Extend the DEV debug overlay to include `useIsMobile` and `raw videoAspect` explicitly:
-  ```
-  win {iw}×{ih} · useIsMobile {isMobile} · mobilePortrait {mobilePortrait}
-  raw {videoSize.w}×{videoSize.h} · rawAspect {videoAspect.toFixed(3)} · vis {visualAspect.toFixed(3)}
-  shell {shellW}×{shellH} · fit {videoFitClass}
-  crop {…}
-  running {running}
-  ```
+2. `visualAspect` locks to 3/4 for the whole mobile shell, not only portrait:
+   ```ts
+   const visualAspect = mobileShellMode ? MOBILE_VISUAL_ASPECT : videoAspect;
+   ```
 
-### 3. Detector parity
-`backendVisionHttpDetector.ts` and `Live.tsx` already call `isMobilePortraitViewport(window.innerWidth, window.innerHeight)`. Bumping the helper's threshold to 768 automatically widens the crop coverage to match — no separate edits required there.
+3. `effectiveAvailW` cap applies whenever `mobileShellMode` is true:
+   ```ts
+   const effectiveAvailW = mobileShellMode
+     ? Math.min(availW || Infinity, Math.round((iw || 0) * MOBILE_SHELL_VW), MOBILE_SHELL_MAX_W)
+     : availW;
+   ```
+
+4. Cover-crop + EdgeCrafter capture parity also keyed to `mobileShellMode`:
+   ```ts
+   const videoFitClass = mobileShellMode ? "object-cover" : "object-contain";
+   const debugCrop = mobileShellMode && haveAspect
+     ? computeCoverCrop(videoSize.w, videoSize.h, MOBILE_VISUAL_ASPECT)
+     : null;
+   ```
+   The pre-stream fallback shell class keeps the `aspect-[3/4]` mobile branch (already correct).
+
+5. DEV debug overlay shows: `isMobile`, `mobileShellMode`, `mobilePortraitCropMode`, `raw WxH`, `rawAspect`, `visualAspect`, `availW → eff`, `shell WxH`, `fit`, `running`, `crop`.
+
+## Detector parity
+
+`backendVisionHttpDetector.ts` and `Live.tsx` currently call `isMobilePortraitViewport()`. Update them to also crop whenever `isMobile` (any orientation) — same `MOBILE_VISUAL_ASPECT` — so the bytes sent to `/detect` keep matching the visible cover-cropped shell. Add a tiny helper `isMobileViewport(w)` in `coverCrop.ts` (`w > 0 && w < MOBILE_BREAKPOINT`) and use it in those two call sites. Keep `isMobilePortraitViewport` exported (still used by tests).
 
 ## Out of scope
-useCamera constraints, RunPod, Cloudflare, Supabase, EdgeCrafter backend, WebSocket, on-device detectors, alerts/incidents, desktop/tablet behavior.
+
+`useCamera` constraints, RunPod, Cloudflare, Supabase, EdgeCrafter backend, WebSocket, on-device detectors, alerts/incidents, desktop/tablet layout.
 
 ## Verification
-- `bunx vitest run` — new + existing coverCrop tests pass, full suite stays green.
-- `npm run build` — clean.
-- Manual on a 720×1280-class phone:
-  - Inactive: portrait card.
-  - Enable camera → portrait card (no landscape jump on metadata load).
-  - Start Monitoring → shell stays exactly the same size; overlays appear inside it.
-  - Stop Monitoring → no resize.
-  - DEV overlay shows `useIsMobile=true`, `mobilePortrait=true`, `visualAspect=0.750` even when `raw 1280×720`.
-- Desktop/tablet ≥768px: unchanged contain-fit behavior.
-- EdgeCrafter single-frame test preview matches the visible crop.
+
+- `bunx vitest run` — extend `coverCrop.test.ts` with cases for new `isMobileViewport` (e.g. `844×390` landscape phone → true, `1024×768` → false). Existing `isMobilePortraitViewport` cases unchanged.
+- `npm run build` clean.
+- Manual on phone: before camera / Enable / Start / Stop transitions all keep the card at ≤340px wide, centered, 3/4 aspect. DEV overlay shows `mobileShellMode=true`, `visualAspect=0.750`, `eff ≤ 340` even when raw video is 1280×720 and `ih > iw` briefly flips. Desktop/tablet ≥768px unchanged.

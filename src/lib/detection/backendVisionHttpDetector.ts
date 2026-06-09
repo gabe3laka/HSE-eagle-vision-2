@@ -3,14 +3,15 @@ import { type BackendStatus, normalizeEntities, normalizePoses } from "./backend
 import { supabase } from "@/integrations/supabase/own-client";
 import {
   computeCoverCrop,
-  isMobilePortraitViewport,
+  isMobileViewport,
   MOBILE_VISUAL_ASPECT,
 } from "./coverCrop";
 
 /**
  * Resolve the visual crop aspect that mirrors what the user sees right now.
- * Mobile portrait → MOBILE_VISUAL_ASPECT (3/4). Anywhere else → null, meaning
- * "no cover-crop, keep the source aspect" (desktop/tablet behavior).
+ * Mobile (any orientation, viewport < 768px) → MOBILE_VISUAL_ASPECT (3/4),
+ * matching the locked mobile shell in CameraView. Anywhere else → null,
+ * meaning "no cover-crop, keep the source aspect" (desktop/tablet behavior).
  *
  * Single source of truth for both the live detector and the single-frame test
  * button — keeps the capture rectangle in lockstep with CameraView's shell so
@@ -18,9 +19,7 @@ import {
  */
 function resolveViewportTargetAspect(): number | null {
   if (typeof window === "undefined") return null;
-  return isMobilePortraitViewport(window.innerWidth, window.innerHeight)
-    ? MOBILE_VISUAL_ASPECT
-    : null;
+  return isMobileViewport(window.innerWidth) ? MOBILE_VISUAL_ASPECT : null;
 }
 
 /**

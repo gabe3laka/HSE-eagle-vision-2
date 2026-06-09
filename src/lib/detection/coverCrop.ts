@@ -24,6 +24,15 @@ export function isMobilePortraitViewport(w: number, h: number): boolean {
   return w > 0 && h > 0 && w < MOBILE_BREAKPOINT && h > w;
 }
 
+/**
+ * Mobile shell mode — any orientation under the mobile breakpoint. Use this
+ * for shell sizing + cover-crop capture so the visible card stays stable even
+ * when the viewport briefly reports `w >= h` (rotation, keyboard, address bar).
+ */
+export function isMobileViewport(w: number): boolean {
+  return w > 0 && w < MOBILE_BREAKPOINT;
+}
+
 export interface CoverCrop {
   sx: number;
   sy: number;
