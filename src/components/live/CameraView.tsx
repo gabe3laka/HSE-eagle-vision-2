@@ -134,11 +134,8 @@ export function CameraView({
   const shellW = Math.max(0, Math.floor(rect.width));
   const shellH = Math.max(0, Math.floor(rect.height));
 
-  // Apply the shrink-wrap shell size on mobile as soon as we've measured the
-  // container — even before video metadata arrives. The fallback `aspect`
-  // (16/9) yields a compact placeholder rather than a full-width 3:4 black box.
   const mobileShellStyle: React.CSSProperties | undefined =
-    isMobile && shellW > 0 && shellH > 0
+    isMobile && haveAspect && shellW > 0 && shellH > 0
       ? {
           width: `${shellW}px`,
           height: `${shellH}px`,
@@ -149,13 +146,14 @@ export function CameraView({
 
   const showDebug = import.meta.env.DEV;
 
-  // Desktop (sm:): wide aspect-video; `!w-full !h-auto` overrides inline mobile
-  // px so the layout doesn't leak across breakpoints. Before the container is
-  // measured we use a minimal fallback so SSR / first paint isn't a giant box.
-  const shellClass = mobileShellStyle
+  // Shell classes:
+  //  - Mobile fallback (no metadata yet): aspect-[3/4] full width so the enable-
+  //    camera empty state still renders nicely.
+  //  - Desktop (sm:): wide aspect-video; `!w-full !h-auto` overrides any inline
+  //    mobile px so the layout doesn't leak across breakpoints.
+  const shellClass = haveAspect
     ? "relative overflow-hidden border border-border bg-black sm:aspect-video sm:!w-full sm:!h-auto sm:rounded-2xl"
-    : "relative aspect-video w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black sm:!w-full sm:!h-auto sm:rounded-2xl";
-
+    : "relative aspect-[3/4] w-full max-h-[calc(100svh-260px)] overflow-hidden border border-border bg-black sm:aspect-video sm:max-h-none sm:!w-full sm:!h-auto sm:rounded-2xl";
 
   return (
     <div
