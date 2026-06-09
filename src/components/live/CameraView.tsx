@@ -155,9 +155,21 @@ export function CameraView({
   const availW = container.w || 0;
   const availH = ih > 0 ? Math.max(0, ih - reservedH) : container.h;
 
+  // Mobile portrait: cap shell width so the card looks like a centered phone
+  // camera card instead of stretching edge-to-edge of the full-bleed wrapper.
+  const MOBILE_SHELL_MAX_W = 340;
+  const MOBILE_SHELL_VW = 0.88;
+  const effectiveAvailW = mobilePortrait
+    ? Math.min(
+        availW || Number.POSITIVE_INFINITY,
+        Math.round((iw || 0) * MOBILE_SHELL_VW),
+        MOBILE_SHELL_MAX_W,
+      )
+    : availW;
+
   // SHELL rect: the largest box with the VISUAL aspect that fits the available
   // space. On mobile portrait that's 3/4 regardless of the stream orientation.
-  const shellRect = computeContainRect(availW, availH, visualAspect);
+  const shellRect = computeContainRect(effectiveAvailW, availH, visualAspect);
   const shellW = Math.max(0, Math.floor(shellRect.width));
   const shellH = Math.max(0, Math.floor(shellRect.height));
 
