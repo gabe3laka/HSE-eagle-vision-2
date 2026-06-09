@@ -129,14 +129,9 @@ export function CameraView({
   // overlay alignment always uses the real video aspect (see mediaRect below).
   const iw = typeof window !== "undefined" ? window.innerWidth : 0;
   const ih = typeof window !== "undefined" ? window.innerHeight : 0;
-  // Lock the SHELL to a stable portrait frame on phones whenever the stream is
-  // LANDSCAPE, so it never stretches wide when monitoring starts. (A portrait
-  // stream — e.g. the portrait capture useCamera now requests — is shown at its
-  // own aspect.) Keyed off the app's mobile hook + the real stream orientation
-  // rather than a fragile innerWidth threshold.
+  const isMobilePortrait = iw > 0 && iw < 640 && ih > iw;
   const MOBILE_SHELL_ASPECT = 3 / 4;
-  const lockPortrait = isMobile && videoAspect > 1;
-  const visualAspect = lockPortrait ? MOBILE_SHELL_ASPECT : videoAspect;
+  const visualAspect = isMobilePortrait ? MOBILE_SHELL_ASPECT : videoAspect;
 
   // Available space from stable references (measured full-bleed wrapper width +
   // viewport height); the ResizeObserver re-renders this on resize / rotation.
@@ -275,7 +270,7 @@ export function CameraView({
 
       {showDebug && active && (
         <div className="pointer-events-none absolute bottom-2 left-2 z-30 rounded bg-black/60 px-2 py-1 font-mono text-[10px] leading-tight text-white/80">
-          screen {iw}×{ih} · lockPortrait {String(lockPortrait)}
+          screen {iw}×{ih} · portrait {String(isMobilePortrait)}
           <br />
           video {videoSize.w}×{videoSize.h} · raw {videoAspect.toFixed(3)} → vis{" "}
           {visualAspect.toFixed(3)}

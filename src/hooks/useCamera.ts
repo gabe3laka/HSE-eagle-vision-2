@@ -49,20 +49,12 @@ export function useCamera(): UseCameraResult {
           throw new Error("Camera API not available in this browser.");
         }
         stopStream();
-        // Prefer a PORTRAIT capture on phones held upright, so the image we
-        // receive matches the portrait UI instead of a wide 16:9 frame that has
-        // to be letterboxed. Desktop / landscape keeps the usual 16:9. Devices
-        // that ignore the orientation hint still work — the live view letterboxes
-        // a wide stream inside the portrait shell.
-        const wantPortrait =
-          typeof window !== "undefined" &&
-          window.innerWidth < 768 &&
-          window.innerHeight >= window.innerWidth;
-        const size = wantPortrait
-          ? { width: { ideal: 720 }, height: { ideal: 1280 } }
-          : { width: { ideal: 1280 }, height: { ideal: 720 } };
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: target }, ...size },
+          video: {
+            facingMode: { ideal: target },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
           audio: false,
         });
         streamRef.current = stream;
