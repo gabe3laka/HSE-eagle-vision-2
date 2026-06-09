@@ -123,11 +123,15 @@ export function CameraView({
   const haveAspect = videoSize.w > 0 && videoSize.h > 0;
   const aspect = haveAspect ? videoSize.w / videoSize.h : 16 / 9;
 
-  // Shrink-wrap the shell to the real video aspect on every breakpoint so a
-  // portrait camera stream never gets pillarboxed inside a forced landscape
-  // shell (the black-side-bars bug). Mobile reserves more chrome height than
-  // desktop.
-  const reservedH = isMobile ? 260 : 180;
+  // Desktop/tablet (>=sm): shrink-wrap shell to real video aspect (prevents
+  // pillarboxing of portrait streams on wide screens — the earlier
+  // black-side-bars fix).
+  // Mobile (<sm): the shell is LOCKED to a stable portrait card via Tailwind
+  // classes (aspect-[3/4]) regardless of video metadata or `running`, so the
+  // card does NOT resize when the user taps "Start monitoring". The video
+  // inside still uses object-contain so landscape sensors letterbox top/bottom
+  // within the stable card.
+  const reservedH = 180;
   const viewportAvailH =
     typeof window !== "undefined" ? Math.max(0, window.innerHeight - reservedH) : container.h;
   const availH = container.h > 0 ? Math.min(container.h, viewportAvailH) : viewportAvailH;
@@ -136,7 +140,7 @@ export function CameraView({
   const shellH = Math.max(0, Math.floor(rect.height));
 
   const shellStyle: React.CSSProperties | undefined =
-    haveAspect && shellW > 0 && shellH > 0
+    !isMobile && haveAspect && shellW > 0 && shellH > 0
       ? {
           width: `${shellW}px`,
           height: `${shellH}px`,
