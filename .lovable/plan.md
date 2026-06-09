@@ -1,59 +1,47 @@
-# Shrink-wrap mobile camera shell
+# Fix: black side bars when phone camera stream is portrait
 
-## Problem
-Mobile camera shell currently spans full width with `object-contain` video inside, producing large black side bars when the video is portrait. The shell should hug the fitted media rectangle on mobile only.
+## What's actually happening
 
-## Change scope
-Layout-only edit to `src/components/live/CameraView.tsx`. No detector, hook, capture, or backend changes.
+The camera shell currently behaves like this:
 
-## Structure (mobile)
-
-```text
-outer wrapper:  w-full flex justify-center                (measurement / centering)
-  camera shell: relative overflow-hidden bg-black border  (shrink-wrapped, mobile)
-    media layer:  absolute inset-0 (or w/h 100%)
-      video (object-contain, h-full w-full)
-      ZoneOverlay / DetectionOverlay / BackendEntity / BackendPose / Skeleton / scan-line
-    chips, flip button, status pill, alert banner (anchored to shell)
+```
+mobile breakpoint (<768px)  →  shrink-wrap to video aspect (correct)
+sm: and up (≥768px)         →  forced sm:aspect-video sm:!w-full (landscape rectangle)
 ```
 
-Desktop (`sm:` and up) keeps the existing `sm:aspect-video sm:w-full sm:rounded-2xl` behavior.
+When you hold the phone in landscape (or the preview is wider than 768px) the second branch kicks in. The shell becomes a wide 16:9 box, but the actual camera stream from a phone front/rear sensor is usually portrait (e.g. 720×1280). `object-contain` then pillarboxes the portrait video inside the wide shell — that's the black left/right bars you're seeing.
 
-## Implementation steps in `CameraView.tsx`
+The fix is to stop forcing `aspect-video` and always shrink-wrap the shell to the real `computeContainRect` rectangle, regardless of breakpoint. The shell follows the video, not the viewport.
 
-1. Keep `containerRef` + `ResizeObserver` measuring the outer wrapper width/height, and `videoSize` from `onLoadedMetadata`. The outer wrapper is the measurement area only.
-2. Compute `mediaRect = computeContainRect(container.w, available.h, aspect)` where on mobile `available.h = min(container.h, viewport - chrome)`. Use existing util.
-3. Build `shellStyle`:
-   - Mobile (when `isMobile` and `videoSize` known): `{ width: `${mediaRect.width}px`, height: `${mediaRect.height}px`, maxWidth: "100%", maxHeight: "calc(100svh - 260px)" }`.
-   - Otherwise: leave undefined; rely on Tailwind classes for desktop.
-4. Camera shell `<div>` classes:
-   - Common: `relative overflow-hidden border border-border bg-black`
-   - Mobile-only fallback when video aspect not yet known: keep `aspect-[3/4] max-h-[calc(100svh-260px)] w-full` so the shell still appears before metadata.
-   - Desktop: `sm:aspect-video sm:w-full sm:rounded-2xl sm:max-h-none` and reset mobile width via `sm:!w-full sm:!h-auto` so inline px width doesn't leak to desktop.
-5. Inner media/orientation layer becomes `absolute inset-0` (single layer) holding the `<video>` and all overlays. Drop the explicit pixel-sized inner div — the shell IS the visible media rect now, so overlays using `inset-0` align exactly to the visible video.
-6. Front/selfie: keep current behavior (no mirror) per existing comment. Single shared orientation layer for video + overlays.
-7. Outer wrapper: `-mx-3 w-[calc(100%+1.5rem)] sm:mx-0 sm:w-full flex justify-center` stays (full-bleed centering on mobile). Background of this wrapper is transparent — only the shell is black.
-8. DEV debug overlay updated to:
-   ```
-   measure {cw}×{ch}
-   shell {shellW}×{shellH}
-   video {vw}×{vh}
-   mirror off · facing {facing}
-   ```
-   `shellW/shellH` come from `mediaRect` (mobile) or shell `getBoundingClientRect` (desktop).
-9. Chips, flip button, pose status pill, EdgeCrafter count chips, top alert banner, and the enable-camera empty state stay as direct children of the shell so they hug the visible rectangle.
-10. Remove the previous explicit-pixel inner `innerStyle` div; overlays now use the shell directly.
+## Changes (CameraView.tsx only)
 
-## Edge cases
-- Before `onLoadedMetadata` fires: shell falls back to `aspect-[3/4]` mobile placeholder so the enable-camera state still renders nicely.
-- Landscape phone: `mediaRect` is width-limited by `100svw` (via `maxWidth: 100%`), height shrinks; no overflow.
-- Desktop ≥640px: inline mobile width/height are overridden by `sm:!w-full sm:!h-auto` and `sm:aspect-video`, preserving current layout.
-- Front camera: not mirrored (matches current code + comment).
+1. **Drop the `isMobile` gate on shell sizing.** Once `haveAspect` is true, apply the computed `width`/`height` inline style on every breakpoint. The shell width comes from `computeContainRect(containerW, availH, videoAspect)`, so portrait video → narrower shell, landscape video → wider shell. No pillarboxes either way.
 
-## Verification
-- `bunx vitest run` — existing `computeContainRect` tests should still pass (96/96). No new tests required (pure layout).
-- Lovable auto build.
-- Manual: mobile portrait shows shell hugging the video with negligible side bars; overlays aligned; desktop unchanged; landscape no overflow.
+2. **Recompute `availH` per breakpoint.**
+   - Mobile: `min(container.h, 100svh - 260)` (unchanged).
+   - Desktop: `min(container.h, 100svh - 180)` or a sensible cap (e.g. `min(container.h, 720)`), so a portrait camera on a tall desktop window doesn't stretch the shell to full page height.
+
+3. **Remove the forced landscape classes** `sm:aspect-video sm:!w-full sm:!h-auto` from `shellClass`. Keep `sm:rounded-2xl` for the rounded corners on desktop. The shell becomes:
+   - `haveAspect` true: `relative overflow-hidden border border-border bg-black sm:rounded-2xl` plus inline width/height.
+   - `haveAspect` false (pre-stream): keep the existing `aspect-[3/4] w-full max-h-[calc(100svh-260px)] sm:aspect-video sm:max-h-none sm:rounded-2xl` fallback so the "Enable camera" empty state still looks right.
+
+4. **Outer measurement wrapper unchanged** — still `-mx-3 w-[calc(100%+1.5rem)] sm:mx-0 sm:w-full flex justify-center`. The `justify-center` keeps the shrink-wrapped shell centered when the video is portrait on a wide screen.
+
+5. **Dev debug readout** updates automatically (already prints `shell W×H` and `video W×H`).
 
 ## Out of scope
-`useCamera.ts`, `Live.tsx`, detectors (backend/HTTP/stream), EdgeCrafter, RunPod, Cloudflare, Supabase, capture pipeline.
+
+- `useCamera.ts` — not changing requested resolution or facing logic.
+- `Live.tsx`, detectors, overlays, EdgeCrafter, Supabase, Cloudflare — untouched.
+- Mirror / capture pipeline — untouched.
+
+## Verification
+
+- `bunx vitest run` (existing `cameraContain.test.ts` already covers the contain math; should stay green).
+- Lovable auto build.
+- Manual:
+  - Mobile portrait + portrait camera → tall shell, no side bars.
+  - Mobile landscape + portrait camera → centered portrait shell, black background on either side of the *page*, but the shell itself has no internal bars.
+  - Desktop wide + landscape camera → landscape shell, capped height, no top/bottom bars.
+  - Desktop wide + portrait camera → centered portrait shell, no side bars inside it.
+  - Purple pose lines and teal boxes still align over the visible video.
