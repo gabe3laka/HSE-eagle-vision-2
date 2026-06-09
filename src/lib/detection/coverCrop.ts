@@ -13,9 +13,15 @@
 /** Mobile portrait camera card aspect (width / height). */
 export const MOBILE_VISUAL_ASPECT = 3 / 4;
 
-/** Mobile breakpoint matches Tailwind's `sm` (640px). Portrait = h > w. */
+/**
+ * Mobile breakpoint — MUST match `useIsMobile()` in `src/hooks/use-mobile.tsx`.
+ * If you change one, change the other.
+ */
+export const MOBILE_BREAKPOINT = 768;
+
+/** Portrait = h > w AND viewport width is below the mobile breakpoint. */
 export function isMobilePortraitViewport(w: number, h: number): boolean {
-  return w > 0 && h > 0 && w < 640 && h > w;
+  return w > 0 && h > 0 && w < MOBILE_BREAKPOINT && h > w;
 }
 
 export interface CoverCrop {

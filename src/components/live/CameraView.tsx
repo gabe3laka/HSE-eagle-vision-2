@@ -16,7 +16,6 @@ import type { DetectionZone, ZonePoint } from "@/lib/detection/types";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   computeCoverCrop,
-  isMobilePortraitViewport,
   MOBILE_VISUAL_ASPECT,
 } from "@/lib/detection/coverCrop";
 
@@ -144,7 +143,10 @@ export function CameraView({
   // coords also match the visible card.
   const iw = typeof window !== "undefined" ? window.innerWidth : 0;
   const ih = typeof window !== "undefined" ? window.innerHeight : 0;
-  const mobilePortrait = isMobilePortraitViewport(iw, ih);
+  // Mobile-portrait classification MUST agree with `useIsMobile()` (768px), so
+  // viewports in the 640–767 range still get the portrait crop. `isMobile` is
+  // the source of truth; `ih > iw` adds the orientation check.
+  const mobilePortrait = isMobile && ih > iw;
   const visualAspect = mobilePortrait ? MOBILE_VISUAL_ASPECT : videoAspect;
 
   // Available space from stable references (measured full-bleed wrapper width +
@@ -281,9 +283,9 @@ export function CameraView({
 
       {showDebug && active && (
         <div className="pointer-events-none absolute bottom-2 left-2 z-30 rounded bg-black/60 px-2 py-1 font-mono text-[10px] leading-tight text-white/80">
-          screen {iw}×{ih} · mobilePortrait {String(mobilePortrait)}
+          win {iw}×{ih} · useIsMobile {String(isMobile)} · mobilePortrait {String(mobilePortrait)}
           <br />
-          raw video {videoSize.w}×{videoSize.h} · vis aspect {visualAspect.toFixed(3)}
+          raw {videoSize.w}×{videoSize.h} · rawAspect {videoAspect.toFixed(3)} · vis {visualAspect.toFixed(3)}
           <br />
           shell {shellW}×{shellH} · fit {videoFitClass}
           <br />
