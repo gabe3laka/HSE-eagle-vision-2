@@ -2,7 +2,17 @@ import { CircleDot, Hammer, Hand, ScanSearch, Square, Undo2 } from "lucide-react
 import { Button } from "@/components/ui/button";
 import type { BlueprintReplayControls } from "../hooks/useBlueprintReplay";
 import type { BuildModeSession } from "../hooks/useBuildModeSession";
+import type { BuildBackendStatus } from "../types";
 import { BlueprintTimeline } from "./BlueprintTimeline";
+
+/** Short chip label for the resolved Build Mode backend. */
+const BACKEND_STATUS: Record<BuildBackendStatus, { label: string; live: boolean }> = {
+  resolving: { label: "resolving…", live: false },
+  cloudflare: { label: "Cloudflare", live: true },
+  "supabase-cloudflare": { label: "Supabase config → Cloudflare", live: true },
+  "mock-fallback": { label: "local mock fallback", live: false },
+  "config-missing": { label: "config missing", live: false },
+};
 
 /** Status-chip states for hand control (finger > wrist > touch fallback). */
 export type HandControlStatus =
@@ -32,18 +42,22 @@ interface Props {
  * select → record → review workflow and hosts the replay timeline.
  */
 export function BuildModePanel({ session, replay, cameraActive, handStatus }: Props) {
-  const { phase, frameCount, backendMode, error } = session;
+  const { phase, frameCount, backendStatus, error } = session;
+  const backend = BACKEND_STATUS[backendStatus];
   return (
     <div className="rounded-xl border border-cyan-500/30 bg-background/40 p-3">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-sm font-medium">
           <Hammer className="h-4 w-4 text-cyan-400" />
           Build Mode
-          {backendMode && (
-            <span className="rounded-full bg-cyan-500/15 px-2 py-0.5 text-[10px] font-semibold text-cyan-300">
-              {backendMode === "mock" ? "local mock" : "http backend"}
-            </span>
-          )}
+          <span
+            title="Build backend"
+            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+              backend.live ? "bg-cyan-500/15 text-cyan-300" : "bg-muted/40 text-muted-foreground"
+            }`}
+          >
+            {backend.label}
+          </span>
         </span>
         {phase === "recording" && (
           <span className="flex items-center gap-1.5 text-xs font-medium text-cyan-300">
