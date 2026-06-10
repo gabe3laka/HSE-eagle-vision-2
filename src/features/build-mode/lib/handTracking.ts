@@ -184,6 +184,59 @@ export function pointerInBounds(
   );
 }
 
+// ── Detection boxes → Build regions (pinch-to-extract on detected objects) ──
+
+/** Min/max size of a region auto-created from a detection box. */
+const REGION_MIN_SIZE = 0.1;
+const REGION_MAX_SIZE = 0.95;
+
+/**
+ * Convert a live detection bbox (HSE liveBoxes / EdgeCrafter backendEntities —
+ * both already normalized 0..1 in visible-card coords, the same system as
+ * SelectedRegion) into a usable Build region: clamp inside the card and expand
+ * tiny boxes around their centre so the crop/ghost stays workable.
+ */
+export function detectionBoxToRegion(box: {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}): SelectedRegion {
+  let w = Math.min(REGION_MAX_SIZE, Math.max(REGION_MIN_SIZE, box.w));
+  let h = Math.min(REGION_MAX_SIZE, Math.max(REGION_MIN_SIZE, box.h));
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  let x = cx - w / 2;
+  let y = cy - h / 2;
+  x = Math.max(0, Math.min(1 - w, x));
+  y = Math.max(0, Math.min(1 - h, y));
+  w = Math.min(w, 1 - x);
+  h = Math.min(h, 1 - y);
+  return { x, y, w, h };
+}
+
+/**
+ * The detection box under the pointer — the SMALLEST containing box wins (the
+ * most specific object), or null when the pointer isn't over any detection.
+ */
+export function findDetectionAtPointer(
+  pointer: { x: number; y: number },
+  boxes: Array<{ x: number; y: number; w: number; h: number }>,
+): { x: number; y: number; w: number; h: number } | null {
+  let best: { x: number; y: number; w: number; h: number } | null = null;
+  let bestArea = Number.POSITIVE_INFINITY;
+  for (const b of boxes) {
+    if (!b || b.w <= 0 || b.h <= 0) continue;
+    if (!pointerInBounds(pointer, b)) continue;
+    const area = b.w * b.h;
+    if (area < bestArea) {
+      best = b;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
 // ── MediaPipe Hands (finger-level) ──────────────────────────────────────────
 
 /** Tolerance: raw points this far outside the visible crop are dropped. */

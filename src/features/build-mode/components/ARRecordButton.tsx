@@ -23,6 +23,8 @@ interface Props {
   /** Live pinch state — pinching ON the target fires immediately (a "tap"). */
   pinch?: BuildPinchState | null;
   onTrigger: () => void;
+  /** "record" starts the procedure (red dot); "stop" ends it (red square). */
+  variant?: "record" | "stop";
 }
 
 /**
@@ -37,7 +39,7 @@ interface Props {
  * Detection is coordinate-based (card-space pointer), so it works regardless
  * of overlay stacking; only the touch fallback uses DOM hit-testing.
  */
-export function ARRecordButton({ pointer, pinch, onTrigger }: Props) {
+export function ARRecordButton({ pointer, pinch, onTrigger, variant = "record" }: Props) {
   const [progress, setProgress] = useState(0); // 0..1 dwell fill
   const [hovering, setHovering] = useState(false);
 
@@ -89,11 +91,12 @@ export function ARRecordButton({ pointer, pinch, onTrigger }: Props) {
     return () => clearInterval(id);
   }, [fire]);
 
+  const stop = variant === "stop";
   return (
     <button
       type="button"
-      aria-label="Record procedure"
-      onClick={fire} // touch fallback — a normal tap also starts recording
+      aria-label={stop ? "Stop recording" : "Record procedure"}
+      onClick={fire} // touch fallback — a normal tap also works
       className="absolute z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5"
       style={{ left: `${TARGET_X * 100}%`, top: `${TARGET_Y * 100}%` }}
     >
@@ -122,13 +125,15 @@ export function ARRecordButton({ pointer, pinch, onTrigger }: Props) {
           )}
         </svg>
         <span
-          className={`rounded-full bg-red-500 transition-all ${
-            hovering ? "h-5 w-5 shadow-[0_0_14px_rgba(248,113,113,0.9)]" : "h-4 w-4"
+          className={`bg-red-500 transition-all ${stop ? "rounded-[3px]" : "rounded-full"} ${
+            hovering
+              ? "h-5 w-5 shadow-[0_0_14px_rgba(248,113,113,0.9)]"
+              : `h-4 w-4 ${stop ? "animate-pulse" : ""}`
           }`}
         />
       </span>
       <span className="rounded-full bg-black/65 px-2 py-0.5 text-[9px] font-semibold text-red-300 backdrop-blur">
-        {hovering ? "hold to record" : "Record"}
+        {stop ? (hovering ? "hold to stop" : "Stop") : hovering ? "hold to record" : "Record"}
       </span>
     </button>
   );
