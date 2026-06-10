@@ -2,7 +2,13 @@ import type { BackendPose } from "@/lib/detection/types";
 import type { PoseDebug } from "@/lib/detection/poseGeometry";
 import { LM } from "@/lib/detection/poseGeometry";
 import { computeCoverCrop } from "@/lib/detection/coverCrop";
-import type { BlueprintPoint, BuildHandLandmark, BuildPinchState, SelectedRegion } from "../types";
+import type {
+  BlueprintPoint,
+  BuildHandLandmark,
+  BuildPinchState,
+  ExtractCandidate,
+  SelectedRegion,
+} from "../types";
 
 /**
  * Pure hand-tracking extraction for Build Mode.
@@ -232,6 +238,78 @@ export function findDetectionAtPointer(
     if (area < bestArea) {
       best = b;
       bestArea = area;
+    }
+  }
+  return best;
+}
+
+/** A candidate box must be at least this big to be extractable. */
+const CANDIDATE_MIN_SIZE = 0.04;
+
+/**
+ * Normalize the LIVE detection streams into Build extraction candidates:
+ * EdgeCrafter entities + HSE live boxes (both already visible-card coords).
+ * Invalid/degenerate boxes (outside 0..1, below the minimum size) are dropped.
+ */
+export function buildExtractCandidates(
+  entities: Array<{ label: string; confidence: number; bbox: SelectedRegion }>,
+  liveBoxes: Array<{ hazardType: string; confidence: number; bbox: SelectedRegion }>,
+): ExtractCandidate[] {
+  const out: ExtractCandidate[] = [];
+  const valid = (b: SelectedRegion) =>
+    Number.isFinite(b.x) &&
+    Number.isFinite(b.y) &&
+    Number.isFinite(b.w) &&
+    Number.isFinite(b.h) &&
+    b.x >= 0 &&
+    b.y >= 0 &&
+    b.w >= CANDIDATE_MIN_SIZE &&
+    b.h >= CANDIDATE_MIN_SIZE &&
+    b.x + b.w <= 1.001 &&
+    b.y + b.h <= 1.001;
+  entities.forEach((e, i) => {
+    if (!e?.bbox || !valid(e.bbox)) return;
+    out.push({
+      id: `ent-${i}-${e.label}`,
+      label: e.label,
+      bbox: e.bbox,
+      source: "edgecrafter-entity",
+      confidence: e.confidence,
+    });
+  });
+  liveBoxes.forEach((b, i) => {
+    if (!b?.bbox || !valid(b.bbox)) return;
+    out.push({
+      id: `live-${i}-${b.hazardType}`,
+      label: b.hazardType,
+      bbox: b.bbox,
+      source: "hse-livebox",
+      confidence: b.confidence,
+    });
+  });
+  return out;
+}
+
+/**
+ * The candidate under ANY of the given points (e.g. index tip AND pinch
+ * midpoint — using both prevents false misses when the visual pinch point
+ * differs from the fingertip). Smallest containing bbox wins.
+ */
+export function findCandidateAtPoints(
+  points: Array<{ x: number; y: number } | null | undefined>,
+  candidates: ExtractCandidate[],
+): ExtractCandidate | null {
+  let best: ExtractCandidate | null = null;
+  let bestArea = Number.POSITIVE_INFINITY;
+  for (const c of candidates) {
+    const area = c.bbox.w * c.bbox.h;
+    if (area >= bestArea) continue;
+    for (const p of points) {
+      if (p && pointerInBounds(p, c.bbox)) {
+        best = c;
+        bestArea = area;
+        break;
+      }
     }
   }
   return best;

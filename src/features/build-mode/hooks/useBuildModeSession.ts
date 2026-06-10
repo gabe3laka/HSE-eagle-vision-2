@@ -69,6 +69,10 @@ export function useBuildModeSession({
   const [extractStatus, setExtractStatus] = useState<
     "idle" | "extract_requested" | "capture_failed" | "frame_received" | "placing_started"
   >("idle");
+  /** Which detected candidate the blueprint was extracted from (for debug/UI). */
+  const [extractSource, setExtractSource] = useState<{ source: string; label: string } | null>(
+    null,
+  );
 
   // Resolve the Build Mode API base when Build Mode turns on, so the panel can
   // show the backend status before the first selection.
@@ -139,6 +143,7 @@ export function useBuildModeSession({
     setBackendMode(null);
     setError(null);
     setExtractStatus("idle");
+    setExtractSource(null);
   }, [clearTimer, go]);
 
   // Leaving Build Mode (or unmount) tears the session down.
@@ -160,6 +165,7 @@ export function useBuildModeSession({
     setPlacement(null);
     setError(null);
     setExtractStatus("idle");
+    setExtractSource(null);
   }, [enabled, clearTimer, go]);
 
   const cancelSelection = useCallback(() => {
@@ -181,6 +187,7 @@ export function useBuildModeSession({
       regionRef.current = sel;
       setError(null);
       setExtractStatus("idle");
+      setExtractSource(null);
       go("selected");
       const ready = (async () => {
         const session = await startBuildSession();
@@ -269,15 +276,21 @@ export function useBuildModeSession({
   }, [captureKeyframe, go]);
 
   /**
-   * Pinch a live DETECTED box (HSE liveBoxes / EdgeCrafter entities) → turn it
-   * into the Build region and extract its blueprint in one motion. The synced
+   * MAIN extraction path: a pinched DETECTED box (HSE livebox / EdgeCrafter
+   * entity) becomes the Build region and its blueprint is extracted in one
+   * motion — set region → start/lock the Build session (awaited, no race) →
+   * capture one crop → sendBuildFrame → baseFrame → "placing". The synced
    * phaseRef makes the lock → extract chain deterministic.
    */
-  const lockAndExtract = useCallback(
-    async (sel: SelectedRegion): Promise<BlueprintFrame | null> => {
+  const extractFromRegion = useCallback(
+    async (
+      sel: SelectedRegion,
+      meta?: { source?: string; label?: string },
+    ): Promise<BlueprintFrame | null> => {
       if (!enabled) return null;
       if (phaseRef.current !== "idle" && phaseRef.current !== "selected") return null;
-      await lockSelection(sel);
+      await lockSelection(sel); // clears stale state, ensures session is ready
+      setExtractSource(meta ? { source: meta.source ?? "manual", label: meta.label ?? "" } : null);
       return extractBlueprint();
     },
     [enabled, lockSelection, extractBlueprint],
@@ -358,11 +371,12 @@ export function useBuildModeSession({
     backendStatus,
     error,
     extractStatus,
+    extractSource,
     frameCount: frames.length,
     beginSelection,
     cancelSelection,
     lockSelection,
-    lockAndExtract,
+    extractFromRegion,
     extractBlueprint,
     pinBlueprint,
     startProcedureRecording,

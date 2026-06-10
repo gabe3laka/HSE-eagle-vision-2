@@ -1,4 +1,4 @@
-import { CircleDot, Hammer, Hand, Loader2, ScanSearch, Square, Undo2 } from "lucide-react";
+import { CircleDot, Hammer, Hand, Loader2, Play, ScanSearch, Square, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BlueprintReplayControls } from "../hooks/useBlueprintReplay";
 import type { BuildModeSession } from "../hooks/useBuildModeSession";
@@ -40,21 +40,39 @@ export interface BuildDebugInfo {
   pointer: { x: number; y: number } | null;
   pointerInsideRegion: boolean;
   pinchActive: boolean;
+  candidateCount: number;
+  candidateUnderPinch: boolean;
+  candidateLabel: string | null;
 }
 
 interface Props {
   session: BuildModeSession;
   replay: BlueprintReplayControls;
   cameraActive: boolean;
+  /** Detection loop running — extractable candidates only exist while /detect flows. */
+  monitoringRunning?: boolean;
+  /** One-tap "Start detection for Build" (camera + monitoring). */
+  onStartDetection?: () => void;
+  /** Live extractable candidates currently on screen. */
+  candidateCount?: number;
   handStatus?: HandControlStatus;
   debug?: BuildDebugInfo;
 }
 
 /**
  * Build Mode control card (below the camera): drives the
- * select → record → review workflow and hosts the replay timeline.
+ * detect → pinch-extract → pin → record → review workflow.
  */
-export function BuildModePanel({ session, replay, cameraActive, handStatus, debug }: Props) {
+export function BuildModePanel({
+  session,
+  replay,
+  cameraActive,
+  monitoringRunning,
+  onStartDetection,
+  candidateCount = 0,
+  handStatus,
+  debug,
+}: Props) {
   const { phase, frameCount, backendStatus, error } = session;
   const backend = BACKEND_STATUS[backendStatus];
   return (
@@ -99,14 +117,32 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus, debu
 
       {phase === "idle" && (
         <div className="mt-2 space-y-2">
-          <p className="text-xs text-muted-foreground">
-            Hold a pinch on a detected box for 4 seconds (the mini clock fills) to pull out its
-            blueprint — or tap Select object and drag a box around any area. Keyframes only — no
-            video is stored.
-          </p>
-          <Button size="sm" onClick={session.beginSelection} disabled={!cameraActive}>
+          {!monitoringRunning ? (
+            <>
+              <p className="text-xs text-cyan-200">
+                Start monitoring to detect extractable objects — detected boxes are the blueprint
+                source.
+              </p>
+              <Button size="sm" onClick={onStartDetection}>
+                <Play className="mr-1.5 h-4 w-4" />
+                Start detection for Build
+              </Button>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {candidateCount > 0
+                ? `${candidateCount} extractable object${candidateCount === 1 ? "" : "s"} detected. Hold a pinch on a highlighted box for 4 seconds (the mini clock fills) to pull out its blueprint.`
+                : "Scanning… point the camera at an object. Detected boxes become pinch-extractable."}
+            </p>
+          )}
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={session.beginSelection}
+            disabled={!cameraActive}
+          >
             <ScanSearch className="mr-1.5 h-4 w-4" />
-            Select object
+            Select object manually
           </Button>
           {!cameraActive && (
             <p className="text-[11px] text-muted-foreground">Enable the camera first.</p>
@@ -210,6 +246,10 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus, debu
           {debug.pinchActive ? "ON" : "off"} · inside{" "}
           {debug.pointerInsideRegion ? <span className="text-cyan-300">yes</span> : "no"} · ptr{" "}
           {debug.pointer ? `${debug.pointer.x.toFixed(2)},${debug.pointer.y.toFixed(2)}` : "—"}
+          <br />
+          candidates {debug.candidateCount} · under pinch{" "}
+          {debug.candidateUnderPinch ? <span className="text-cyan-300">yes</span> : "no"} · label{" "}
+          {debug.candidateLabel ?? "—"}
         </div>
       )}
     </div>

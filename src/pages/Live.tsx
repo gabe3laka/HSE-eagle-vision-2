@@ -40,15 +40,18 @@ import {
 import { FloatingBlueprintLayer } from "@/features/build-mode/components/FloatingBlueprintLayer";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
 import { ARRecordButton } from "@/features/build-mode/components/ARRecordButton";
+import { ExtractableCandidateOverlay } from "@/features/build-mode/components/ExtractableCandidateOverlay";
 import {
+  buildExtractCandidates,
   detectionBoxToRegion,
-  findDetectionAtPointer,
+  findCandidateAtPoints,
   pointerInBounds,
 } from "@/features/build-mode/lib/handTracking";
 import type {
   BuildGesture,
   BuildHandInteraction,
   BuildHandLandmark,
+  ExtractCandidate,
 } from "@/features/build-mode/types";
 
 /** Readout of the EdgeCrafter backend — fast Cloudflare HTTP, legacy HTTP dry-run, or WebSocket stream. */
@@ -315,72 +318,94 @@ export default function Live() {
             : "touch-fallback"
     : undefined;
 
-  // Pinch a live DETECTED box (EdgeCrafter entity or HSE live box — both in
-  // card coords) while no Build region exists → HOLD the pinch on it for
-  // BUILD_EXTRACT_HOLD_MS (a mini countdown clock fills) before the region is
-  // created and the blueprint extracts. The hold prevents mistake blueprints
-  // from a passing pinch. Manual Select-object still works.
+  // HSE DETECTION BOXES ARE THE MAIN EXTRACTION SOURCE. Every live detection
+  // (EdgeCrafter entity + HSE live box, both card coords) becomes an
+  // ExtractCandidate; HOLD a pinch on one for BUILD_EXTRACT_HOLD_MS (mini
+  // countdown clock) and it converts to the Build region + extracts its
+  // blueprint. Hit-testing uses BOTH the index tip and the thumb↔index pinch
+  // midpoint so the visual pinch point can't miss. Manual Select-object stays
+  // as the fallback path.
+  const candidates = useMemo(
+    () => buildExtractCandidates(backendEntities as BackendEntity[], liveBoxes),
+    [backendEntities, liveBoxes],
+  );
   const [extractHold, setExtractHold] = useState<{
     x: number;
     y: number;
     progress: number;
   } | null>(null);
-  const holdBoxRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [hotCandidateId, setHotCandidateId] = useState<string | null>(null);
+  const holdCandidateRef = useRef<ExtractCandidate | null>(null);
   const holdStartRef = useRef(0);
   const holdFiredRef = useRef(false);
   const primaryPointerRef = useRef(hand.primaryPointer);
   primaryPointerRef.current = hand.primaryPointer;
-  const detectionBoxesRef = useRef<Array<{ x: number; y: number; w: number; h: number }>>([]);
-  detectionBoxesRef.current = [
-    ...(backendEntities as BackendEntity[]).map((e) => e.bbox),
-    ...liveBoxes.map((b) => b.bbox),
-  ];
-  const lockAndExtractRef = useRef(build.lockAndExtract);
-  lockAndExtractRef.current = build.lockAndExtract;
+  const handLandmarksRef2 = handLandmarksRef; // thumb tip lives in the same list
+  const candidatesRef = useRef<ExtractCandidate[]>(candidates);
+  candidatesRef.current = candidates;
+  const extractFromRegionRef = useRef(build.extractFromRegion);
+  extractFromRegionRef.current = build.extractFromRegion;
 
   useEffect(() => {
     if (!buildModeOn || !active || build.phase !== "idle") {
-      holdBoxRef.current = null;
+      holdCandidateRef.current = null;
       holdFiredRef.current = false;
       setExtractHold(null);
+      setHotCandidateId(null);
       return;
     }
     const tick = () => {
       const p = primaryPointerRef.current;
       const pn = pinchRef.current;
+      // Pinch midpoint (thumb↔index) of the primary hand, when available.
+      const thumb = handLandmarksRef2.current.find(
+        (l) => l.role === "thumb-tip" && l.hand === p?.hand,
+      );
+      const mid = p && thumb ? { x: (p.x + thumb.x) / 2, y: (p.y + thumb.y) / 2 } : null;
+      const points = [p, mid];
+
+      // Highlight the candidate under the finger even before pinching.
+      const hover = findCandidateAtPoints(points, candidatesRef.current);
+      setHotCandidateId(hover?.id ?? null);
+
       if (!p || !pn?.active) {
         // Pinch released/lost → reset the clock and re-arm.
-        holdBoxRef.current = null;
+        holdCandidateRef.current = null;
         holdFiredRef.current = false;
         setExtractHold(null);
         return;
       }
       if (holdFiredRef.current) return;
-      if (!holdBoxRef.current) {
-        const hit = findDetectionAtPointer(p, detectionBoxesRef.current);
-        if (!hit) {
+      if (!holdCandidateRef.current) {
+        if (!hover) {
           setExtractHold(null);
           return;
         }
-        holdBoxRef.current = hit;
+        holdCandidateRef.current = hover;
         holdStartRef.current = Date.now();
       }
-      // The pinch must STAY on the same box (small tolerance for jitter).
-      const b = holdBoxRef.current;
+      // The pinch must STAY on the same candidate (jitter tolerance; either
+      // the fingertip OR the pinch midpoint inside counts).
+      const b = holdCandidateRef.current.bbox;
       const tol = 0.03;
       const expanded = { x: b.x - tol, y: b.y - tol, w: b.w + 2 * tol, h: b.h + 2 * tol };
-      if (!pointerInBounds(p, expanded)) {
-        holdBoxRef.current = null;
+      const stillInside = points.some((pt) => pt && pointerInBounds(pt, expanded));
+      if (!stillInside) {
+        holdCandidateRef.current = null;
         setExtractHold(null);
         return;
       }
       const progress = Math.min(1, (Date.now() - holdStartRef.current) / BUILD_EXTRACT_HOLD_MS);
       setExtractHold({ x: p.x, y: p.y, progress });
       if (progress >= 1) {
+        const c = holdCandidateRef.current;
         holdFiredRef.current = true;
-        holdBoxRef.current = null;
+        holdCandidateRef.current = null;
         setExtractHold(null);
-        void lockAndExtractRef.current(detectionBoxToRegion(b));
+        void extractFromRegionRef.current(detectionBoxToRegion(c.bbox), {
+          source: c.source,
+          label: c.label,
+        });
       }
     };
     const id = setInterval(tick, 100);
@@ -388,16 +413,19 @@ export default function Live() {
     return () => {
       clearInterval(id);
       setExtractHold(null);
+      setHotCandidateId(null);
     };
-  }, [buildModeOn, active, build.phase]);
+  }, [buildModeOn, active, build.phase, handLandmarksRef2]);
 
   // Phase-appropriate fingertip hint — never a misleading "pinch to grab".
   const fingerHint = !buildModeOn
     ? null
     : build.phase === "idle"
-      ? (backendEntities as BackendEntity[]).length > 0 || liveBoxes.length > 0
+      ? candidates.length > 0
         ? "hold pinch 4s on a box"
-        : "select an object below"
+        : running
+          ? "no objects detected yet"
+          : "start detection below"
       : build.phase === "selected"
         ? "hold pinch 4s on the box"
         : build.phase === "placing"
@@ -413,6 +441,7 @@ export default function Live() {
     build.region && hand.primaryPointer
       ? pointerInBounds(hand.primaryPointer, build.region)
       : false;
+  const hotCandidate = candidates.find((c) => c.id === hotCandidateId) ?? null;
   const buildDebug = {
     phase: build.phase,
     hasRegion: build.region != null,
@@ -422,6 +451,9 @@ export default function Live() {
     pointer: hand.primaryPointer ? { x: hand.primaryPointer.x, y: hand.primaryPointer.y } : null,
     pointerInsideRegion,
     pinchActive: !!mp.pinch?.active,
+    candidateCount: candidates.length,
+    candidateUnderPinch: hotCandidate != null,
+    candidateLabel: hotCandidate?.label ?? build.extractSource?.label ?? null,
   };
 
   const topAlert = useMemo(() => alerts.find((a) => a.isIncident) ?? null, [alerts]);
@@ -531,6 +563,14 @@ export default function Live() {
             buildOverlay={
               buildModeOn ? (
                 <>
+                  {/* Detection boxes as the MAIN extraction source: cyan
+                      candidate outlines while choosing (idle). */}
+                  {build.phase === "idle" && (
+                    <ExtractableCandidateOverlay
+                      candidates={candidates}
+                      highlightId={hotCandidateId}
+                    />
+                  )}
                   <SelectionOverlay
                     active={build.phase === "selecting"}
                     onSelect={(region) => void build.lockSelection(region)}
@@ -622,6 +662,9 @@ export default function Live() {
               session={build}
               replay={replay}
               cameraActive={active}
+              monitoringRunning={running}
+              onStartDetection={() => void handleStart()}
+              candidateCount={candidates.length}
               handStatus={handStatus}
               debug={buildDebug}
             />

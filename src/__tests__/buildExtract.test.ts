@@ -85,3 +85,69 @@ describe("Build extraction — frame is never silently missing", () => {
     expect(frame.anchors.length).toBeGreaterThanOrEqual(4);
   });
 });
+
+describe("Build extraction — HSE detection boxes as candidates", () => {
+  const ent = (label: string, bbox: { x: number; y: number; w: number; h: number }) => ({
+    label,
+    confidence: 0.9,
+    bbox,
+  });
+  const live = (hazardType: string, bbox: { x: number; y: number; w: number; h: number }) => ({
+    hazardType,
+    confidence: 0.8,
+    bbox,
+  });
+
+  it("normalizes entities + liveBoxes into labeled candidates", async () => {
+    const { buildExtractCandidates } = await import("../features/build-mode/lib/handTracking");
+    const out = buildExtractCandidates(
+      [ent("person", { x: 0.1, y: 0.1, w: 0.3, h: 0.5 })],
+      [live("unsafe_lift", { x: 0.5, y: 0.5, w: 0.2, h: 0.2 })],
+    );
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ label: "person", source: "edgecrafter-entity" });
+    expect(out[1]).toMatchObject({ label: "unsafe_lift", source: "hse-livebox" });
+    expect(out.every((c) => c.id.length > 0)).toBe(true);
+  });
+
+  it("drops invalid/degenerate boxes (too small, out of range, NaN)", async () => {
+    const { buildExtractCandidates } = await import("../features/build-mode/lib/handTracking");
+    const out = buildExtractCandidates(
+      [
+        ent("tiny", { x: 0.5, y: 0.5, w: 0.01, h: 0.01 }),
+        ent("oob", { x: 0.9, y: 0.9, w: 0.5, h: 0.5 }),
+        ent("nan", { x: NaN, y: 0.1, w: 0.2, h: 0.2 }),
+        ent("ok", { x: 0.2, y: 0.2, w: 0.2, h: 0.2 }),
+      ],
+      [],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].label).toBe("ok");
+  });
+
+  it("findCandidateAtPoints: hits when EITHER point is inside (index OR pinch midpoint)", async () => {
+    const { buildExtractCandidates, findCandidateAtPoints } =
+      await import("../features/build-mode/lib/handTracking");
+    const cands = buildExtractCandidates([ent("valve", { x: 0.4, y: 0.4, w: 0.2, h: 0.2 })], []);
+    const outside = { x: 0.1, y: 0.1 };
+    const inside = { x: 0.5, y: 0.5 };
+    expect(findCandidateAtPoints([outside, inside], cands)?.label).toBe("valve");
+    expect(findCandidateAtPoints([inside, null], cands)?.label).toBe("valve");
+    expect(findCandidateAtPoints([outside, null], cands)).toBeNull();
+    expect(findCandidateAtPoints([null, undefined], cands)).toBeNull();
+  });
+
+  it("findCandidateAtPoints: smallest containing candidate wins", async () => {
+    const { buildExtractCandidates, findCandidateAtPoints } =
+      await import("../features/build-mode/lib/handTracking");
+    const cands = buildExtractCandidates(
+      [
+        ent("big", { x: 0.1, y: 0.1, w: 0.8, h: 0.8 }),
+        ent("small", { x: 0.4, y: 0.4, w: 0.2, h: 0.2 }),
+      ],
+      [],
+    );
+    expect(findCandidateAtPoints([{ x: 0.5, y: 0.5 }], cands)?.label).toBe("small");
+    expect(findCandidateAtPoints([{ x: 0.15, y: 0.15 }], cands)?.label).toBe("big");
+  });
+});
