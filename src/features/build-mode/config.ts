@@ -36,14 +36,94 @@ export const BUILD_MAX_FRAMES = 240;
 export const BUILD_MIN_SELECTION = 0.08;
 
 /**
- * Optional Build Mode backend base URL (e.g. the Cloudflare Worker once it
- * grows /build/* routes). Absent => the client uses local mock blueprints.
+ * Build Mode backend API base URL — the Cloudflare Worker ORIGIN only (the
+ * client appends `/build/session/...` itself). Resolved in layers because the
+ * frontend cannot read Supabase secrets directly at runtime:
+ *
+ *   1. import.meta.env.VITE_BUILD_MODE_API_URL   (Vite build-time env)
+ *   2. Supabase Edge Function `get-build-mode-config` → { buildModeApiUrl }
+ *      (reads the Supabase secret of the same name; the URL is NOT sensitive)
+ *   3. null → local mock blueprint mode
  */
-export function readBuildApiBase(): string | null {
+
+export type BuildApiSource = "env" | "supabase-config";
+
+export interface ResolvedBuildApi {
+  url: string | null;
+  source: BuildApiSource | null;
+}
+
+/** Trim, drop trailing slash(es), strip an accidental `/build/...` suffix,
+ *  reject empty. Returns the bare Worker base, or null. */
+export function normalizeBaseUrl(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const v = value
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/build(\/.*)?$/i, ""); // never let route paths leak into the base
+  return v ? v : null;
+}
+
+/** Env-only read (no network). */
+export function readBuildApiBaseFromEnv(): string | null {
   try {
-    const v = import.meta.env.VITE_BUILD_MODE_API_URL;
-    return typeof v === "string" && v.trim() ? v.trim().replace(/\/$/, "") : null;
+    return normalizeBaseUrl(import.meta.env.VITE_BUILD_MODE_API_URL);
   } catch {
     return null;
   }
+}
+
+/** Back-compat alias kept for existing callers — env-only. */
+export function readBuildApiBase(): string | null {
+  return readBuildApiBaseFromEnv();
+}
+
+// Cache only a SUCCESSFUL resolution (env or Supabase config), so a transient
+// Supabase miss retries on the next Build Mode entry rather than locking to mock.
+let cachedResolved: ResolvedBuildApi | null = null;
+
+/** Reset the resolution cache — for tests. */
+export function resetBuildModeApiCache(): void {
+  cachedResolved = null;
+}
+
+/** Ask the public Supabase config function for the Build Mode base URL. Browser
+ *  only (SSR/tests skip it → mock); never throws; bounded by a short timeout. */
+async function fetchSupabaseBuildConfig(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const { supabase } = await import("@/integrations/supabase/own-client");
+    const invoke = supabase.functions.invoke("get-build-mode-config", { body: {} });
+    const timeout = new Promise<{ data: unknown; error: unknown }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: "timeout" }), 4000),
+    );
+    const { data, error } = (await Promise.race([invoke, timeout])) as {
+      data: unknown;
+      error: unknown;
+    };
+    if (error || !data) return null;
+    const u = (data as { buildModeApiUrl?: unknown }).buildModeApiUrl;
+    return typeof u === "string" ? u : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the Build Mode API base URL through env → Supabase config → null.
+ * Memoizes a successful result for the page lifetime.
+ */
+export async function resolveBuildModeApiUrl(): Promise<ResolvedBuildApi> {
+  if (cachedResolved) return cachedResolved;
+  const envUrl = readBuildApiBaseFromEnv();
+  if (envUrl) {
+    cachedResolved = { url: envUrl, source: "env" };
+    return cachedResolved;
+  }
+  const supaUrl = normalizeBaseUrl(await fetchSupabaseBuildConfig());
+  if (supaUrl) {
+    cachedResolved = { url: supaUrl, source: "supabase-config" };
+    return cachedResolved;
+  }
+  return { url: null, source: null }; // not cached → retry next entry
 }

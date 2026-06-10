@@ -127,9 +127,19 @@ export interface BuildFramePayload {
 /** Backend transport for the session: real HTTP routes or the local mock. */
 export type BuildBackendMode = "http" | "mock";
 
+/** Where the resolved Build Mode API URL came from (for the panel chip). */
+export type BuildBackendStatus =
+  | "resolving"
+  | "cloudflare" // VITE_BUILD_MODE_API_URL env → Cloudflare /build/*
+  | "supabase-cloudflare" // Supabase get-build-mode-config → Cloudflare /build/*
+  | "mock-fallback" // a URL was configured but the request failed → local mock
+  | "config-missing"; // no URL anywhere → local mock
+
 export interface BuildSessionInfo {
   sessionId: string;
   backendMode: BuildBackendMode;
+  /** Where the base URL was resolved from (null = no URL configured). */
+  configSource?: "env" | "supabase-config" | null;
 }
 
 export interface BuildReplay {

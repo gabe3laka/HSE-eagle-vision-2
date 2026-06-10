@@ -1,5 +1,5 @@
 import { fetchDetectSession, DetectAuthError } from "@/lib/detection/backendVisionHttpDetector";
-import { readBuildApiBase } from "../config";
+import { resolveBuildModeApiUrl } from "../config";
 import { mockBlueprintFrame } from "../lib/blueprint";
 import { handLandmarksToRegionLocal } from "../lib/handTracking";
 import type {
@@ -12,20 +12,26 @@ import type {
 
 /**
  * Build Mode API client — HTTP only (no WebSockets), with a complete local
- * MOCK fallback so the UI works before the backend routes exist.
+ * MOCK fallback so the UI always works.
  *
- * Real routes (once the gateway grows them):
+ * Cloudflare Worker routes (base resolved via resolveBuildModeApiUrl):
  *   POST {base}/build/session/start
  *   POST {base}/build/session/lock
  *   POST {base}/build/session/frame
  *   POST {base}/build/session/finish
  *   GET  {base}/build/session/:id/replay
  *
+ * Base URL resolution (frontend can't read Supabase secrets directly):
+ *   1. import.meta.env.VITE_BUILD_MODE_API_URL
+ *   2. Supabase Edge Function `get-build-mode-config` → { buildModeApiUrl }
+ *   3. null → local mock
+ *
  * Auth: reuses the same short-lived Supabase HMAC session token as /detect
  * (`?token=` from create-stream-session). The browser never holds backend keys.
  *
- * Mock mode triggers when VITE_BUILD_MODE_API_URL is unset, and any individual
- * HTTP failure also degrades that session to mock so recording never blocks.
+ * Any individual HTTP failure degrades that session to mock so recording never
+ * blocks; the resolved `configSource` is carried on the session so the panel
+ * can distinguish a mock FALLBACK from a missing config.
  */
 
 const CAMERA_ID = "browser-build";
@@ -34,13 +40,9 @@ const CAMERA_ID = "browser-build";
 const mockStore = new Map<string, BlueprintFrame[]>();
 let mockCounter = 0;
 
-function isHttpConfigured(): boolean {
-  return readBuildApiBase() != null;
-}
-
-async function postJson(path: string, body: unknown): Promise<unknown> {
-  const base = readBuildApiBase();
-  if (!base) throw new Error("build_api_not_configured");
+/** POST a `/build/...` route on the resolved base, appending the shared
+ *  `?token=` (same short-lived Supabase session token as /detect). */
+async function postJson(base: string, path: string, body: unknown): Promise<unknown> {
   let token: string;
   try {
     token = (await fetchDetectSession(CAMERA_ID)).token;
@@ -56,23 +58,30 @@ async function postJson(path: string, body: unknown): Promise<unknown> {
   return (await res.json().catch(() => ({}))) as unknown;
 }
 
-/** Start a session. Falls back to a local mock session when no backend is set. */
+/**
+ * Start a session. Resolves the base URL (env → Supabase config → null) and
+ * uses the real Cloudflare `/build/*` routes when available; otherwise (or on
+ * any failure) falls back to a local mock session — never blocks the UI.
+ */
 export async function startBuildSession(): Promise<BuildSessionInfo> {
-  if (isHttpConfigured()) {
+  const cfg = await resolveBuildModeApiUrl();
+  if (cfg.url) {
     try {
-      const d = (await postJson("/build/session/start", { camera_id: CAMERA_ID })) as {
+      const d = (await postJson(cfg.url, "/build/session/start", { camera_id: CAMERA_ID })) as {
         session_id?: unknown;
       };
       if (typeof d.session_id === "string" && d.session_id) {
-        return { sessionId: d.session_id, backendMode: "http" };
+        return { sessionId: d.session_id, backendMode: "http", configSource: cfg.source };
       }
     } catch {
-      // fall through to mock — never block the UI on a missing backend
+      // fall through to mock — never block the UI on a backend hiccup
     }
   }
   const sessionId = `mock-${Date.now().toString(36)}-${++mockCounter}`;
   mockStore.set(sessionId, []);
-  return { sessionId, backendMode: "mock" };
+  // configSource is preserved so the panel distinguishes "mock-fallback"
+  // (URL configured but request failed) from "config-missing" (no URL).
+  return { sessionId, backendMode: "mock", configSource: cfg.source };
 }
 
 /** Tell the backend which region was locked (no-op in mock mode). */
@@ -81,8 +90,10 @@ export async function lockBuildSelection(
   selection: SelectedRegion,
 ): Promise<void> {
   if (session.backendMode !== "http") return;
+  const { url } = await resolveBuildModeApiUrl();
+  if (!url) return;
   try {
-    await postJson("/build/session/lock", { session_id: session.sessionId, selection });
+    await postJson(url, "/build/session/lock", { session_id: session.sessionId, selection });
   } catch {
     // tolerated — the lock is advisory; frames carry the region anyway
   }
@@ -99,11 +110,14 @@ export async function sendBuildFrame(
 ): Promise<BlueprintFrame> {
   if (session.backendMode === "http") {
     try {
-      const d = (await postJson("/build/session/frame", payload)) as {
-        blueprint_frame?: BlueprintFrame;
-      };
-      if (d.blueprint_frame && Array.isArray(d.blueprint_frame.outline)) {
-        return d.blueprint_frame;
+      const { url } = await resolveBuildModeApiUrl();
+      if (url) {
+        const d = (await postJson(url, "/build/session/frame", payload)) as {
+          blueprint_frame?: BlueprintFrame;
+        };
+        if (d.blueprint_frame && Array.isArray(d.blueprint_frame.outline)) {
+          return d.blueprint_frame;
+        }
       }
     } catch {
       // degrade this frame to mock — recording keeps flowing
@@ -129,10 +143,13 @@ export async function sendBuildFrame(
 export async function finishBuildSession(session: BuildSessionInfo): Promise<string> {
   if (session.backendMode === "http") {
     try {
-      const d = (await postJson("/build/session/finish", { session_id: session.sessionId })) as {
-        replay_id?: unknown;
-      };
-      if (typeof d.replay_id === "string" && d.replay_id) return d.replay_id;
+      const { url } = await resolveBuildModeApiUrl();
+      if (url) {
+        const d = (await postJson(url, "/build/session/finish", {
+          session_id: session.sessionId,
+        })) as { replay_id?: unknown };
+        if (typeof d.replay_id === "string" && d.replay_id) return d.replay_id;
+      }
     } catch {
       // fall through
     }
@@ -142,7 +159,7 @@ export async function finishBuildSession(session: BuildSessionInfo): Promise<str
 
 /** Fetch a finished replay's ordered keyframes. */
 export async function fetchBuildReplay(replayId: string): Promise<BuildReplay> {
-  const base = readBuildApiBase();
+  const { url: base } = await resolveBuildModeApiUrl();
   if (base && !replayId.startsWith("mock-")) {
     try {
       let token = "";

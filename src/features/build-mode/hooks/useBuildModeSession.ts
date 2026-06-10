@@ -6,11 +6,12 @@ import {
   sendBuildFrame,
   startBuildSession,
 } from "../api/buildModeClient";
-import { BUILD_CAPTURE_INTERVAL_MS, BUILD_MAX_FRAMES } from "../config";
+import { BUILD_CAPTURE_INTERVAL_MS, BUILD_MAX_FRAMES, resolveBuildModeApiUrl } from "../config";
 import { captureRegionBase64 } from "../lib/regionCapture";
 import type {
   BlueprintFrame,
   BuildBackendMode,
+  BuildBackendStatus,
   BuildGesture,
   BuildHandLandmark,
   BuildPhase,
@@ -52,7 +53,29 @@ export function useBuildModeSession({
   const [frames, setFrames] = useState<BlueprintFrame[]>([]);
   const [latestFrame, setLatestFrame] = useState<BlueprintFrame | null>(null);
   const [backendMode, setBackendMode] = useState<BuildBackendMode | null>(null);
+  const [backendStatus, setBackendStatus] = useState<BuildBackendStatus>("resolving");
   const [error, setError] = useState<string | null>(null);
+
+  // Resolve the Build Mode API base when Build Mode turns on, so the panel can
+  // show the backend status before the first selection.
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    setBackendStatus("resolving");
+    void resolveBuildModeApiUrl().then((cfg) => {
+      if (cancelled) return;
+      setBackendStatus(
+        cfg.url
+          ? cfg.source === "supabase-config"
+            ? "supabase-cloudflare"
+            : "cloudflare"
+          : "config-missing",
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
 
   const sessionRef = useRef<BuildSessionInfo | null>(null);
   const regionRef = useRef<SelectedRegion | null>(null);
@@ -177,6 +200,16 @@ export function useBuildModeSession({
         const session = await startBuildSession();
         sessionRef.current = session;
         setBackendMode(session.backendMode);
+        // Refine the status with the actual session outcome: a configured URL
+        // that fell back to mock is "mock-fallback"; a live http session keeps
+        // its source-derived label.
+        if (session.backendMode === "http") {
+          setBackendStatus(
+            session.configSource === "supabase-config" ? "supabase-cloudflare" : "cloudflare",
+          );
+        } else {
+          setBackendStatus(session.configSource ? "mock-fallback" : "config-missing");
+        }
         await lockBuildSelection(session, sel);
         framesRef.current = [];
         setFrames([]);
@@ -198,6 +231,7 @@ export function useBuildModeSession({
     frames,
     latestFrame,
     backendMode,
+    backendStatus,
     error,
     frameCount: frames.length,
     beginSelection,
