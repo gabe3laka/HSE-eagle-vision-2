@@ -100,8 +100,9 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus, debu
       {phase === "idle" && (
         <div className="mt-2 space-y-2">
           <p className="text-xs text-muted-foreground">
-            Pinch a detected box on the camera to pull out its blueprint directly — or tap Select
-            object and drag a box around any area. Keyframes only — no video is stored.
+            Hold a pinch on a detected box for 4 seconds (the mini clock fills) to pull out its
+            blueprint — or tap Select object and drag a box around any area. Keyframes only — no
+            video is stored.
           </p>
           <Button size="sm" onClick={session.beginSelection} disabled={!cameraActive}>
             <ScanSearch className="mr-1.5 h-4 w-4" />
@@ -127,8 +128,8 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus, debu
       {phase === "selected" && (
         <div className="mt-2 flex items-center justify-between gap-2">
           <p className="text-xs text-cyan-200">
-            Object selected. Pinch inside the glowing box to pull out the blueprint (or touch-drag
-            it).
+            Object selected. Hold a pinch inside the glowing box for 4 seconds (the clock fills) to
+            pull out the blueprint — or touch-drag it.
           </p>
           <Button size="sm" variant="secondary" onClick={session.beginSelection}>
             <Undo2 className="mr-1.5 h-4 w-4" />
@@ -172,8 +173,8 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus, debu
       {phase === "recording" && (
         <div className="mt-2 space-y-2">
           <p className="text-xs text-muted-foreground">
-            Recording procedure keyframes of the selected region (~3/s). Perform the work, then
-            hold your fingertip on the red Stop target in the camera — or press below.
+            Recording procedure keyframes of the selected region (~3/s). Perform the work, then hold
+            your fingertip on the red Stop target in the camera — or press below.
           </p>
           <Button size="sm" variant="destructive" onClick={() => void session.stopRecording()}>
             <Square className="mr-1.5 h-4 w-4" />

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Hand, Loader2, Locate, Minus, Move, Pin, Plus } from "lucide-react";
 import { pointerInBounds } from "../lib/handTracking";
+import { BUILD_EXTRACT_HOLD_MS } from "../config";
 import { BlueprintOverlay } from "./BlueprintOverlay";
+import { PinchHoldRing } from "./PinchHoldRing";
 import type {
   BlueprintFrame,
   BlueprintTransform,
@@ -102,6 +104,9 @@ export function FloatingBlueprintLayer({
   const lastSeenRef = useRef(0);
   const grabOffsetRef = useRef({ dx: 0, dy: 0 });
   const extractFiredRef = useRef(false);
+  const extractHoldStartRef = useRef(0);
+  /** 0..1 while the extraction pinch is being held; null otherwise. */
+  const [extractProgress, setExtractProgress] = useState<number | null>(null);
 
   // New selection → snap the ghost back onto the object.
   useEffect(() => {
@@ -188,12 +193,25 @@ export function FloatingBlueprintLayer({
       const inside = pointerInBounds(p, bounds);
 
       // ── "selected"/"extracting": the box is the EXTRACTION SOURCE ──
+      // The pinch must be HELD inside the box for BUILD_EXTRACT_HOLD_MS (a
+      // mini countdown clock fills) before extraction fires — accidental
+      // pinches don't create mistake blueprints.
       if (ph === "selected" || ph === "extracting") {
         if (ph === "selected" && pn?.active && inside && !extractFiredRef.current) {
-          extractFiredRef.current = true;
-          onExtractRef.current?.();
+          if (extractHoldStartRef.current === 0) extractHoldStartRef.current = now;
+          const progress = Math.min(1, (now - extractHoldStartRef.current) / BUILD_EXTRACT_HOLD_MS);
+          setExtractProgress(progress);
+          if (progress >= 1) {
+            extractFiredRef.current = true;
+            extractHoldStartRef.current = 0;
+            setExtractProgress(null);
+            onExtractRef.current?.();
+          }
+        } else {
+          extractHoldStartRef.current = 0;
+          setExtractProgress(null);
+          if (!pn?.active) extractFiredRef.current = false;
         }
-        if (!pn?.active) extractFiredRef.current = false;
         setModeBoth(inside ? "hover" : "idle");
         return;
       }
@@ -412,10 +430,16 @@ export function FloatingBlueprintLayer({
           </span>
         </div>
       )}
+      {/* Hold-to-extract countdown clock, centered on the box. */}
+      {phase === "selected" && extractProgress != null && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <PinchHoldRing progress={extractProgress} label="hold to extract…" />
+        </div>
+      )}
       {phase === "selected" && (
         <div className="absolute inset-x-0 bottom-1 flex flex-col items-center gap-1">
           <span className="pointer-events-none rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-cyan-200 backdrop-blur">
-            Pinch here to extract blueprint
+            Hold pinch 4s here to extract blueprint
           </span>
           {/* Touch/test fallback — separates pinch hit-testing problems from
               capture/render problems. */}
