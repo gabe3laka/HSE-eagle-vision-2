@@ -34,6 +34,7 @@ import {
 } from "@/features/build-mode/components/SelectionOverlay";
 import { FloatingBlueprintLayer } from "@/features/build-mode/components/FloatingBlueprintLayer";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
+import { ARRecordButton } from "@/features/build-mode/components/ARRecordButton";
 import type {
   BuildGesture,
   BuildHandInteraction,
@@ -425,6 +426,15 @@ export default function Live() {
                     ["placing", "pinned", "recording", "review"].includes(build.phase) && (
                       <SelectedRegionMarker region={build.region} />
                     )}
+                  {/* In-camera Record target: tapped with the tracked finger
+                      (dwell ring / pinch) — recording never starts instantly. */}
+                  {build.phase === "pinned" && (
+                    <ARRecordButton
+                      pointer={hand.primaryPointer}
+                      pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
+                      onTrigger={build.startProcedureRecording}
+                    />
+                  )}
                   {/* The extraction box / detachable ghost, from "selected" onward. */}
                   {build.region && build.phase !== "idle" && build.phase !== "selecting" && (
                     <FloatingBlueprintLayer
