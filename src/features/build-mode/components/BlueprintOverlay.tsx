@@ -1,19 +1,45 @@
 import type { BlueprintFrame } from "../types";
 
 const OUTLINE = "rgba(56,189,248,0.95)"; // bright sky — technical blueprint line
+const OUTLINE_BACK = "rgba(56,189,248,0.45)"; // dimmer rear face of the extrusion
+const EDGE = "rgba(56,189,248,0.35)"; // front↔back connector edges
 const FILL = "rgba(56,189,248,0.10)"; // faint transparent body
 const ANCHOR = "rgba(186,230,253,0.95)";
 const STEP_BG = "rgba(8,47,73,0.92)";
 const HAND = "rgba(252,211,77,0.9)";
 
+// Fake 3D extrusion offset (viewBox units): the back face sits up-left so the
+// ghost reads as a shallow wireframe slab, not a flat sticker.
+const DEPTH_X = -2.4;
+const DEPTH_Y = -3;
+
 /**
- * Pure SVG renderer of one blueprint frame: faint fill, bright outline, sparse
- * anchors, numbered step markers, optional hand/tool path + instruction label.
- * Geometry is region-local 0..1 drawn in a 0..100 viewBox — deliberately a
- * technical ghost, never a photorealistic replica.
+ * Pure SVG renderer of one blueprint frame as a 2.5D wireframe ghost: faint
+ * fill, bright front outline, an offset back outline with connected edges
+ * (fake extrusion), sparse anchors, numbered step markers, optional hand path
+ * + instruction label. Geometry is region-local 0..1 drawn in a 0..100
+ * viewBox — a technical blueprint illusion, never a real 3D reconstruction.
+ * If the outline is degenerate it falls back to a 3D-looking bounding-box
+ * wireframe so the ghost always has a body.
  */
 export function BlueprintOverlay({ frame }: { frame: BlueprintFrame }) {
-  const pts = frame.outline.map((p) => `${p.x * 100},${p.y * 100}`).join(" ");
+  // Fall back to an inset bounding box when the outline can't form a polygon.
+  const outline =
+    frame.outline.length >= 3
+      ? frame.outline
+      : [
+          { x: 0.1, y: 0.1 },
+          { x: 0.9, y: 0.1 },
+          { x: 0.9, y: 0.9 },
+          { x: 0.1, y: 0.9 },
+        ];
+  const front = outline.map((p) => ({ x: p.x * 100, y: p.y * 100 }));
+  const back = front.map((p) => ({ x: p.x + DEPTH_X, y: p.y + DEPTH_Y }));
+  const frontPts = front.map((p) => `${p.x},${p.y}`).join(" ");
+  const backPts = back.map((p) => `${p.x},${p.y}`).join(" ");
+  // Connect every other vertex so the extrusion reads without visual noise.
+  const connectors = front.filter((_, i) => i % 2 === 0);
+
   return (
     <svg
       className="pointer-events-none absolute inset-0 h-full w-full"
@@ -34,16 +60,32 @@ export function BlueprintOverlay({ frame }: { frame: BlueprintFrame }) {
       </defs>
       <rect x="0" y="0" width="100" height="100" fill="url(#bp-grid)" />
 
-      {/* ghost body + outline */}
-      {frame.outline.length >= 3 && (
-        <polygon
-          points={pts}
-          fill={FILL}
-          stroke={OUTLINE}
-          strokeWidth={0.9}
-          strokeLinejoin="round"
+      {/* 2.5D wireframe: back face first, then connector edges, then front */}
+      <polygon
+        points={backPts}
+        fill="none"
+        stroke={OUTLINE_BACK}
+        strokeWidth={0.55}
+        strokeLinejoin="round"
+      />
+      {connectors.map((p, i) => (
+        <line
+          key={`edge-${i}`}
+          x1={p.x}
+          y1={p.y}
+          x2={p.x + DEPTH_X}
+          y2={p.y + DEPTH_Y}
+          stroke={EDGE}
+          strokeWidth={0.45}
         />
-      )}
+      ))}
+      <polygon
+        points={frontPts}
+        fill={FILL}
+        stroke={OUTLINE}
+        strokeWidth={0.9}
+        strokeLinejoin="round"
+      />
 
       {/* sparse points */}
       {frame.sparsePoints?.map((p, i) => (

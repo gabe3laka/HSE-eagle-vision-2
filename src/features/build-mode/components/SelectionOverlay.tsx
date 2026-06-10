@@ -8,6 +8,29 @@ interface Props {
 }
 
 /**
+ * Faint dashed marker over the ORIGINAL selected region — shown once the ghost
+ * has been pulled away so the user still sees which real-world area the
+ * procedure keyframes are captured from. Purely visual.
+ */
+export function SelectedRegionMarker({ region }: { region: SelectedRegion }) {
+  return (
+    <div
+      className="pointer-events-none absolute z-10 rounded-sm border border-dashed border-cyan-400/50"
+      style={{
+        left: `${region.x * 100}%`,
+        top: `${region.y * 100}%`,
+        width: `${region.w * 100}%`,
+        height: `${region.h * 100}%`,
+      }}
+    >
+      <span className="absolute -top-4 left-0 rounded bg-black/55 px-1 text-[8px] text-cyan-300/90">
+        source
+      </span>
+    </div>
+  );
+}
+
+/**
  * Build Mode region selector: drag a rectangle over the live video to lock the
  * object/area to blueprint. Same normalized-0..1 card coordinates as
  * ZoneOverlay/DetectionOverlay, so the selection matches the visible crop the
