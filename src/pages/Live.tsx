@@ -21,7 +21,12 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/own-client";
 import { BUILD_MARKER, buildTime } from "@/lib/buildInfo";
-import { ENABLE_BUILD_MODE, ENABLE_MEDIAPIPE_HANDS } from "@/features/build-mode/config";
+import {
+  BUILD_EXTRACT_HOLD_MS,
+  ENABLE_BUILD_MODE,
+  ENABLE_MEDIAPIPE_HANDS,
+} from "@/features/build-mode/config";
+import { PinchHoldRing } from "@/features/build-mode/components/PinchHoldRing";
 import { useBuildModeSession } from "@/features/build-mode/hooks/useBuildModeSession";
 import { useBlueprintReplay } from "@/features/build-mode/hooks/useBlueprintReplay";
 import { useBuildHandTracking } from "@/features/build-mode/hooks/useBuildHandTracking";
@@ -311,40 +316,90 @@ export default function Live() {
     : undefined;
 
   // Pinch a live DETECTED box (EdgeCrafter entity or HSE live box — both in
-  // card coords) while no Build region exists → auto-create the region and
-  // extract its blueprint in one motion. Manual Select-object still works.
-  const autoExtractFiredRef = useRef(false);
+  // card coords) while no Build region exists → HOLD the pinch on it for
+  // BUILD_EXTRACT_HOLD_MS (a mini countdown clock fills) before the region is
+  // created and the blueprint extracts. The hold prevents mistake blueprints
+  // from a passing pinch. Manual Select-object still works.
+  const [extractHold, setExtractHold] = useState<{
+    x: number;
+    y: number;
+    progress: number;
+  } | null>(null);
+  const holdBoxRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const holdStartRef = useRef(0);
+  const holdFiredRef = useRef(false);
+  const primaryPointerRef = useRef(hand.primaryPointer);
+  primaryPointerRef.current = hand.primaryPointer;
+  const detectionBoxesRef = useRef<Array<{ x: number; y: number; w: number; h: number }>>([]);
+  detectionBoxesRef.current = [
+    ...(backendEntities as BackendEntity[]).map((e) => e.bbox),
+    ...liveBoxes.map((b) => b.bbox),
+  ];
+  const lockAndExtractRef = useRef(build.lockAndExtract);
+  lockAndExtractRef.current = build.lockAndExtract;
+
   useEffect(() => {
     if (!buildModeOn || !active || build.phase !== "idle") {
-      autoExtractFiredRef.current = false;
+      holdBoxRef.current = null;
+      holdFiredRef.current = false;
+      setExtractHold(null);
       return;
     }
-    const p = hand.primaryPointer;
-    const pinching = hand.sourceMode === "mediapipe" && !!mp.pinch?.active;
-    if (!p || !pinching) {
-      autoExtractFiredRef.current = false; // re-arm when the pinch releases
-      return;
-    }
-    if (autoExtractFiredRef.current) return;
-    const candidates = [
-      ...(backendEntities as BackendEntity[]).map((e) => e.bbox),
-      ...liveBoxes.map((b) => b.bbox),
-    ];
-    const hit = findDetectionAtPointer(p, candidates);
-    if (!hit) return;
-    autoExtractFiredRef.current = true;
-    void build.lockAndExtract(detectionBoxToRegion(hit));
-  }, [buildModeOn, active, build, hand, mp.pinch, backendEntities, liveBoxes]);
+    const tick = () => {
+      const p = primaryPointerRef.current;
+      const pn = pinchRef.current;
+      if (!p || !pn?.active) {
+        // Pinch released/lost → reset the clock and re-arm.
+        holdBoxRef.current = null;
+        holdFiredRef.current = false;
+        setExtractHold(null);
+        return;
+      }
+      if (holdFiredRef.current) return;
+      if (!holdBoxRef.current) {
+        const hit = findDetectionAtPointer(p, detectionBoxesRef.current);
+        if (!hit) {
+          setExtractHold(null);
+          return;
+        }
+        holdBoxRef.current = hit;
+        holdStartRef.current = Date.now();
+      }
+      // The pinch must STAY on the same box (small tolerance for jitter).
+      const b = holdBoxRef.current;
+      const tol = 0.03;
+      const expanded = { x: b.x - tol, y: b.y - tol, w: b.w + 2 * tol, h: b.h + 2 * tol };
+      if (!pointerInBounds(p, expanded)) {
+        holdBoxRef.current = null;
+        setExtractHold(null);
+        return;
+      }
+      const progress = Math.min(1, (Date.now() - holdStartRef.current) / BUILD_EXTRACT_HOLD_MS);
+      setExtractHold({ x: p.x, y: p.y, progress });
+      if (progress >= 1) {
+        holdFiredRef.current = true;
+        holdBoxRef.current = null;
+        setExtractHold(null);
+        void lockAndExtractRef.current(detectionBoxToRegion(b));
+      }
+    };
+    const id = setInterval(tick, 100);
+    tick();
+    return () => {
+      clearInterval(id);
+      setExtractHold(null);
+    };
+  }, [buildModeOn, active, build.phase]);
 
   // Phase-appropriate fingertip hint — never a misleading "pinch to grab".
   const fingerHint = !buildModeOn
     ? null
     : build.phase === "idle"
       ? (backendEntities as BackendEntity[]).length > 0 || liveBoxes.length > 0
-        ? "pinch a detected box"
+        ? "hold pinch 4s on a box"
         : "select an object below"
       : build.phase === "selected"
-        ? "pinch the glowing box"
+        ? "hold pinch 4s on the box"
         : build.phase === "placing"
           ? "release to pin"
           : build.phase === "pinned"
@@ -486,6 +541,19 @@ export default function Live() {
                     pinch={mp.pinch}
                     hint={fingerHint}
                   />
+                  {/* Mini countdown clock while a pinch is HELD on a detected
+                      box — extraction fires only when the ring completes. */}
+                  {extractHold && (
+                    <div
+                      className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-[130%]"
+                      style={{
+                        left: `${extractHold.x * 100}%`,
+                        top: `${extractHold.y * 100}%`,
+                      }}
+                    >
+                      <PinchHoldRing progress={extractHold.progress} label="creating blueprint…" />
+                    </div>
+                  )}
                   {/* Source marker stays on the real object once the ghost detaches. */}
                   {build.region &&
                     ["placing", "pinned", "recording", "review"].includes(build.phase) && (

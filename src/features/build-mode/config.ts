@@ -36,6 +36,13 @@ export const BUILD_MAX_FRAMES = 240;
 export const BUILD_MIN_SELECTION = 0.08;
 
 /**
+ * Pinch must be HELD on a box this long before a blueprint is extracted — a
+ * mini countdown clock fills during the hold, so accidental pinches don't
+ * create mistake blueprints.
+ */
+export const BUILD_EXTRACT_HOLD_MS = 4000;
+
+/**
  * Build Mode backend API base URL — the Cloudflare Worker ORIGIN only (the
  * client appends `/build/session/...` itself). Resolved in layers because the
  * frontend cannot read Supabase secrets directly at runtime:
