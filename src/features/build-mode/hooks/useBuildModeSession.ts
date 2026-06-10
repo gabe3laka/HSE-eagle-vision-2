@@ -11,6 +11,7 @@ import { captureRegionBase64 } from "../lib/regionCapture";
 import type {
   BlueprintFrame,
   BuildBackendMode,
+  BuildHandLandmark,
   BuildPhase,
   BuildSessionInfo,
   SelectedRegion,
@@ -21,6 +22,8 @@ interface Options {
   /** Build Mode toggle — leaving Build Mode resets any session in progress. */
   enabled: boolean;
   cameraFacing?: CameraFacing;
+  /** Latest tracked hand/wrist landmarks — recorded into each keyframe. */
+  getHandLandmarks?: () => BuildHandLandmark[];
 }
 
 /**
@@ -34,7 +37,12 @@ interface Options {
  * Completely separate from the HSE detection session — it only reads the same
  * <video> element.
  */
-export function useBuildModeSession({ videoRef, enabled, cameraFacing }: Options) {
+export function useBuildModeSession({
+  videoRef,
+  enabled,
+  cameraFacing,
+  getHandLandmarks,
+}: Options) {
   const [phase, setPhase] = useState<BuildPhase>("idle");
   const [region, setRegion] = useState<SelectedRegion | null>(null);
   const [frames, setFrames] = useState<BlueprintFrame[]>([]);
@@ -50,6 +58,9 @@ export function useBuildModeSession({ videoRef, enabled, cameraFacing }: Options
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const phaseRef = useRef<BuildPhase>("idle");
   phaseRef.current = phase;
+  // Ref-held so the capture interval always reads the freshest tracker output.
+  const getHandLandmarksRef = useRef(getHandLandmarks);
+  getHandLandmarksRef.current = getHandLandmarks;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -134,6 +145,7 @@ export function useBuildModeSession({ videoRef, enabled, cameraFacing }: Options
             typeof window !== "undefined"
               ? { w: window.innerWidth, h: window.innerHeight }
               : undefined,
+          handLandmarks: getHandLandmarksRef.current?.(),
         },
         index,
       );

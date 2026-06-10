@@ -77,7 +77,8 @@ export function BlueprintOverlay({ frame }: { frame: BlueprintFrame }) {
         </g>
       ))}
 
-      {/* hand / tool path */}
+      {/* hand / tool path — recorded wrist points (1–2 per keyframe), shown as
+          subtle pointer dots plus a dashed path when several exist */}
       {frame.handLandmarks && frame.handLandmarks.length > 1 && (
         <polyline
           points={frame.handLandmarks.map((p) => `${p.x * 100},${p.y * 100}`).join(" ")}
@@ -88,6 +89,19 @@ export function BlueprintOverlay({ frame }: { frame: BlueprintFrame }) {
           strokeLinecap="round"
         />
       )}
+      {frame.handLandmarks?.map((p, i) => (
+        <g key={`hl-${i}`}>
+          <circle
+            cx={p.x * 100}
+            cy={p.y * 100}
+            r={1.4}
+            fill="none"
+            stroke={HAND}
+            strokeWidth={0.5}
+          />
+          <circle cx={p.x * 100} cy={p.y * 100} r={0.5} fill={HAND} />
+        </g>
+      ))}
 
       {/* numbered step markers */}
       {frame.stepMarkers?.map((s) => (

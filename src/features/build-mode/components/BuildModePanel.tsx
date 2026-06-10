@@ -1,20 +1,31 @@
-import { CircleDot, Hammer, ScanSearch, Square, Undo2 } from "lucide-react";
+import { CircleDot, Hammer, Hand, ScanSearch, Square, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BlueprintReplayControls } from "../hooks/useBlueprintReplay";
 import type { BuildModeSession } from "../hooks/useBuildModeSession";
 import { BlueprintTimeline } from "./BlueprintTimeline";
 
+/** Status-chip states for wrist-based hand control (see useBuildHandTracking). */
+export type HandControlStatus = "tracking" | "waiting" | "dragging" | "touch-fallback";
+
+const HAND_STATUS_LABEL: Record<HandControlStatus, string> = {
+  tracking: "Hand control: tracking",
+  waiting: "Hand control: waiting for wrist",
+  dragging: "Hand control: dragging blueprint",
+  "touch-fallback": "Hand control: touch fallback",
+};
+
 interface Props {
   session: BuildModeSession;
   replay: BlueprintReplayControls;
   cameraActive: boolean;
+  handStatus?: HandControlStatus;
 }
 
 /**
  * Build Mode control card (below the camera): drives the
  * select → record → review workflow and hosts the replay timeline.
  */
-export function BuildModePanel({ session, replay, cameraActive }: Props) {
+export function BuildModePanel({ session, replay, cameraActive, handStatus }: Props) {
   const { phase, frameCount, backendMode, error } = session;
   return (
     <div className="rounded-xl border border-cyan-500/30 bg-background/40 p-3">
@@ -35,6 +46,23 @@ export function BuildModePanel({ session, replay, cameraActive }: Props) {
           </span>
         )}
       </div>
+
+      {handStatus && (
+        <div className="mt-1.5">
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+              handStatus === "dragging"
+                ? "bg-amber-500/15 text-amber-300"
+                : handStatus === "tracking"
+                  ? "bg-cyan-500/15 text-cyan-300"
+                  : "bg-muted/40 text-muted-foreground"
+            }`}
+          >
+            <Hand className="h-3 w-3" />
+            {HAND_STATUS_LABEL[handStatus]}
+          </span>
+        </div>
+      )}
 
       {phase === "idle" && (
         <div className="mt-2 space-y-2">
