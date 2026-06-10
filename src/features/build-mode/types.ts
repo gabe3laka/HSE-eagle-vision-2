@@ -62,6 +62,34 @@ export interface BlueprintTransform {
   rotation?: number;
 }
 
+/**
+ * A tracked hand/wrist point, normalized 0..1 in VISIBLE camera-card coords
+ * (the same system the overlays + SelectedRegion use).
+ *
+ * Build Mode uses wrist-based hand control for MVP. True finger pinch requires
+ * a future MediaPipe Hands / hand-landmarker adapter — the `source`/`role`
+ * fields are designed so that adapter can plug in without type changes.
+ */
+export interface BuildHandLandmark {
+  id: string;
+  source: "backend-pose" | "pose-debug" | "touch" | "future-hand";
+  hand?: "left" | "right" | "unknown";
+  role: "wrist" | "palm" | "finger" | "pointer";
+  x: number;
+  y: number;
+  z?: number;
+  confidence?: number;
+  timestampMs: number;
+}
+
+/** Live hand-control state for the floating blueprint. */
+export interface BuildHandInteraction {
+  active: boolean;
+  mode: "idle" | "hover" | "grab" | "dragging";
+  controllingHandId?: string;
+  pointer?: { x: number; y: number; confidence?: number };
+}
+
 /** Crop keyframe sent to the backend (selected region only — never the full frame). */
 export interface BuildFramePayload {
   sessionId: string;
@@ -71,7 +99,7 @@ export interface BuildFramePayload {
   image_b64: string; // selected crop only
   cameraFacing?: "user" | "environment";
   viewport?: { w: number; h: number };
-  handLandmarks?: unknown;
+  handLandmarks?: BuildHandLandmark[];
 }
 
 /** Backend transport for the session: real HTTP routes or the local mock. */

@@ -1,6 +1,7 @@
 import { fetchDetectSession, DetectAuthError } from "@/lib/detection/backendVisionHttpDetector";
 import { readBuildApiBase } from "../config";
 import { mockBlueprintFrame } from "../lib/blueprint";
+import { handLandmarksToRegionLocal } from "../lib/handTracking";
 import type {
   BlueprintFrame,
   BuildFramePayload,
@@ -114,6 +115,9 @@ export async function sendBuildFrame(
     payload.timestampMs,
     payload.selectedRegion,
   );
+  // Carry recorded wrist landmarks into the keyframe (mapped to region-local
+  // coords) so replay can draw the hand path even in mock mode.
+  frame.handLandmarks = handLandmarksToRegionLocal(payload.handLandmarks, payload.selectedRegion);
   const list = mockStore.get(payload.sessionId);
   if (list) list.push(frame);
   return frame;

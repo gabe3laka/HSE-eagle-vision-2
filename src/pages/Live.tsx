@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BellRing, Check, Hammer, ShieldCheck, Shapes, Trash2 } from "lucide-react";
 import { useCamera } from "@/hooks/useCamera";
@@ -24,9 +24,13 @@ import { BUILD_MARKER, buildTime } from "@/lib/buildInfo";
 import { ENABLE_BUILD_MODE } from "@/features/build-mode/config";
 import { useBuildModeSession } from "@/features/build-mode/hooks/useBuildModeSession";
 import { useBlueprintReplay } from "@/features/build-mode/hooks/useBlueprintReplay";
+import { useBuildHandTracking } from "@/features/build-mode/hooks/useBuildHandTracking";
 import { BuildModePanel } from "@/features/build-mode/components/BuildModePanel";
+import type { HandControlStatus } from "@/features/build-mode/components/BuildModePanel";
 import { SelectionOverlay } from "@/features/build-mode/components/SelectionOverlay";
 import { FloatingBlueprintLayer } from "@/features/build-mode/components/FloatingBlueprintLayer";
+import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
+import type { BuildHandInteraction, BuildHandLandmark } from "@/features/build-mode/types";
 
 /** Readout of the EdgeCrafter backend — fast Cloudflare HTTP, legacy HTTP dry-run, or WebSocket stream. */
 function BackendDebugPanel({
@@ -230,12 +234,45 @@ export default function Live() {
     suppressIncidents: buildModeOn,
   });
 
-  const build = useBuildModeSession({ videoRef, enabled: buildModeOn, cameraFacing: facing });
+  // Hand tracking adapter: reuses the SAME tracking stream HSE already surfaces
+  // (backend pose wrists first, local pose-debug wrists as fallback). Wrist-only
+  // for MVP — true finger pinch needs a future MediaPipe Hands adapter.
+  const hand = useBuildHandTracking({
+    enabled: buildModeOn,
+    backendPoses: backendPoses as BackendPose[],
+    poseDebug: debug,
+    running,
+  });
+  const handLandmarksRef = useRef<BuildHandLandmark[]>([]);
+  handLandmarksRef.current = hand.handLandmarks;
+  const getHandLandmarks = useCallback(() => handLandmarksRef.current, []);
+  // Grab/drag state reported up by the floating blueprint (it owns its bounds).
+  const [handLayerMode, setHandLayerMode] = useState<BuildHandInteraction["mode"]>("idle");
+  const onHandInteraction = useCallback((i: BuildHandInteraction) => setHandLayerMode(i.mode), []);
+
+  const build = useBuildModeSession({
+    videoRef,
+    enabled: buildModeOn,
+    cameraFacing: facing,
+    getHandLandmarks,
+  });
   const replay = useBlueprintReplay(build.phase === "review" ? build.frames : []);
   // Ghost shown on the floating layer: live latest frame while recording,
   // replay playhead frame in review.
   const ghostFrame =
     build.phase === "review" ? (replay.currentFrame ?? build.latestFrame) : build.latestFrame;
+
+  // Status chip: dragging > tracking > waiting (loop running, no wrist yet) >
+  // touch fallback (no tracking stream at all — monitoring not started).
+  const handStatus: HandControlStatus | undefined = buildModeOn
+    ? handLayerMode === "grab" || handLayerMode === "dragging"
+      ? "dragging"
+      : hand.primaryPointer
+        ? "tracking"
+        : running
+          ? "waiting"
+          : "touch-fallback"
+    : undefined;
 
   const topAlert = useMemo(() => alerts.find((a) => a.isIncident) ?? null, [alerts]);
 
@@ -372,11 +409,17 @@ export default function Live() {
                     active={build.phase === "selecting"}
                     onSelect={(region) => void build.lockSelection(region)}
                   />
+                  <HandPointerLayer
+                    landmarks={hand.handLandmarks}
+                    primaryId={hand.primaryPointer?.id}
+                  />
                   {build.region && (build.phase === "recording" || build.phase === "review") && (
                     <FloatingBlueprintLayer
                       region={build.region}
                       frame={ghostFrame}
                       recording={build.phase === "recording"}
+                      handPointer={hand.primaryPointer}
+                      onHandInteraction={onHandInteraction}
                     />
                   )}
                 </>
@@ -391,7 +434,14 @@ export default function Live() {
             onStop={stop}
           />
 
-          {buildModeOn && <BuildModePanel session={build} replay={replay} cameraActive={active} />}
+          {buildModeOn && (
+            <BuildModePanel
+              session={build}
+              replay={replay}
+              cameraActive={active}
+              handStatus={handStatus}
+            />
+          )}
 
           {/* Restricted-zone editor */}
           <div className="rounded-xl border border-border bg-background/40 p-3">
