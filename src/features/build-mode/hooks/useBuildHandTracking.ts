@@ -4,16 +4,21 @@ import type { BackendPose } from "@/lib/detection/types";
 import {
   extractBackendWrists,
   extractDebugWrists,
-  pickPrimaryPointer,
+  selectPrimaryPointer,
   smoothLandmarks,
 } from "../lib/handTracking";
 import type { BuildHandInteraction, BuildHandLandmark } from "../types";
 
+/** Which tracking source is currently driving the hand pointer. */
+export type HandSourceMode = "mediapipe" | "backend-wrist" | "debug-wrist" | "none";
+
 interface Options {
   enabled: boolean;
+  /** Finger landmarks from useMediaPipeHands — priority source when present. */
+  mediapipeLandmarks?: BuildHandLandmark[];
   backendPoses: BackendPose[];
   poseDebug?: PoseDebug | null;
-  /** HSE detection loop running — the tracking stream only flows while true. */
+  /** HSE detection loop running — wrist fallbacks only flow while true. */
   running: boolean;
 }
 
@@ -21,31 +26,36 @@ export interface BuildHandTracking {
   handLandmarks: BuildHandLandmark[];
   primaryPointer: BuildHandLandmark | null;
   interaction: BuildHandInteraction;
+  sourceMode: HandSourceMode;
 }
 
 const EMPTY: BuildHandTracking = {
   handLandmarks: [],
   primaryPointer: null,
   interaction: { active: false, mode: "idle" },
+  sourceMode: "none",
 };
 
 /**
- * Build Mode hand-tracking adapter over the EXISTING tracking streams.
+ * Build Mode hand-tracking adapter — merges the available tracking sources in
+ * control-priority order:
  *
- * Priority: EdgeCrafter backend pose wrists (production) → local MediaPipe
- * pose-debug wrists (fallback) → none (touch drag remains the UI fallback).
- * Positions are EMA-smoothed per landmark id to avoid jitter; the
- * highest-confidence wrist becomes `primaryPointer`.
+ *  1. MediaPipe Hand Landmarker finger landmarks (client-side, Build Mode
+ *     only) — index tip is the pointer, works WITHOUT Start Monitoring.
+ *  2. EdgeCrafter backend pose wrists (needs the HSE loop running).
+ *  3. Local MediaPipe pose-debug wrists (DEV-leaning fallback).
+ *  4. Touch drag — handled by FloatingBlueprintLayer, always available.
  *
- * Wrist-based hand control only for MVP — true finger pinch needs a future
- * MediaPipe Hands / hand-landmarker adapter (slot in via `source:
- * "future-hand"` landmarks; the rest of the pipeline is agnostic).
+ * Wrist positions are EMA-smoothed per landmark id; MediaPipe landmarks come
+ * through unsmoothed (the landmarker tracks at higher fidelity already, and
+ * pinch needs crisp fingertip positions).
  *
  * The grab/drag refinement of `interaction` happens in FloatingBlueprintLayer
  * (it owns the blueprint bounds); this hook reports tracking-level state.
  */
 export function useBuildHandTracking({
   enabled,
+  mediapipeLandmarks,
   backendPoses,
   poseDebug,
   running,
@@ -53,16 +63,45 @@ export function useBuildHandTracking({
   const prevRef = useRef<BuildHandLandmark[]>([]);
 
   return useMemo(() => {
-    if (!enabled || !running) {
+    if (!enabled) {
+      prevRef.current = [];
+      return EMPTY;
+    }
+
+    // Priority 1: finger-level MediaPipe landmarks (independent of the loop).
+    if (mediapipeLandmarks && mediapipeLandmarks.length > 0) {
+      prevRef.current = [];
+      const primary = selectPrimaryPointer(mediapipeLandmarks);
+      return {
+        handLandmarks: mediapipeLandmarks,
+        primaryPointer: primary,
+        interaction: {
+          active: primary != null,
+          mode: primary != null ? "hover" : "idle",
+          controllingHandId: primary?.id,
+          pointer: primary
+            ? { x: primary.x, y: primary.y, confidence: primary.confidence }
+            : undefined,
+        },
+        sourceMode: "mediapipe",
+      };
+    }
+
+    // Priority 2/3: wrist fallbacks need the HSE tracking stream.
+    if (!running) {
       prevRef.current = [];
       return EMPTY;
     }
     const now = Date.now();
     let raw = extractBackendWrists(backendPoses ?? [], now);
-    if (raw.length === 0) raw = extractDebugWrists(poseDebug, now);
+    let sourceMode: HandSourceMode = raw.length > 0 ? "backend-wrist" : "none";
+    if (raw.length === 0) {
+      raw = extractDebugWrists(poseDebug, now);
+      if (raw.length > 0) sourceMode = "debug-wrist";
+    }
     const smoothed = smoothLandmarks(prevRef.current, raw);
     prevRef.current = smoothed;
-    const primary = pickPrimaryPointer(smoothed);
+    const primary = selectPrimaryPointer(smoothed);
     return {
       handLandmarks: smoothed,
       primaryPointer: primary,
@@ -74,6 +113,7 @@ export function useBuildHandTracking({
           ? { x: primary.x, y: primary.y, confidence: primary.confidence }
           : undefined,
       },
+      sourceMode: primary ? sourceMode : "none",
     };
-  }, [enabled, running, backendPoses, poseDebug]);
+  }, [enabled, running, mediapipeLandmarks, backendPoses, poseDebug]);
 }

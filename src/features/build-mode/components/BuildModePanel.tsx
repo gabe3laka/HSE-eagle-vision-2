@@ -4,13 +4,19 @@ import type { BlueprintReplayControls } from "../hooks/useBlueprintReplay";
 import type { BuildModeSession } from "../hooks/useBuildModeSession";
 import { BlueprintTimeline } from "./BlueprintTimeline";
 
-/** Status-chip states for wrist-based hand control (see useBuildHandTracking). */
-export type HandControlStatus = "tracking" | "waiting" | "dragging" | "touch-fallback";
+/** Status-chip states for hand control (finger > wrist > touch fallback). */
+export type HandControlStatus =
+  | "finger-tracking"
+  | "pinch-dragging"
+  | "wrist-fallback"
+  | "waiting"
+  | "touch-fallback";
 
 const HAND_STATUS_LABEL: Record<HandControlStatus, string> = {
-  tracking: "Hand control: tracking",
-  waiting: "Hand control: waiting for wrist",
-  dragging: "Hand control: dragging blueprint",
+  "finger-tracking": "Hand control: finger tracking",
+  "pinch-dragging": "Hand control: pinch dragging",
+  "wrist-fallback": "Hand control: wrist fallback",
+  waiting: "Hand control: waiting for hand",
   "touch-fallback": "Hand control: touch fallback",
 };
 
@@ -51,9 +57,9 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus }: Pr
         <div className="mt-1.5">
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              handStatus === "dragging"
+              handStatus === "pinch-dragging"
                 ? "bg-amber-500/15 text-amber-300"
-                : handStatus === "tracking"
+                : handStatus === "finger-tracking" || handStatus === "wrist-fallback"
                   ? "bg-cyan-500/15 text-cyan-300"
                   : "bg-muted/40 text-muted-foreground"
             }`}

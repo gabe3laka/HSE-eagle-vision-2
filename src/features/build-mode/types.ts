@@ -52,6 +52,8 @@ export interface BlueprintFrame {
   handLandmarks?: BlueprintPoint[];
   stepMarkers?: BlueprintStepMarker[];
   instruction?: string;
+  /** Gesture recorded with this keyframe — replay highlights pinch points. */
+  gesture?: BuildGesture;
 }
 
 /** Where the floating blueprint currently sits relative to its origin region. */
@@ -63,23 +65,41 @@ export interface BlueprintTransform {
 }
 
 /**
- * A tracked hand/wrist point, normalized 0..1 in VISIBLE camera-card coords
+ * A tracked hand point, normalized 0..1 in VISIBLE camera-card coords
  * (the same system the overlays + SelectedRegion use).
  *
- * Build Mode uses wrist-based hand control for MVP. True finger pinch requires
- * a future MediaPipe Hands / hand-landmarker adapter — the `source`/`role`
- * fields are designed so that adapter can plug in without type changes.
+ * Sources, in control-priority order: "mediapipe-hand" (client-side finger
+ * landmarks — index tip is the pointer, thumb+index drive pinch), then
+ * "backend-pose" / "pose-debug" wrists as fallback, with touch drag as the
+ * final fallback in the UI layer.
  */
 export interface BuildHandLandmark {
   id: string;
-  source: "backend-pose" | "pose-debug" | "touch" | "future-hand";
+  source: "mediapipe-hand" | "backend-pose" | "pose-debug" | "touch" | "future-hand";
   hand?: "left" | "right" | "unknown";
-  role: "wrist" | "palm" | "finger" | "pointer";
+  role: "wrist" | "palm" | "finger" | "pointer" | "thumb-tip" | "index-tip";
   x: number;
   y: number;
   z?: number;
   confidence?: number;
   timestampMs: number;
+}
+
+/** A recognized hand gesture snapshot (currently pinch-only). */
+export interface BuildGesture {
+  type: "pinch" | "open" | "unknown";
+  active: boolean;
+  strength?: number;
+}
+
+/** Live pinch state from the MediaPipe Hands adapter. */
+export interface BuildPinchState {
+  active: boolean;
+  hand?: "left" | "right" | "unknown";
+  /** 0..1 — how closed the pinch is (1 = fingertips touching). */
+  strength: number;
+  x: number;
+  y: number;
 }
 
 /** Live hand-control state for the floating blueprint. */
@@ -100,6 +120,8 @@ export interface BuildFramePayload {
   cameraFacing?: "user" | "environment";
   viewport?: { w: number; h: number };
   handLandmarks?: BuildHandLandmark[];
+  /** Gesture snapshot at capture time (e.g. an active pinch) — kept tiny. */
+  gesture?: BuildGesture;
 }
 
 /** Backend transport for the session: real HTTP routes or the local mock. */

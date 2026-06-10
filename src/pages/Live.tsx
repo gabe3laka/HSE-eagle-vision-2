@@ -21,16 +21,21 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/own-client";
 import { BUILD_MARKER, buildTime } from "@/lib/buildInfo";
-import { ENABLE_BUILD_MODE } from "@/features/build-mode/config";
+import { ENABLE_BUILD_MODE, ENABLE_MEDIAPIPE_HANDS } from "@/features/build-mode/config";
 import { useBuildModeSession } from "@/features/build-mode/hooks/useBuildModeSession";
 import { useBlueprintReplay } from "@/features/build-mode/hooks/useBlueprintReplay";
 import { useBuildHandTracking } from "@/features/build-mode/hooks/useBuildHandTracking";
+import { useMediaPipeHands } from "@/features/build-mode/hooks/useMediaPipeHands";
 import { BuildModePanel } from "@/features/build-mode/components/BuildModePanel";
 import type { HandControlStatus } from "@/features/build-mode/components/BuildModePanel";
 import { SelectionOverlay } from "@/features/build-mode/components/SelectionOverlay";
 import { FloatingBlueprintLayer } from "@/features/build-mode/components/FloatingBlueprintLayer";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
-import type { BuildHandInteraction, BuildHandLandmark } from "@/features/build-mode/types";
+import type {
+  BuildGesture,
+  BuildHandInteraction,
+  BuildHandLandmark,
+} from "@/features/build-mode/types";
 
 /** Readout of the EdgeCrafter backend — fast Cloudflare HTTP, legacy HTTP dry-run, or WebSocket stream. */
 function BackendDebugPanel({
@@ -234,11 +239,18 @@ export default function Live() {
     suppressIncidents: buildModeOn,
   });
 
-  // Hand tracking adapter: reuses the SAME tracking stream HSE already surfaces
-  // (backend pose wrists first, local pose-debug wrists as fallback). Wrist-only
-  // for MVP — true finger pinch needs a future MediaPipe Hands adapter.
+  // Finger-level hand tracking (MediaPipe Hand Landmarker) — Build Mode only,
+  // lazy-loaded, independent of Start Monitoring, torn down on leaving.
+  const mp = useMediaPipeHands({
+    enabled: ENABLE_MEDIAPIPE_HANDS && buildModeOn && active,
+    videoRef,
+  });
+
+  // Hand tracking adapter — control priority: MediaPipe fingers → EdgeCrafter
+  // backend pose wrists → local pose-debug wrists → touch drag (UI fallback).
   const hand = useBuildHandTracking({
     enabled: buildModeOn,
+    mediapipeLandmarks: mp.landmarks,
     backendPoses: backendPoses as BackendPose[],
     poseDebug: debug,
     running,
@@ -246,6 +258,12 @@ export default function Live() {
   const handLandmarksRef = useRef<BuildHandLandmark[]>([]);
   handLandmarksRef.current = hand.handLandmarks;
   const getHandLandmarks = useCallback(() => handLandmarksRef.current, []);
+  const pinchRef = useRef(mp.pinch);
+  pinchRef.current = mp.pinch;
+  const getGesture = useCallback((): BuildGesture | undefined => {
+    const p = pinchRef.current;
+    return p ? { type: "pinch", active: p.active, strength: p.strength } : undefined;
+  }, []);
   // Grab/drag state reported up by the floating blueprint (it owns its bounds).
   const [handLayerMode, setHandLayerMode] = useState<BuildHandInteraction["mode"]>("idle");
   const onHandInteraction = useCallback((i: BuildHandInteraction) => setHandLayerMode(i.mode), []);
@@ -255,6 +273,7 @@ export default function Live() {
     enabled: buildModeOn,
     cameraFacing: facing,
     getHandLandmarks,
+    getGesture,
   });
   const replay = useBlueprintReplay(build.phase === "review" ? build.frames : []);
   // Ghost shown on the floating layer: live latest frame while recording,
@@ -262,16 +281,19 @@ export default function Live() {
   const ghostFrame =
     build.phase === "review" ? (replay.currentFrame ?? build.latestFrame) : build.latestFrame;
 
-  // Status chip: dragging > tracking > waiting (loop running, no wrist yet) >
-  // touch fallback (no tracking stream at all — monitoring not started).
+  // Status chip: pinch-drag > finger tracking > wrist fallback > waiting
+  // (model loading / loop running but no hand yet) > touch fallback.
+  const handDragging = handLayerMode === "grab" || handLayerMode === "dragging";
   const handStatus: HandControlStatus | undefined = buildModeOn
-    ? handLayerMode === "grab" || handLayerMode === "dragging"
-      ? "dragging"
-      : hand.primaryPointer
-        ? "tracking"
-        : running
-          ? "waiting"
-          : "touch-fallback"
+    ? handDragging && hand.sourceMode === "mediapipe"
+      ? "pinch-dragging"
+      : hand.sourceMode === "mediapipe"
+        ? "finger-tracking"
+        : hand.sourceMode === "backend-wrist" || hand.sourceMode === "debug-wrist"
+          ? "wrist-fallback"
+          : mp.loading || mp.ready || running
+            ? "waiting"
+            : "touch-fallback"
     : undefined;
 
   const topAlert = useMemo(() => alerts.find((a) => a.isIncident) ?? null, [alerts]);
@@ -412,6 +434,7 @@ export default function Live() {
                   <HandPointerLayer
                     landmarks={hand.handLandmarks}
                     primaryId={hand.primaryPointer?.id}
+                    pinch={mp.pinch}
                   />
                   {build.region && (build.phase === "recording" || build.phase === "review") && (
                     <FloatingBlueprintLayer
@@ -419,6 +442,7 @@ export default function Live() {
                       frame={ghostFrame}
                       recording={build.phase === "recording"}
                       handPointer={hand.primaryPointer}
+                      pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
                       onHandInteraction={onHandInteraction}
                     />
                   )}

@@ -9,6 +9,17 @@
 /** Master switch for the Build Mode UI. */
 export const ENABLE_BUILD_MODE = true;
 
+/**
+ * Finger-level hand tracking via MediaPipe Hand Landmarker (client-side).
+ * Build Mode ONLY: lazy-loaded on entering Build Mode with the camera active,
+ * fully torn down on leaving. When disabled or failing to load, Build Mode
+ * falls back to wrist tracking and touch drag — never blocks.
+ */
+export const ENABLE_MEDIAPIPE_HANDS = true;
+
+/** Hand-landmark inference cadence (~15 FPS — phones don't need 60). */
+export const MEDIAPIPE_HANDS_MIN_INTERVAL_MS = 66;
+
 /** Capture cadence while recording — ~3 FPS keyframes (spec: 2–4 FPS). */
 export const BUILD_CAPTURE_INTERVAL_MS = 333;
 

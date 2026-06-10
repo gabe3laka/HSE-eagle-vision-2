@@ -115,9 +115,11 @@ export async function sendBuildFrame(
     payload.timestampMs,
     payload.selectedRegion,
   );
-  // Carry recorded wrist landmarks into the keyframe (mapped to region-local
-  // coords) so replay can draw the hand path even in mock mode.
+  // Carry recorded hand landmarks into the keyframe (mapped to region-local
+  // coords) plus the gesture snapshot, so replay draws the finger/wrist path
+  // and pinch highlights even in mock mode.
   frame.handLandmarks = handLandmarksToRegionLocal(payload.handLandmarks, payload.selectedRegion);
+  frame.gesture = payload.gesture;
   const list = mockStore.get(payload.sessionId);
   if (list) list.push(frame);
   return frame;

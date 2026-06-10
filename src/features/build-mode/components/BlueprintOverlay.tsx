@@ -100,6 +100,18 @@ export function BlueprintOverlay({ frame }: { frame: BlueprintFrame }) {
             strokeWidth={0.5}
           />
           <circle cx={p.x * 100} cy={p.y * 100} r={0.5} fill={HAND} />
+          {/* pinch recorded on this keyframe → highlight ring on the points */}
+          {frame.gesture?.active && (
+            <circle
+              cx={p.x * 100}
+              cy={p.y * 100}
+              r={2.4}
+              fill="none"
+              stroke={HAND}
+              strokeWidth={0.35}
+              strokeDasharray="1 0.8"
+            />
+          )}
         </g>
       ))}
 
