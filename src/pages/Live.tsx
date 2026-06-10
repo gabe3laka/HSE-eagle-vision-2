@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BellRing, Check, Shapes, Trash2 } from "lucide-react";
+import { BellRing, Check, Hammer, ShieldCheck, Shapes, Trash2 } from "lucide-react";
 import { useCamera } from "@/hooks/useCamera";
 import { useAlertSettings } from "@/hooks/useAlertSettings";
 import { useDetectionSession } from "@/hooks/useDetectionSession";
@@ -21,6 +21,12 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/own-client";
 import { BUILD_MARKER, buildTime } from "@/lib/buildInfo";
+import { ENABLE_BUILD_MODE } from "@/features/build-mode/config";
+import { useBuildModeSession } from "@/features/build-mode/hooks/useBuildModeSession";
+import { useBlueprintReplay } from "@/features/build-mode/hooks/useBlueprintReplay";
+import { BuildModePanel } from "@/features/build-mode/components/BuildModePanel";
+import { SelectionOverlay } from "@/features/build-mode/components/SelectionOverlay";
+import { FloatingBlueprintLayer } from "@/features/build-mode/components/FloatingBlueprintLayer";
 
 /** Readout of the EdgeCrafter backend — fast Cloudflare HTTP, legacy HTTP dry-run, or WebSocket stream. */
 function BackendDebugPanel({
@@ -104,9 +110,9 @@ function BackendDebugPanel({
               {status.responseCount}
             </div>
             <div>
-              video: {status.videoWidth}×{status.videoHeight} · capture:{" "}
-              {fmt(status.lastCaptureW)}×{fmt(status.lastCaptureH)} · backend img:{" "}
-              {fmt(status.lastBackendImgW)}×{fmt(status.lastBackendImgH)}
+              video: {status.videoWidth}×{status.videoHeight} · capture: {fmt(status.lastCaptureW)}×
+              {fmt(status.lastCaptureH)} · backend img: {fmt(status.lastBackendImgW)}×
+              {fmt(status.lastBackendImgH)}
             </div>
             <div>jpeg b64: {status.lastB64Bytes} B</div>
             <div>
@@ -192,6 +198,12 @@ export default function Live() {
   const [backendTestImg, setBackendTestImg] = useState<string | null>(null);
   const [backendTesting, setBackendTesting] = useState(false);
 
+  // App workflow: HSE monitoring (existing) | Build Mode (blueprint capture).
+  // Build Mode keeps the live camera + HSE loop running but suppresses incident
+  // persistence — it's an additive workflow, not a detector change.
+  const [appMode, setAppMode] = useState<"hse" | "build">("hse");
+  const buildModeOn = ENABLE_BUILD_MODE && appMode === "build";
+
   const onIncidentSaved = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
   }, [queryClient]);
@@ -215,7 +227,15 @@ export default function Live() {
     config,
     zones,
     onIncidentSaved,
+    suppressIncidents: buildModeOn,
   });
+
+  const build = useBuildModeSession({ videoRef, enabled: buildModeOn, cameraFacing: facing });
+  const replay = useBlueprintReplay(build.phase === "review" ? build.frames : []);
+  // Ghost shown on the floating layer: live latest frame while recording,
+  // replay playhead frame in review.
+  const ghostFrame =
+    build.phase === "review" ? (replay.currentFrame ?? build.latestFrame) : build.latestFrame;
 
   const topAlert = useMemo(() => alerts.find((a) => a.isIncident) ?? null, [alerts]);
 
@@ -250,9 +270,7 @@ export default function Live() {
       // mobile portrait this cover-crops to MOBILE_VISUAL_ASPECT — the preview
       // image below is proof that the backend receives exactly what the user
       // sees on the camera card.
-      const targetAspect = isMobileViewport(window.innerWidth)
-        ? MOBILE_VISUAL_ASPECT
-        : null;
+      const targetAspect = isMobileViewport(window.innerWidth) ? MOBILE_VISUAL_ASPECT : null;
       const captured = captureVideoFrameBase64(video, { targetAspect });
       if (!captured) {
         setBackendTest("Frame capture failed.");
@@ -271,9 +289,7 @@ export default function Live() {
         const { data, error } = await supabase.functions.invoke("deimv2-proxy", {
           body: { image_b64, conf: 0.15, img_size: 640, classes: null },
         });
-        setBackendTest(
-          `capture ${cw}×${ch}\n${JSON.stringify(error ?? data, null, 2)}`,
-        );
+        setBackendTest(`capture ${cw}×${ch}\n${JSON.stringify(error ?? data, null, 2)}`);
       }
     } catch (e) {
       setBackendTest(e instanceof Error ? e.message : String(e));
@@ -298,6 +314,30 @@ export default function Live() {
             column out to ~10000px — pushing the centered camera card off-screen
             and making it "jump" as the text length changes each frame. */}
         <div className="min-w-0 space-y-4">
+          {/* Workflow toggle: HSE monitoring vs Build Mode (blueprint capture). */}
+          {ENABLE_BUILD_MODE && (
+            <div className="mx-auto flex w-[min(88vw,340px)] rounded-xl border border-border bg-background/40 p-1 sm:mx-0 sm:w-fit">
+              <Button
+                size="sm"
+                variant={appMode === "hse" ? "default" : "ghost"}
+                className="flex-1 sm:flex-none"
+                onClick={() => setAppMode("hse")}
+              >
+                <ShieldCheck className="mr-1.5 h-4 w-4" />
+                HSE Mode
+              </Button>
+              <Button
+                size="sm"
+                variant={appMode === "build" ? "default" : "ghost"}
+                className="flex-1 sm:flex-none"
+                onClick={() => setAppMode("build")}
+              >
+                <Hammer className="mr-1.5 h-4 w-4" />
+                Build Mode
+              </Button>
+            </div>
+          )}
+
           <CameraView
             videoRef={videoRef}
             active={active}
@@ -325,6 +365,23 @@ export default function Live() {
                 points,
               })
             }
+            buildOverlay={
+              buildModeOn ? (
+                <>
+                  <SelectionOverlay
+                    active={build.phase === "selecting"}
+                    onSelect={(region) => void build.lockSelection(region)}
+                  />
+                  {build.region && (build.phase === "recording" || build.phase === "review") && (
+                    <FloatingBlueprintLayer
+                      region={build.region}
+                      frame={ghostFrame}
+                      recording={build.phase === "recording"}
+                    />
+                  )}
+                </>
+              ) : null
+            }
           />
           <SessionControls
             cameraActive={active}
@@ -333,6 +390,8 @@ export default function Live() {
             onStart={handleStart}
             onStop={stop}
           />
+
+          {buildModeOn && <BuildModePanel session={build} replay={replay} cameraActive={active} />}
 
           {/* Restricted-zone editor */}
           <div className="rounded-xl border border-border bg-background/40 p-3">
