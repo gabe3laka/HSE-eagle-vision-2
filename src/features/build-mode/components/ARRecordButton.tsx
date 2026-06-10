@@ -12,6 +12,9 @@ const HIT_HALF_H = 0.09;
 const DWELL_MS = 700;
 const TICK_MS = 60;
 const POINTER_STALE_MS = 700;
+// Ignore hand input briefly after the target appears (it often mounts
+// mid-gesture, right after a pinch-release pins the ghost).
+const MOUNT_GRACE_MS = 600;
 
 // SVG progress ring geometry.
 const R = 16;
@@ -51,6 +54,14 @@ export function ARRecordButton({ pointer, pinch, onTrigger, variant = "record" }
   onTriggerRef.current = onTrigger;
   const hoverStartRef = useRef(0);
   const firedRef = useRef(false);
+  // ARMING: the target appears mid-gesture (e.g. the instant a pinch-release
+  // pins the ghost, often near this very spot). The finger must first be seen
+  // OUTSIDE the target — and the pinch RELEASED — before dwell/pinch can
+  // trigger, plus a short mount grace. Without this, recording could start
+  // without the user ever "pressing" Record. Touch taps stay unaffected.
+  const armedRef = useRef(false);
+  const pinchArmedRef = useRef(false);
+  const mountedAtRef = useRef(Date.now());
 
   const fire = useCallback(() => {
     if (firedRef.current) return;
@@ -68,16 +79,29 @@ export function ARRecordButton({ pointer, pinch, onTrigger, variant = "record" }
       const inside =
         fresh && Math.abs(p.x - TARGET_X) <= HIT_HALF_W && Math.abs(p.y - TARGET_Y) <= HIT_HALF_H;
 
+      // A released pinch arms the pinch-tap path (lingering pinch from the
+      // pin-release can't fire).
+      if (!pinchRef.current?.active) pinchArmedRef.current = true;
+
       if (!inside) {
+        armedRef.current = true; // finger left the target → hand control armed
         hoverStartRef.current = 0;
         firedRef.current = false; // re-arm once the finger leaves
         setHovering(false);
         setProgress(0);
         return;
       }
+      // Inside but not yet armed (finger was already here when the target
+      // appeared, or we're inside the mount grace) → stay neutral.
+      if (!armedRef.current || now - mountedAtRef.current < MOUNT_GRACE_MS) {
+        hoverStartRef.current = 0;
+        setHovering(false);
+        setProgress(0);
+        return;
+      }
       setHovering(true);
       // Pinching on the target = a deliberate tap → fire now.
-      if (pinchRef.current?.active) {
+      if (pinchRef.current?.active && pinchArmedRef.current) {
         fire();
         return;
       }

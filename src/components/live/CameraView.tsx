@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Camera, CameraOff, Loader2, SwitchCamera } from "lucide-react";
+import { Camera, CameraOff, Loader2, Maximize2, Minimize2, SwitchCamera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DetectionOverlay } from "./DetectionOverlay";
 import { BackendEntityOverlay } from "./BackendEntityOverlay";
@@ -212,9 +212,28 @@ export function CameraView({
   // bytes we send to /detect); contain everywhere else.
   const videoFitClass = mobileShellMode ? "object-cover" : "object-contain";
 
+  // Mobile FULL SCREEN: the camera card scales up to fill the viewport while
+  // KEEPING its 3/4 aspect (CSS-only, iOS Safari has no element fullscreen
+  // API). Preserving the aspect keeps the visible crop identical to the
+  // captured crop, so every overlay/pinch coordinate stays aligned. Exits via
+  // the same button.
+  const [fullscreen, setFullscreen] = useState(false);
+  // Camera stopped → drop back out of full screen.
+  useEffect(() => {
+    if (!active) setFullscreen(false);
+  }, [active]);
+  const fullscreenOn = fullscreen && isMobile;
+  const wrapperClass = fullscreenOn
+    ? "fixed inset-0 z-50 flex items-center justify-center bg-black"
+    : "flex w-full justify-center";
+  const shellClassFinal = fullscreenOn ? "relative overflow-hidden bg-black" : shellClass;
+  const shellStyleFinal: React.CSSProperties | undefined = fullscreenOn
+    ? { width: "min(100vw, calc(100svh * 0.75))", aspectRatio: "3 / 4" }
+    : shellStyle;
+
   return (
-    <div ref={containerRef} className="flex w-full justify-center">
-      <div style={shellStyle} className={shellClass}>
+    <div ref={containerRef} className={wrapperClass}>
+      <div style={shellStyleFinal} className={shellClassFinal}>
         {/* Orientation layer: covers the entire SHELL. The <video> uses
           object-cover on mobile portrait (visible crop = capture crop) and
           object-contain elsewhere. All overlays are absolute inset-0 inside
@@ -272,6 +291,28 @@ export function CameraView({
           >
             <SwitchCamera className="h-5 w-5 sm:h-4 sm:w-4" />
           </Button>
+        )}
+
+        {/* Mobile full screen toggle — enter/exit with the same button. */}
+        {active && isMobile && (
+          <Button
+            onClick={() => setFullscreen((f) => !f)}
+            variant="glass"
+            size="icon"
+            className="absolute right-3 top-3 z-40 h-9 w-9 rounded-full shadow-xl"
+            aria-label={fullscreenOn ? "Exit full screen" : "Full screen"}
+          >
+            {fullscreenOn ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </Button>
+        )}
+        {fullscreenOn && (
+          <button
+            type="button"
+            onClick={() => setFullscreen(false)}
+            className="absolute left-1/2 top-3 z-40 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white backdrop-blur"
+          >
+            Exit full screen
+          </button>
         )}
 
         {active && running && backendDryRun && (
