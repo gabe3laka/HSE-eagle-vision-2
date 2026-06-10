@@ -65,6 +65,10 @@ export function useBuildModeSession({
   const [backendMode, setBackendMode] = useState<BuildBackendMode | null>(null);
   const [backendStatus, setBackendStatus] = useState<BuildBackendStatus>("resolving");
   const [error, setError] = useState<string | null>(null);
+  /** Last extraction attempt — surfaced on-phone so failures are never silent. */
+  const [extractStatus, setExtractStatus] = useState<
+    "idle" | "extract_requested" | "capture_failed" | "frame_received" | "placing_started"
+  >("idle");
 
   // Resolve the Build Mode API base when Build Mode turns on, so the panel can
   // show the backend status before the first selection.
@@ -94,8 +98,17 @@ export function useBuildModeSession({
   const inFlightRef = useRef(false);
   const extractingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sessionReadyRef = useRef<Promise<void> | null>(null);
   const phaseRef = useRef<BuildPhase>("idle");
   phaseRef.current = phase;
+
+  /** Phase transition that updates the ref SYNCHRONOUSLY, so async chains like
+   *  lockAndExtract (lock → extract in one flow) see the new phase before
+   *  React re-renders. */
+  const go = useCallback((next: BuildPhase) => {
+    phaseRef.current = next;
+    setPhase(next);
+  }, []);
   // Ref-held so the capture interval always reads the freshest tracker output.
   const getHandLandmarksRef = useRef(getHandLandmarks);
   getHandLandmarksRef.current = getHandLandmarks;
@@ -112,11 +125,12 @@ export function useBuildModeSession({
   const reset = useCallback(() => {
     clearTimer();
     sessionRef.current = null;
+    sessionReadyRef.current = null;
     regionRef.current = null;
     framesRef.current = [];
     inFlightRef.current = false;
     extractingRef.current = false;
-    setPhase("idle");
+    go("idle");
     setRegion(null);
     setFrames([]);
     setLatestFrame(null);
@@ -124,7 +138,8 @@ export function useBuildModeSession({
     setPlacement(null);
     setBackendMode(null);
     setError(null);
-  }, [clearTimer]);
+    setExtractStatus("idle");
+  }, [clearTimer, go]);
 
   // Leaving Build Mode (or unmount) tears the session down.
   useEffect(() => {
@@ -135,7 +150,7 @@ export function useBuildModeSession({
   const beginSelection = useCallback(() => {
     if (!enabled) return;
     clearTimer();
-    setPhase("selecting");
+    go("selecting");
     setRegion(null);
     regionRef.current = null;
     setFrames([]);
@@ -144,18 +159,20 @@ export function useBuildModeSession({
     setBaseFrame(null);
     setPlacement(null);
     setError(null);
-  }, [enabled, clearTimer]);
+    setExtractStatus("idle");
+  }, [enabled, clearTimer, go]);
 
   const cancelSelection = useCallback(() => {
     // beginSelection clears the region, so cancelling returns to idle.
-    if (phaseRef.current === "selecting") setPhase(regionRef.current ? "selected" : "idle");
-  }, []);
+    if (phaseRef.current === "selecting") go(regionRef.current ? "selected" : "idle");
+  }, [go]);
 
   /**
    * Lock the selected object/work area: store the region, start the Build
    * session (HTTP or mock — startBuildSession never throws) and WAIT in
    * "selected". No recording timer here — the user pinches the glowing box
-   * to pull the blueprint out.
+   * to pull the blueprint out. The session bootstrap is tracked in
+   * sessionReadyRef so a fast pinch can't race the session creation.
    */
   const lockSelection = useCallback(
     async (sel: SelectedRegion) => {
@@ -163,23 +180,28 @@ export function useBuildModeSession({
       setRegion(sel);
       regionRef.current = sel;
       setError(null);
-      setPhase("selected");
-      const session = await startBuildSession();
-      sessionRef.current = session;
-      setBackendMode(session.backendMode);
-      // Refine the status with the actual session outcome: a configured URL
-      // that fell back to mock is "mock-fallback"; a live http session keeps
-      // its source-derived label.
-      if (session.backendMode === "http") {
-        setBackendStatus(
-          session.configSource === "supabase-config" ? "supabase-cloudflare" : "cloudflare",
-        );
-      } else {
-        setBackendStatus(session.configSource ? "mock-fallback" : "config-missing");
-      }
-      await lockBuildSelection(session, sel);
+      setExtractStatus("idle");
+      go("selected");
+      const ready = (async () => {
+        const session = await startBuildSession();
+        sessionRef.current = session;
+        setBackendMode(session.backendMode);
+        // Refine the status with the actual session outcome: a configured URL
+        // that fell back to mock is "mock-fallback"; a live http session keeps
+        // its source-derived label.
+        if (session.backendMode === "http") {
+          setBackendStatus(
+            session.configSource === "supabase-config" ? "supabase-cloudflare" : "cloudflare",
+          );
+        } else {
+          setBackendStatus(session.configSource ? "mock-fallback" : "config-missing");
+        }
+        await lockBuildSelection(session, sel);
+      })();
+      sessionReadyRef.current = ready;
+      await ready;
     },
-    [enabled],
+    [enabled, go],
   );
 
   /** Capture + send ONE keyframe of the selected crop (shared by blueprint
@@ -222,30 +244,54 @@ export function useBuildModeSession({
   const extractBlueprint = useCallback(async (): Promise<BlueprintFrame | null> => {
     if (phaseRef.current !== "selected" || extractingRef.current) return null;
     extractingRef.current = true;
-    setPhase("extracting");
+    setExtractStatus("extract_requested");
+    go("extracting");
     setError(null);
     try {
+      // A fast pinch right after selection must not race the session bootstrap.
+      if (sessionReadyRef.current) await sessionReadyRef.current.catch(() => undefined);
       const frame = await captureKeyframe(0, 0);
       if (!frame) {
-        setError("blueprint_capture_failed");
-        setPhase("selected");
+        setExtractStatus("capture_failed");
+        setError("capture failed — try reselecting the object");
+        go("selected"); // box stays pinchable; the user can try again
         return null;
       }
+      setExtractStatus("frame_received");
       setBaseFrame(frame);
       setLatestFrame(frame);
-      setPhase("placing");
+      go("placing");
+      setExtractStatus("placing_started");
       return frame;
     } finally {
       extractingRef.current = false;
     }
-  }, [captureKeyframe]);
+  }, [captureKeyframe, go]);
+
+  /**
+   * Pinch a live DETECTED box (HSE liveBoxes / EdgeCrafter entities) → turn it
+   * into the Build region and extract its blueprint in one motion. The synced
+   * phaseRef makes the lock → extract chain deterministic.
+   */
+  const lockAndExtract = useCallback(
+    async (sel: SelectedRegion): Promise<BlueprintFrame | null> => {
+      if (!enabled) return null;
+      if (phaseRef.current !== "idle" && phaseRef.current !== "selected") return null;
+      await lockSelection(sel);
+      return extractBlueprint();
+    },
+    [enabled, lockSelection, extractBlueprint],
+  );
 
   /** Ghost released after dragging — remember where it was pinned. Re-drags
    *  while pinned/recording/review just update the stored placement. */
-  const pinBlueprint = useCallback((transform: BlueprintTransform) => {
-    setPlacement({ transform, pinnedAtMs: Date.now() });
-    setPhase((p) => (p === "placing" ? "pinned" : p));
-  }, []);
+  const pinBlueprint = useCallback(
+    (transform: BlueprintTransform) => {
+      setPlacement({ transform, pinnedAtMs: Date.now() });
+      if (phaseRef.current === "placing") go("pinned");
+    },
+    [go],
+  );
 
   /** One capture tick of the procedure recording. */
   const captureTick = useCallback(async () => {
@@ -281,15 +327,15 @@ export function useBuildModeSession({
     setFrames([]);
     setLatestFrame(baseFrame);
     startedAtRef.current = Date.now();
-    setPhase("recording");
+    go("recording");
     clearTimer();
     timerRef.current = setInterval(() => void captureTick(), BUILD_CAPTURE_INTERVAL_MS);
-  }, [baseFrame, captureTick, clearTimer]);
+  }, [baseFrame, captureTick, clearTimer, go]);
 
   const stopRecording = useCallback(async () => {
     clearTimer();
     const session = sessionRef.current;
-    setPhase("review");
+    go("review");
     if (session) {
       try {
         await finishBuildSession(session);
@@ -297,7 +343,7 @@ export function useBuildModeSession({
         // mock fallback already recorded everything locally
       }
     }
-  }, [clearTimer]);
+  }, [clearTimer, go]);
   const stopRecordingRef = useRef<typeof stopRecording | null>(null);
   stopRecordingRef.current = stopRecording;
 
@@ -311,10 +357,12 @@ export function useBuildModeSession({
     backendMode,
     backendStatus,
     error,
+    extractStatus,
     frameCount: frames.length,
     beginSelection,
     cancelSelection,
     lockSelection,
+    lockAndExtract,
     extractBlueprint,
     pinBlueprint,
     startProcedureRecording,

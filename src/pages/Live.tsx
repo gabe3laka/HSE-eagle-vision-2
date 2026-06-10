@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BellRing, Check, Hammer, Shapes, Trash2 } from "lucide-react";
 import { useCamera } from "@/hooks/useCamera";
@@ -35,6 +35,11 @@ import {
 import { FloatingBlueprintLayer } from "@/features/build-mode/components/FloatingBlueprintLayer";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
 import { ARRecordButton } from "@/features/build-mode/components/ARRecordButton";
+import {
+  detectionBoxToRegion,
+  findDetectionAtPointer,
+  pointerInBounds,
+} from "@/features/build-mode/lib/handTracking";
 import type {
   BuildGesture,
   BuildHandInteraction,
@@ -305,6 +310,65 @@ export default function Live() {
             : "touch-fallback"
     : undefined;
 
+  // Pinch a live DETECTED box (EdgeCrafter entity or HSE live box — both in
+  // card coords) while no Build region exists → auto-create the region and
+  // extract its blueprint in one motion. Manual Select-object still works.
+  const autoExtractFiredRef = useRef(false);
+  useEffect(() => {
+    if (!buildModeOn || !active || build.phase !== "idle") {
+      autoExtractFiredRef.current = false;
+      return;
+    }
+    const p = hand.primaryPointer;
+    const pinching = hand.sourceMode === "mediapipe" && !!mp.pinch?.active;
+    if (!p || !pinching) {
+      autoExtractFiredRef.current = false; // re-arm when the pinch releases
+      return;
+    }
+    if (autoExtractFiredRef.current) return;
+    const candidates = [
+      ...(backendEntities as BackendEntity[]).map((e) => e.bbox),
+      ...liveBoxes.map((b) => b.bbox),
+    ];
+    const hit = findDetectionAtPointer(p, candidates);
+    if (!hit) return;
+    autoExtractFiredRef.current = true;
+    void build.lockAndExtract(detectionBoxToRegion(hit));
+  }, [buildModeOn, active, build, hand, mp.pinch, backendEntities, liveBoxes]);
+
+  // Phase-appropriate fingertip hint — never a misleading "pinch to grab".
+  const fingerHint = !buildModeOn
+    ? null
+    : build.phase === "idle"
+      ? (backendEntities as BackendEntity[]).length > 0 || liveBoxes.length > 0
+        ? "pinch a detected box"
+        : "select an object below"
+      : build.phase === "selected"
+        ? "pinch the glowing box"
+        : build.phase === "placing"
+          ? "release to pin"
+          : build.phase === "pinned"
+            ? "hold finger on Record"
+            : build.phase === "recording"
+              ? "hold finger on Stop"
+              : null;
+
+  // On-phone extraction diagnostics for the Build panel debug readout.
+  const pointerInsideRegion =
+    build.region && hand.primaryPointer
+      ? pointerInBounds(hand.primaryPointer, build.region)
+      : false;
+  const buildDebug = {
+    phase: build.phase,
+    hasRegion: build.region != null,
+    hasBaseFrame: build.baseFrame != null,
+    hasGhostFrame: ghostFrame != null,
+    extractStatus: build.extractStatus,
+    pointer: hand.primaryPointer ? { x: hand.primaryPointer.x, y: hand.primaryPointer.y } : null,
+    pointerInsideRegion,
+    pinchActive: !!mp.pinch?.active,
+  };
+
   const topAlert = useMemo(() => alerts.find((a) => a.isIncident) ?? null, [alerts]);
 
   // All EdgeCrafter modes share the same dry-run overlays + debug panel. The
@@ -420,19 +484,29 @@ export default function Live() {
                     landmarks={hand.handLandmarks}
                     primaryId={hand.primaryPointer?.id}
                     pinch={mp.pinch}
+                    hint={fingerHint}
                   />
                   {/* Source marker stays on the real object once the ghost detaches. */}
                   {build.region &&
                     ["placing", "pinned", "recording", "review"].includes(build.phase) && (
                       <SelectedRegionMarker region={build.region} />
                     )}
-                  {/* In-camera Record target: tapped with the tracked finger
-                      (dwell ring / pinch) — recording never starts instantly. */}
+                  {/* In-camera Record/Stop targets: pressed with the tracked
+                      finger (dwell ring / pinch) — never instant. */}
                   {build.phase === "pinned" && (
                     <ARRecordButton
+                      variant="record"
                       pointer={hand.primaryPointer}
                       pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
                       onTrigger={build.startProcedureRecording}
+                    />
+                  )}
+                  {build.phase === "recording" && (
+                    <ARRecordButton
+                      variant="stop"
+                      pointer={hand.primaryPointer}
+                      pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
+                      onTrigger={() => void build.stopRecording()}
                     />
                   )}
                   {/* The extraction box / detachable ghost, from "selected" onward. */}
@@ -481,6 +555,7 @@ export default function Live() {
               replay={replay}
               cameraActive={active}
               handStatus={handStatus}
+              debug={buildDebug}
             />
           )}
 

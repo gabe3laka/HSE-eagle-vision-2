@@ -30,18 +30,31 @@ const HAND_STATUS_LABEL: Record<HandControlStatus, string> = {
   "touch-fallback": "Hand control: touch fallback",
 };
 
+/** On-phone extraction diagnostics — makes any silent failure visible. */
+export interface BuildDebugInfo {
+  phase: string;
+  hasRegion: boolean;
+  hasBaseFrame: boolean;
+  hasGhostFrame: boolean;
+  extractStatus: string;
+  pointer: { x: number; y: number } | null;
+  pointerInsideRegion: boolean;
+  pinchActive: boolean;
+}
+
 interface Props {
   session: BuildModeSession;
   replay: BlueprintReplayControls;
   cameraActive: boolean;
   handStatus?: HandControlStatus;
+  debug?: BuildDebugInfo;
 }
 
 /**
  * Build Mode control card (below the camera): drives the
  * select → record → review workflow and hosts the replay timeline.
  */
-export function BuildModePanel({ session, replay, cameraActive, handStatus }: Props) {
+export function BuildModePanel({ session, replay, cameraActive, handStatus, debug }: Props) {
   const { phase, frameCount, backendStatus, error } = session;
   const backend = BACKEND_STATUS[backendStatus];
   return (
@@ -87,8 +100,8 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus }: Pr
       {phase === "idle" && (
         <div className="mt-2 space-y-2">
           <p className="text-xs text-muted-foreground">
-            Point the camera at an object or work area, then select it to create a floating
-            blueprint ghost you can detach and replay. Keyframes only — no video is stored.
+            Pinch a detected box on the camera to pull out its blueprint directly — or tap Select
+            object and drag a box around any area. Keyframes only — no video is stored.
           </p>
           <Button size="sm" onClick={session.beginSelection} disabled={!cameraActive}>
             <ScanSearch className="mr-1.5 h-4 w-4" />
@@ -160,7 +173,7 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus }: Pr
         <div className="mt-2 space-y-2">
           <p className="text-xs text-muted-foreground">
             Recording procedure keyframes of the selected region (~3/s). Perform the work, then
-            finish to build the replay.
+            hold your fingertip on the red Stop target in the camera — or press below.
           </p>
           <Button size="sm" variant="destructive" onClick={() => void session.stopRecording()}>
             <Square className="mr-1.5 h-4 w-4" />
@@ -185,6 +198,19 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus }: Pr
       )}
 
       {error && <p className="mt-2 text-[11px] text-red-400">build error: {error}</p>}
+
+      {/* TEMP debug readout — makes extraction failures obvious on the phone. */}
+      {debug && (
+        <div className="mt-2 rounded bg-black/40 px-2 py-1 font-mono text-[9px] leading-relaxed text-muted-foreground">
+          phase {debug.phase} · region {debug.hasRegion ? "yes" : "no"} · base{" "}
+          {debug.hasBaseFrame ? "yes" : "no"} · ghost {debug.hasGhostFrame ? "yes" : "no"}
+          <br />
+          extract: <span className="text-cyan-300">{debug.extractStatus}</span> · pinch{" "}
+          {debug.pinchActive ? "ON" : "off"} · inside{" "}
+          {debug.pointerInsideRegion ? <span className="text-cyan-300">yes</span> : "no"} · ptr{" "}
+          {debug.pointer ? `${debug.pointer.x.toFixed(2)},${debug.pointer.y.toFixed(2)}` : "—"}
+        </div>
+      )}
     </div>
   );
 }

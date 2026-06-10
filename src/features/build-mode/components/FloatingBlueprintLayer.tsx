@@ -108,6 +108,20 @@ export function FloatingBlueprintLayer({
     setT({ x: 0, y: 0, scale: 1 });
   }, [region]);
 
+  // Make the extraction moment unmistakable: flash a badge when the ghost is
+  // born (phase enters "placing").
+  const [extractedFlash, setExtractedFlash] = useState(false);
+  const prevPhaseRef = useRef<BuildPhase>(phase);
+  useEffect(() => {
+    if (phase === "placing" && prevPhaseRef.current !== "placing") {
+      setExtractedFlash(true);
+      const id = setTimeout(() => setExtractedFlash(false), 1200);
+      prevPhaseRef.current = phase;
+      return () => clearTimeout(id);
+    }
+    prevPhaseRef.current = phase;
+  }, [phase]);
+
   const setModeBoth = useCallback((mode: HandMode) => {
     if (modeRef.current === mode) return;
     modeRef.current = mode;
@@ -374,17 +388,48 @@ export function FloatingBlueprintLayer({
     >
       {/* Ghost content: nothing inside the source box; wireframe once extracted. */}
       {!isSource && frame && <BlueprintOverlay frame={frame} />}
+      {/* Never leave the user staring at nothing: a visible shell while the
+          ghost exists but its frame hasn't arrived yet. (isSource already
+          excludes the selected/extracting phases.) */}
+      {!isSource && !frame && (
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-md border border-dashed border-amber-300/80 bg-cyan-400/5">
+          <span className="text-[10px] font-bold tracking-widest text-amber-200">
+            BLUEPRINT SHELL
+          </span>
+          <span className="text-[9px] text-cyan-200/80">waiting for frame…</span>
+        </div>
+      )}
       {phase === "extracting" && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1.5">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-200" />
           <span className="text-[10px] font-medium text-cyan-200">Extracting blueprint…</span>
         </div>
       )}
+      {extractedFlash && (
+        <div className="pointer-events-none absolute inset-x-0 -top-8 text-center">
+          <span className="animate-pulse rounded-full bg-amber-400/90 px-2.5 py-1 text-[10px] font-bold text-black shadow-[0_0_18px_rgba(251,191,36,0.9)]">
+            ✓ Blueprint extracted
+          </span>
+        </div>
+      )}
       {phase === "selected" && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-1 text-center">
-          <span className="rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-cyan-200 backdrop-blur">
+        <div className="absolute inset-x-0 bottom-1 flex flex-col items-center gap-1">
+          <span className="pointer-events-none rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-cyan-200 backdrop-blur">
             Pinch here to extract blueprint
           </span>
+          {/* Touch/test fallback — separates pinch hit-testing problems from
+              capture/render problems. */}
+          <button
+            type="button"
+            className="rounded-full border border-cyan-300/70 bg-black/70 px-2.5 py-1 text-[10px] font-semibold text-cyan-200 backdrop-blur active:bg-cyan-500/30"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onExtractRef.current?.();
+            }}
+          >
+            Extract blueprint
+          </button>
         </div>
       )}
 

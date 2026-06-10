@@ -1,17 +1,18 @@
 import type { BlueprintFrame } from "../types";
 
-const OUTLINE = "rgba(56,189,248,0.95)"; // bright sky — technical blueprint line
-const OUTLINE_BACK = "rgba(56,189,248,0.45)"; // dimmer rear face of the extrusion
-const EDGE = "rgba(56,189,248,0.35)"; // front↔back connector edges
-const FILL = "rgba(56,189,248,0.10)"; // faint transparent body
-const ANCHOR = "rgba(186,230,253,0.95)";
+const OUTLINE = "rgba(34,211,238,1)"; // bright cyan — must be unmissable
+const OUTLINE_GLOW = "rgba(34,211,238,0.35)"; // wide soft underlay = glow
+const OUTLINE_BACK = "rgba(56,189,248,0.55)"; // dimmer rear face of the extrusion
+const EDGE = "rgba(56,189,248,0.45)"; // front↔back connector edges
+const FILL = "rgba(34,211,238,0.16)"; // transparent body, clearly visible
+const ANCHOR = "rgba(186,230,253,1)";
 const STEP_BG = "rgba(8,47,73,0.92)";
 const HAND = "rgba(252,211,77,0.9)";
 
 // Fake 3D extrusion offset (viewBox units): the back face sits up-left so the
 // ghost reads as a shallow wireframe slab, not a flat sticker.
-const DEPTH_X = -2.4;
-const DEPTH_Y = -3;
+const DEPTH_X = -3.2;
+const DEPTH_Y = -3.8;
 
 /**
  * Pure SVG renderer of one blueprint frame as a 2.5D wireframe ghost: faint
@@ -60,12 +61,19 @@ export function BlueprintOverlay({ frame }: { frame: BlueprintFrame }) {
       </defs>
       <rect x="0" y="0" width="100" height="100" fill="url(#bp-grid)" />
 
-      {/* 2.5D wireframe: back face first, then connector edges, then front */}
+      {/* 2.5D wireframe: glow underlay, back face, connector edges, then front */}
+      <polygon
+        points={frontPts}
+        fill="none"
+        stroke={OUTLINE_GLOW}
+        strokeWidth={3.4}
+        strokeLinejoin="round"
+      />
       <polygon
         points={backPts}
         fill="none"
         stroke={OUTLINE_BACK}
-        strokeWidth={0.55}
+        strokeWidth={0.8}
         strokeLinejoin="round"
       />
       {connectors.map((p, i) => (
@@ -76,16 +84,21 @@ export function BlueprintOverlay({ frame }: { frame: BlueprintFrame }) {
           x2={p.x + DEPTH_X}
           y2={p.y + DEPTH_Y}
           stroke={EDGE}
-          strokeWidth={0.45}
+          strokeWidth={0.6}
         />
       ))}
       <polygon
         points={frontPts}
         fill={FILL}
         stroke={OUTLINE}
-        strokeWidth={0.9}
+        strokeWidth={1.5}
         strokeLinejoin="round"
       />
+
+      {/* identity label — the user must instantly see "a ghost copy was made" */}
+      <text x={2.5} y={6} fontSize={4} fontWeight={700} letterSpacing={1.4} fill={OUTLINE}>
+        BLUEPRINT
+      </text>
 
       {/* sparse points */}
       {frame.sparsePoints?.map((p, i) => (

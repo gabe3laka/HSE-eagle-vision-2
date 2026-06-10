@@ -12,10 +12,14 @@ export function HandPointerLayer({
   landmarks,
   primaryId,
   pinch,
+  hint,
 }: {
   landmarks: BuildHandLandmark[];
   primaryId?: string | null;
   pinch?: BuildPinchState | null;
+  /** Phase-appropriate fingertip hint (e.g. "pinch a detected box") — replaces
+   *  the generic "pinch to grab" so the label never misleads. */
+  hint?: string | null;
 }) {
   if (landmarks.length === 0) return null;
   return (
@@ -45,7 +49,7 @@ export function HandPointerLayer({
                     pinching ? "text-amber-200" : "text-cyan-200"
                   }`}
                 >
-                  {pinching ? "pinching" : "pinch to grab"}
+                  {pinching ? "pinching" : (hint ?? "pinch to grab")}
                 </span>
               )}
             </div>
