@@ -70,6 +70,8 @@ interface Options {
   /** Operator-drawn restricted zones (for restricted_zone detection). */
   zones?: DetectionZone[];
   onIncidentSaved?: () => void;
+  /** Build Mode: skip persisting detections/incidents (alerts still surface). */
+  suppressIncidents?: boolean;
 }
 
 /**
@@ -79,7 +81,13 @@ interface Options {
  * when supported, with a timer fallback; detection is synchronous and never
  * overlaps, while persistence is fire-and-forget so the loop stays responsive.
  */
-export function useDetectionSession({ videoRef, config, zones, onIncidentSaved }: Options) {
+export function useDetectionSession({
+  videoRef,
+  config,
+  zones,
+  onIncidentSaved,
+  suppressIncidents,
+}: Options) {
   const { user } = useAuth();
   const [running, setRunning] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -103,6 +111,8 @@ export function useDetectionSession({ videoRef, config, zones, onIncidentSaved }
   const configRef = useRef(config);
   const onSavedRef = useRef(onIncidentSaved);
   const zonesRef = useRef(zones);
+  const suppressRef = useRef(!!suppressIncidents);
+  suppressRef.current = !!suppressIncidents;
 
   // scheduling / metrics state
   const lastMediaTimeRef = useRef(-1);
@@ -242,13 +252,16 @@ export function useDetectionSession({ videoRef, config, zones, onIncidentSaved }
             }
           }
         }
-        // persistence is fire-and-forget so it never stalls the detection loop
-        void (async () => {
-          for (const alert of newAlerts) {
-            const detId = await persistDetection(alert);
-            if (alert.isIncident) await persistIncident(alert, detId);
-          }
-        })();
+        // persistence is fire-and-forget so it never stalls the detection loop.
+        // Build Mode suppresses it: no detections/incidents are written.
+        if (!suppressRef.current) {
+          void (async () => {
+            for (const alert of newAlerts) {
+              const detId = await persistDetection(alert);
+              if (alert.isIncident) await persistIncident(alert, detId);
+            }
+          })();
+        }
       } else {
         setStats((s) => ({ ...s, frames: framesRef.current }));
       }
