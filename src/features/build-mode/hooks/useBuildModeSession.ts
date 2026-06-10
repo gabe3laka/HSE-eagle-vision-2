@@ -11,6 +11,7 @@ import { captureRegionBase64 } from "../lib/regionCapture";
 import type {
   BlueprintFrame,
   BuildBackendMode,
+  BuildGesture,
   BuildHandLandmark,
   BuildPhase,
   BuildSessionInfo,
@@ -24,6 +25,8 @@ interface Options {
   cameraFacing?: CameraFacing;
   /** Latest tracked hand/wrist landmarks — recorded into each keyframe. */
   getHandLandmarks?: () => BuildHandLandmark[];
+  /** Current gesture (e.g. active pinch) — stamped into each keyframe. */
+  getGesture?: () => BuildGesture | undefined;
 }
 
 /**
@@ -42,6 +45,7 @@ export function useBuildModeSession({
   enabled,
   cameraFacing,
   getHandLandmarks,
+  getGesture,
 }: Options) {
   const [phase, setPhase] = useState<BuildPhase>("idle");
   const [region, setRegion] = useState<SelectedRegion | null>(null);
@@ -61,6 +65,8 @@ export function useBuildModeSession({
   // Ref-held so the capture interval always reads the freshest tracker output.
   const getHandLandmarksRef = useRef(getHandLandmarks);
   getHandLandmarksRef.current = getHandLandmarks;
+  const getGestureRef = useRef(getGesture);
+  getGestureRef.current = getGesture;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -146,6 +152,7 @@ export function useBuildModeSession({
               ? { w: window.innerWidth, h: window.innerHeight }
               : undefined,
           handLandmarks: getHandLandmarksRef.current?.(),
+          gesture: getGestureRef.current?.(),
         },
         index,
       );

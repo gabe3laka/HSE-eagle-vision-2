@@ -7,6 +7,7 @@ import type {
   BlueprintTransform,
   BuildHandInteraction,
   BuildHandLandmark,
+  BuildPinchState,
   SelectedRegion,
 } from "../types";
 
@@ -26,23 +27,25 @@ interface Props {
   frame: BlueprintFrame | null;
   /** Pulsing border while keyframes are being recorded. */
   recording?: boolean;
-  /** Tracked wrist pointer (card coords). Null → touch-only behavior. */
+  /** Tracked hand pointer (card coords): MediaPipe index tip when available,
+   *  wrist fallback otherwise. Null → touch-only behavior. */
   handPointer?: BuildHandLandmark | null;
+  /** Live pinch state from MediaPipe Hands. Null → wrist dwell fallback. */
+  pinch?: BuildPinchState | null;
   /** Reports hover/grab/drag state up for the status chip. */
   onHandInteraction?: (interaction: BuildHandInteraction) => void;
 }
 
 /**
  * The detachable blueprint ghost. It spawns locked onto the selected region,
- * then the user can move it two ways while the real object stays visible:
+ * then the user can move it three ways while the real object stays visible:
  *
- *  1. Touch drag (existing MVP behavior — always available as the fallback).
- *  2. Hand control: hold the tracked WRIST pointer inside the ghost for a
- *     short dwell (~300 ms) to grab it, move the wrist to drag, and it
- *     releases when tracking is lost for ~400 ms (or a touch takes over).
- *
- * Build Mode uses wrist-based hand control for MVP. True finger pinch requires
- * a future MediaPipe Hands / hand-landmarker adapter.
+ *  1. Touch drag — always available, instantly overrides hand control.
+ *  2. Finger control (MediaPipe Hands): hover the INDEX fingertip over the
+ *     ghost, PINCH thumb+index to grab, move the pinched hand to drag, release
+ *     the pinch to drop. Pinch takes priority over wrist dwell.
+ *  3. Wrist fallback (no MediaPipe): hold the tracked wrist inside the ghost
+ *     ~300 ms to grab, move to drag, released when tracking drops ~400 ms.
  *
  * Transform state is {x,y,scale} offsets in visible-card fractions.
  */
@@ -51,6 +54,7 @@ export function FloatingBlueprintLayer({
   frame,
   recording,
   handPointer,
+  pinch,
   onHandInteraction,
 }: Props) {
   const [t, setT] = useState<BlueprintTransform>({ x: 0, y: 0, scale: 1 });
@@ -71,6 +75,8 @@ export function FloatingBlueprintLayer({
   regionRef.current = region;
   const handRef = useRef<BuildHandLandmark | null>(handPointer ?? null);
   handRef.current = handPointer ?? null;
+  const pinchRef = useRef<BuildPinchState | null>(pinch ?? null);
+  pinchRef.current = pinch ?? null;
   const onHandRef = useRef(onHandInteraction);
   onHandRef.current = onHandInteraction;
   const modeRef = useRef<HandMode>("idle");
@@ -130,7 +136,43 @@ export function FloatingBlueprintLayer({
         h: reg.h * cur.scale,
       };
       const inside = pointerInBounds(p, bounds);
+      const pn = pinchRef.current;
 
+      // ── Finger control (MediaPipe pinch) — priority over wrist dwell ──
+      // hover = index tip over the ghost; grab = pinch while over it;
+      // dragging follows the pinched hand; drop = pinch released.
+      if (pn != null) {
+        switch (modeRef.current) {
+          case "idle":
+            if (inside) setModeBoth("hover");
+            break;
+          case "hover":
+            if (!inside) {
+              setModeBoth("idle");
+            } else if (pn.active) {
+              grabOffsetRef.current = { dx: p.x - bounds.x, dy: p.y - bounds.y };
+              setModeBoth("grab");
+            }
+            break;
+          case "grab":
+          case "dragging": {
+            if (!pn.active) {
+              setModeBoth(inside ? "hover" : "idle"); // pinch released → drop
+              break;
+            }
+            const nx = p.x - reg.x - grabOffsetRef.current.dx;
+            const ny = p.y - reg.y - grabOffsetRef.current.dy;
+            if (Math.abs(nx - cur.x) > 0.002 || Math.abs(ny - cur.y) > 0.002) {
+              setT((prev) => ({ ...prev, x: nx, y: ny }));
+              setModeBoth("dragging");
+            }
+            break;
+          }
+        }
+        return;
+      }
+
+      // ── Wrist fallback (no MediaPipe): dwell-to-grab ──
       switch (modeRef.current) {
         case "idle":
           if (inside) {
@@ -248,12 +290,18 @@ export function FloatingBlueprintLayer({
         </div>
       )}
 
-      {/* hand-control badge while the wrist is engaging the ghost */}
+      {/* hand-control badge while a hand is engaging the ghost */}
       {(handMode === "hover" || handEngaged) && (
         <div className="pointer-events-none absolute -bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/70 px-1.5 py-0.5 backdrop-blur">
           <Hand className={`h-3 w-3 ${handEngaged ? "text-amber-300" : "text-cyan-200"}`} />
           <span className={`text-[9px] ${handEngaged ? "text-amber-300" : "text-cyan-200"}`}>
-            {handEngaged ? "dragging" : "hold to grab"}
+            {pinch != null
+              ? handEngaged
+                ? "pinching"
+                : "pinch to grab"
+              : handEngaged
+                ? "dragging"
+                : "hold to grab"}
           </span>
         </div>
       )}
