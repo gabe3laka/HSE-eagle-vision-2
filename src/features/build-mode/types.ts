@@ -19,6 +19,21 @@ export interface SelectedRegion {
   h: number;
 }
 
+/**
+ * A LIVE detection box offered as a blueprint-extraction source. HSE detection
+ * boxes are the MAIN extraction source in Build Mode — pinch-holding one of
+ * these creates the Build region + blueprint directly (manual Select-object
+ * remains the fallback). bbox is normalized visible-card coords, the same
+ * system as SelectedRegion and the hand landmarks.
+ */
+export interface ExtractCandidate {
+  id: string;
+  label: string;
+  bbox: SelectedRegion;
+  source: "hse-livebox" | "edgecrafter-entity";
+  confidence?: number;
+}
+
 export interface BlueprintAnchor {
   id: string;
   x: number;
