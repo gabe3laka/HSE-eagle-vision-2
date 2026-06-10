@@ -1,4 +1,4 @@
-import { CircleDot, Hammer, Hand, ScanSearch, Square, Undo2 } from "lucide-react";
+import { CircleDot, Hammer, Hand, Loader2, ScanSearch, Square, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BlueprintReplayControls } from "../hooks/useBlueprintReplay";
 import type { BuildModeSession } from "../hooks/useBuildModeSession";
@@ -103,7 +103,7 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus }: Pr
       {phase === "selecting" && (
         <div className="mt-2 flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
-            Drag a box on the camera around the object you want to blueprint.
+            Drag a box around the object you want to blueprint.
           </p>
           <Button size="sm" variant="secondary" onClick={session.cancelSelection}>
             Cancel
@@ -111,11 +111,55 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus }: Pr
         </div>
       )}
 
+      {phase === "selected" && (
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <p className="text-xs text-cyan-200">
+            Object selected. Pinch inside the glowing box to pull out the blueprint (or touch-drag
+            it).
+          </p>
+          <Button size="sm" variant="secondary" onClick={session.beginSelection}>
+            <Undo2 className="mr-1.5 h-4 w-4" />
+            Re-select
+          </Button>
+        </div>
+      )}
+
+      {phase === "extracting" && (
+        <div className="mt-2 flex items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-300" />
+          <p className="text-xs text-muted-foreground">Extracting blueprint…</p>
+        </div>
+      )}
+
+      {phase === "placing" && (
+        <p className="mt-2 text-xs text-cyan-200">
+          Drag the blueprint away from the object. Release the pinch to pin it in place.
+        </p>
+      )}
+
+      {phase === "pinned" && (
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Blueprint pinned. Press Record Procedure to capture the real work steps.
+          </p>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={session.startProcedureRecording}>
+              <CircleDot className="mr-1.5 h-4 w-4" />
+              Record Procedure
+            </Button>
+            <Button size="sm" variant="secondary" onClick={session.beginSelection}>
+              <Undo2 className="mr-1.5 h-4 w-4" />
+              New selection
+            </Button>
+          </div>
+        </div>
+      )}
+
       {phase === "recording" && (
         <div className="mt-2 space-y-2">
           <p className="text-xs text-muted-foreground">
-            Recording blueprint keyframes of the selected region (~3/s). Perform the steps you want
-            to capture, then finish to build the replay.
+            Recording procedure keyframes of the selected region (~3/s). Perform the work, then
+            finish to build the replay.
           </p>
           <Button size="sm" variant="destructive" onClick={() => void session.stopRecording()}>
             <Square className="mr-1.5 h-4 w-4" />
@@ -129,7 +173,7 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus }: Pr
           <BlueprintTimeline replay={replay} frameCount={frameCount} />
           <div className="flex items-center justify-between">
             <p className="text-[11px] text-muted-foreground">
-              Drag the blueprint ghost on the camera to detach it from the real object.
+              Replay shows the pinned blueprint with the recorded hand path and steps.
             </p>
             <Button size="sm" variant="secondary" onClick={session.beginSelection}>
               <Undo2 className="mr-1.5 h-4 w-4" />

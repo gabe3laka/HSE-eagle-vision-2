@@ -147,5 +147,30 @@ export interface BuildReplay {
   frames: BlueprintFrame[];
 }
 
-/** UI phase of the Build Mode workflow. */
-export type BuildPhase = "idle" | "selecting" | "recording" | "review";
+/**
+ * UI phase of the Build Mode workflow:
+ *
+ *   idle       Build Mode open, no object selected yet.
+ *   selecting  user is dragging a box over the camera.
+ *   selected   object/work area locked; the box glows; pinch it to extract.
+ *   extracting requesting/creating the first blueprint frame from the crop.
+ *   placing    blueprint ghost attached to the pinch/hand, being dragged away.
+ *   pinned     ghost released and pinned in camera-card space.
+ *   recording  Record Procedure pressed; capturing keyframes of the real work.
+ *   review     recording finished; replay/timeline mode.
+ */
+export type BuildPhase =
+  | "idle"
+  | "selecting"
+  | "selected"
+  | "extracting"
+  | "placing"
+  | "pinned"
+  | "recording"
+  | "review";
+
+/** Where the blueprint ghost was pinned in camera-card space. */
+export interface BlueprintPlacement {
+  transform: BlueprintTransform;
+  pinnedAtMs: number;
+}

@@ -28,7 +28,10 @@ import { useBuildHandTracking } from "@/features/build-mode/hooks/useBuildHandTr
 import { useMediaPipeHands } from "@/features/build-mode/hooks/useMediaPipeHands";
 import { BuildModePanel } from "@/features/build-mode/components/BuildModePanel";
 import type { HandControlStatus } from "@/features/build-mode/components/BuildModePanel";
-import { SelectionOverlay } from "@/features/build-mode/components/SelectionOverlay";
+import {
+  SelectedRegionMarker,
+  SelectionOverlay,
+} from "@/features/build-mode/components/SelectionOverlay";
 import { FloatingBlueprintLayer } from "@/features/build-mode/components/FloatingBlueprintLayer";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
 import type {
@@ -276,10 +279,15 @@ export default function Live() {
     getGesture,
   });
   const replay = useBlueprintReplay(build.phase === "review" ? build.frames : []);
-  // Ghost shown on the floating layer: live latest frame while recording,
-  // replay playhead frame in review.
+  // Ghost shown on the floating layer: the extracted base blueprint while
+  // placing/pinned, the live latest keyframe while recording, and the replay
+  // playhead frame in review.
   const ghostFrame =
-    build.phase === "review" ? (replay.currentFrame ?? build.latestFrame) : build.latestFrame;
+    build.phase === "review"
+      ? (replay.currentFrame ?? build.latestFrame ?? build.baseFrame)
+      : build.phase === "recording"
+        ? (build.latestFrame ?? build.baseFrame)
+        : build.baseFrame;
 
   // Status chip: pinch-drag > finger tracking > wrist fallback > waiting
   // (model loading / loop running but no hand yet) > touch fallback.
@@ -412,13 +420,21 @@ export default function Live() {
                     primaryId={hand.primaryPointer?.id}
                     pinch={mp.pinch}
                   />
-                  {build.region && (build.phase === "recording" || build.phase === "review") && (
+                  {/* Source marker stays on the real object once the ghost detaches. */}
+                  {build.region &&
+                    ["placing", "pinned", "recording", "review"].includes(build.phase) && (
+                      <SelectedRegionMarker region={build.region} />
+                    )}
+                  {/* The extraction box / detachable ghost, from "selected" onward. */}
+                  {build.region && build.phase !== "idle" && build.phase !== "selecting" && (
                     <FloatingBlueprintLayer
+                      phase={build.phase}
                       region={build.region}
                       frame={ghostFrame}
-                      recording={build.phase === "recording"}
                       handPointer={hand.primaryPointer}
                       pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
+                      onExtractRequest={() => void build.extractBlueprint()}
+                      onPinned={build.pinBlueprint}
                       onHandInteraction={onHandInteraction}
                     />
                   )}
