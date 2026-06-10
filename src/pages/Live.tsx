@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BellRing, Check, Hammer, ShieldCheck, Shapes, Trash2 } from "lucide-react";
+import { BellRing, Check, Hammer, Shapes, Trash2 } from "lucide-react";
 import { useCamera } from "@/hooks/useCamera";
 import { useAlertSettings } from "@/hooks/useAlertSettings";
 import { useDetectionSession } from "@/hooks/useDetectionSession";
@@ -373,30 +373,6 @@ export default function Live() {
             column out to ~10000px — pushing the centered camera card off-screen
             and making it "jump" as the text length changes each frame. */}
         <div className="min-w-0 space-y-4">
-          {/* Workflow toggle: HSE monitoring vs Build Mode (blueprint capture). */}
-          {ENABLE_BUILD_MODE && (
-            <div className="mx-auto flex w-[min(88vw,340px)] rounded-xl border border-border bg-background/40 p-1 sm:mx-0 sm:w-fit">
-              <Button
-                size="sm"
-                variant={appMode === "hse" ? "default" : "ghost"}
-                className="flex-1 sm:flex-none"
-                onClick={() => setAppMode("hse")}
-              >
-                <ShieldCheck className="mr-1.5 h-4 w-4" />
-                HSE Mode
-              </Button>
-              <Button
-                size="sm"
-                variant={appMode === "build" ? "default" : "ghost"}
-                className="flex-1 sm:flex-none"
-                onClick={() => setAppMode("build")}
-              >
-                <Hammer className="mr-1.5 h-4 w-4" />
-                Build Mode
-              </Button>
-            </div>
-          )}
-
           <CameraView
             videoRef={videoRef}
             active={active}
@@ -456,6 +432,21 @@ export default function Live() {
             stats={stats}
             onStart={handleStart}
             onStop={stop}
+            buildToggle={
+              ENABLE_BUILD_MODE ? (
+                <Button
+                  size="lg"
+                  variant={buildModeOn ? "default" : "secondary"}
+                  className="shrink-0 px-3"
+                  aria-pressed={buildModeOn}
+                  title={buildModeOn ? "Switch to HSE monitoring" : "Switch to Build Mode"}
+                  onClick={() => setAppMode((m) => (m === "build" ? "hse" : "build"))}
+                >
+                  <Hammer className="mr-1.5 h-4 w-4" />
+                  Build
+                </Button>
+              ) : undefined
+            }
           />
 
           {buildModeOn && (
