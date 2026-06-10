@@ -139,12 +139,13 @@ export function BuildModePanel({ session, replay, cameraActive, handStatus }: Pr
 
       {phase === "pinned" && (
         <div className="mt-2 space-y-2">
-          <p className="text-xs text-muted-foreground">
-            Blueprint pinned. Press Record Procedure to capture the real work steps.
+          <p className="text-xs text-cyan-200">
+            Blueprint pinned. Hold your fingertip on the red Record target in the camera (the ring
+            fills) to start capturing the real work steps.
           </p>
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={session.startProcedureRecording}>
-              <CircleDot className="mr-1.5 h-4 w-4" />
+            <Button size="sm" variant="secondary" onClick={session.startProcedureRecording}>
+              <CircleDot className="mr-1.5 h-4 w-4 text-red-400" />
               Record Procedure
             </Button>
             <Button size="sm" variant="secondary" onClick={session.beginSelection}>
