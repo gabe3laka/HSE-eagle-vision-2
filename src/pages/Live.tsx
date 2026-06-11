@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BellRing, Check, Hammer, Shapes, Trash2 } from "lucide-react";
+import { BellRing, Check, Hammer, Route, Shapes, Trash2 } from "lucide-react";
 import { useCamera } from "@/hooks/useCamera";
 import { useAlertSettings } from "@/hooks/useAlertSettings";
 import { useDetectionSession } from "@/hooks/useDetectionSession";
@@ -48,11 +48,15 @@ import {
   pointerInBounds,
 } from "@/features/build-mode/lib/handTracking";
 import type {
+  BlueprintWorkflowMode,
   BuildGesture,
   BuildHandInteraction,
   BuildHandLandmark,
   ExtractCandidate,
 } from "@/features/build-mode/types";
+
+/** Top-level app workflow: HSE monitoring | Build (document) | Plan (guide). */
+type AppMode = "hse" | "build" | "plan";
 
 /** Readout of the EdgeCrafter backend — fast Cloudflare HTTP, legacy HTTP dry-run, or WebSocket stream. */
 function BackendDebugPanel({
@@ -224,11 +228,13 @@ export default function Live() {
   const [backendTestImg, setBackendTestImg] = useState<string | null>(null);
   const [backendTesting, setBackendTesting] = useState(false);
 
-  // App workflow: HSE monitoring (existing) | Build Mode (blueprint capture).
-  // Build Mode keeps the live camera + HSE loop running but suppresses incident
-  // persistence — it's an additive workflow, not a detector change.
-  const [appMode, setAppMode] = useState<"hse" | "build">("hse");
-  const buildModeOn = ENABLE_BUILD_MODE && appMode === "build";
+  // App workflow: HSE monitoring (existing) | Build (document my work) | Plan
+  // (guide me through work). Build and Plan share the SAME blueprint engine —
+  // one flag distinguishes them. Both keep the live camera + HSE loop running
+  // but suppress incident persistence — additive workflows, not detector changes.
+  const [appMode, setAppMode] = useState<AppMode>("hse");
+  const buildModeOn = ENABLE_BUILD_MODE && (appMode === "build" || appMode === "plan");
+  const workflowMode: BlueprintWorkflowMode = appMode === "plan" ? "plan" : "build";
 
   const onIncidentSaved = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
@@ -291,6 +297,7 @@ export default function Live() {
     cameraFacing: facing,
     getHandLandmarks,
     getGesture,
+    workflowMode,
   });
   const replay = useBlueprintReplay(build.phase === "review" ? build.frames : []);
   // Ghost shown on the floating layer: the extracted base blueprint while
@@ -642,17 +649,38 @@ export default function Live() {
             onStop={stop}
             buildToggle={
               ENABLE_BUILD_MODE ? (
-                <Button
-                  size="lg"
-                  variant={buildModeOn ? "default" : "secondary"}
-                  className="shrink-0 px-3"
-                  aria-pressed={buildModeOn}
-                  title={buildModeOn ? "Switch to HSE monitoring" : "Switch to Build Mode"}
-                  onClick={() => setAppMode((m) => (m === "build" ? "hse" : "build"))}
-                >
-                  <Hammer className="mr-1.5 h-4 w-4" />
-                  Build
-                </Button>
+                <>
+                  <Button
+                    size="lg"
+                    variant={appMode === "build" ? "default" : "secondary"}
+                    className="shrink-0 px-2.5"
+                    aria-pressed={appMode === "build"}
+                    title={
+                      appMode === "build"
+                        ? "Switch to HSE monitoring"
+                        : "Build Mode — record/document my work"
+                    }
+                    onClick={() => setAppMode((m) => (m === "build" ? "hse" : "build"))}
+                  >
+                    <Hammer className="mr-1.5 h-4 w-4" />
+                    Build
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant={appMode === "plan" ? "default" : "secondary"}
+                    className="shrink-0 px-2.5"
+                    aria-pressed={appMode === "plan"}
+                    title={
+                      appMode === "plan"
+                        ? "Switch to HSE monitoring"
+                        : "Plan Mode — guide me through work"
+                    }
+                    onClick={() => setAppMode((m) => (m === "plan" ? "hse" : "plan"))}
+                  >
+                    <Route className="mr-1.5 h-4 w-4" />
+                    Plan
+                  </Button>
+                </>
               ) : undefined
             }
           />
@@ -667,6 +695,7 @@ export default function Live() {
               candidateCount={candidates.length}
               handStatus={handStatus}
               debug={buildDebug}
+              workflowMode={workflowMode}
             />
           )}
 

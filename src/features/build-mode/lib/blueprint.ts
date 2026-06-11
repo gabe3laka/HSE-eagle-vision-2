@@ -1,4 +1,11 @@
-import type { BlueprintAnchor, BlueprintFrame, SelectedRegion } from "../types";
+import type {
+  BlueprintAnchor,
+  BlueprintFrame,
+  BlueprintNote,
+  BlueprintWorkflowMode,
+  PlanStep,
+  SelectedRegion,
+} from "../types";
 
 /**
  * Pure blueprint helpers: the local mock generator (used when the backend
@@ -74,15 +81,120 @@ export function mockAnchors(frameIndex: number): BlueprintAnchor[] {
 /** Step marker roughly every ~2s of capture, walking across the region. */
 const MOCK_STEP_EVERY = 6; // every 6th keyframe (~2s at 3 FPS)
 
+/** Advance the guided Plan step every ~3s of capture (at 3 FPS keyframes). */
+const PLAN_STEP_EVERY = 9;
+
+const ACTIVITIES = ["positioning", "aligning", "fastening", "adjusting", "inspecting"];
+
+const BUILD_NEXT_ACTIONS = [
+  "Hold the part steady on the anchor points",
+  "Work left to right across the outline",
+  "Keep the blueprint ghost aligned with the part",
+];
+
+/** Fixed guided-procedure template the Plan mock walks through. */
+const PLAN_TEMPLATE: Array<Omit<PlanStep, "id" | "status">> = [
+  {
+    title: "Position the part",
+    instruction: "Align the part with the anchor corners",
+    x: 0.26,
+    y: 0.3,
+    qualityCheck: "Edges flush with A1–A2",
+  },
+  {
+    title: "Fasten left side",
+    instruction: "Drive the two left fasteners snug",
+    x: 0.2,
+    y: 0.62,
+    safetyNote: "Keep fingers clear of the driver",
+  },
+  {
+    title: "Fasten right side",
+    instruction: "Drive the two right fasteners snug",
+    x: 0.78,
+    y: 0.62,
+    qualityCheck: "No gap along the right edge",
+  },
+  {
+    title: "Verify alignment",
+    instruction: "Check the part matches the blueprint ghost",
+    x: 0.5,
+    y: 0.45,
+    qualityCheck: "Outline within the cyan guide",
+  },
+];
+
+/**
+ * Deterministic guided steps for one Plan-mode keyframe: the active step
+ * advances every PLAN_STEP_EVERY frames and clamps on the final step.
+ */
+export function mockPlanSteps(frameIndex: number): { steps: PlanStep[]; currentIndex: number } {
+  const currentIndex = Math.min(
+    PLAN_TEMPLATE.length - 1,
+    Math.floor(Math.max(0, frameIndex) / PLAN_STEP_EVERY),
+  );
+  const steps = PLAN_TEMPLATE.map((s, i) => ({
+    ...s,
+    id: `plan-${i + 1}`,
+    status: (i < currentIndex ? "completed" : i === currentIndex ? "active" : "pending") as
+      | "completed"
+      | "active"
+      | "pending",
+  }));
+  return { steps, currentIndex };
+}
+
+/** 2–3 deterministic AI notes per keyframe (instruction/observation + occasional safety). */
+export function mockAiNotes(
+  frameIndex: number,
+  workflowMode: BlueprintWorkflowMode,
+): BlueprintNote[] {
+  const rand = seeded(53 + frameIndex * 17);
+  const notes: BlueprintNote[] = [
+    {
+      id: `note-i-${frameIndex}`,
+      type: workflowMode === "plan" ? "next-step" : "instruction",
+      text: workflowMode === "plan" ? "Work the highlighted step" : "Keep the part on the anchors",
+      x: clamp01(0.2 + rand() * 0.3),
+      y: clamp01(0.12 + rand() * 0.12),
+      timestampMs: frameIndex * 333,
+      confidence: 0.6 + rand() * 0.4,
+    },
+    {
+      id: `note-o-${frameIndex}`,
+      type: "observation",
+      text: ACTIVITIES[frameIndex % ACTIVITIES.length],
+      x: clamp01(0.55 + rand() * 0.3),
+      y: clamp01(0.72 + rand() * 0.18),
+      timestampMs: frameIndex * 333,
+    },
+  ];
+  if (frameIndex % 10 === 5) {
+    notes.push({
+      id: `note-s-${frameIndex}`,
+      type: "safety",
+      text: "Watch your grip near the edge",
+      x: 0.5,
+      y: 0.5,
+      timestampMs: frameIndex * 333,
+    });
+  }
+  return notes;
+}
+
 /**
  * Local mock of what the backend's blueprint extraction would return for one
- * selected-crop keyframe. Geometry is region-local (0..1).
+ * selected-crop keyframe. Geometry is region-local (0..1). Also fills the AI
+ * work-instruction fields (notes / next action / guided plan steps) so Build
+ * and Plan are fully usable before the Worker returns them; the mock never
+ * produces a mask (maskSource "none" → the overlay's crop fallback).
  */
 export function mockBlueprintFrame(
   sessionId: string,
   frameIndex: number,
   timestampMs: number,
   _region: SelectedRegion,
+  workflowMode: BlueprintWorkflowMode = "build",
 ): BlueprintFrame {
   const stepCount = Math.floor(frameIndex / MOCK_STEP_EVERY) + 1;
   const stepMarkers = Array.from({ length: stepCount }, (_, i) => {
@@ -95,6 +207,11 @@ export function mockBlueprintFrame(
       timestampMs: i * MOCK_STEP_EVERY * 333,
     };
   });
+  const isPlan = workflowMode === "plan";
+  const plan = isPlan ? mockPlanSteps(frameIndex) : null;
+  const active = plan ? plan.steps[plan.currentIndex] : null;
+  const aiNotes = mockAiNotes(frameIndex, workflowMode);
+  const safety = active?.safetyNote ?? aiNotes.find((n) => n.type === "safety")?.text;
   return {
     sessionId,
     frameId: `f-${frameIndex}`,
@@ -103,6 +220,20 @@ export function mockBlueprintFrame(
     anchors: mockAnchors(frameIndex),
     stepMarkers,
     instruction: `Step ${stepCount} — follow the highlighted anchors`,
+    workflowMode,
+    maskSource: "none",
+    aiNotes,
+    activityLabel: ACTIVITIES[frameIndex % ACTIVITIES.length],
+    detectedIntent: active
+      ? `Guided: ${active.title.toLowerCase()}`
+      : "Documenting work on the selected part",
+    nextAction: active
+      ? active.instruction
+      : BUILD_NEXT_ACTIONS[Math.floor(frameIndex / MOCK_STEP_EVERY) % BUILD_NEXT_ACTIONS.length],
+    safetyWarning: safety,
+    qualityCheck: active?.qualityCheck,
+    importance: safety ? "high" : "medium",
+    ...(plan ? { planSteps: plan.steps, currentPlanStepIndex: plan.currentIndex } : {}),
   };
 }
 

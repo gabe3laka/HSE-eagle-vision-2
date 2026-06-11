@@ -12,6 +12,7 @@ import type {
   BlueprintFrame,
   BlueprintPlacement,
   BlueprintTransform,
+  BlueprintWorkflowMode,
   BuildBackendMode,
   BuildBackendStatus,
   BuildGesture,
@@ -30,6 +31,9 @@ interface Options {
   getHandLandmarks?: () => BuildHandLandmark[];
   /** Current gesture (e.g. active pinch) — stamped into each keyframe. */
   getGesture?: () => BuildGesture | undefined;
+  /** Build = record/document my work; Plan = guide me through work. The SAME
+   *  engine serves both — this flag just rides on every payload/frame. */
+  workflowMode?: BlueprintWorkflowMode;
 }
 
 /**
@@ -53,6 +57,7 @@ export function useBuildModeSession({
   cameraFacing,
   getHandLandmarks,
   getGesture,
+  workflowMode = "build",
 }: Options) {
   const [phase, setPhase] = useState<BuildPhase>("idle");
   const [region, setRegion] = useState<SelectedRegion | null>(null);
@@ -118,6 +123,8 @@ export function useBuildModeSession({
   getHandLandmarksRef.current = getHandLandmarks;
   const getGestureRef = useRef(getGesture);
   getGestureRef.current = getGesture;
+  const workflowModeRef = useRef(workflowMode);
+  workflowModeRef.current = workflowMode;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -151,6 +158,16 @@ export function useBuildModeSession({
     if (!enabled) reset();
     return clearTimer;
   }, [enabled, reset, clearTimer]);
+
+  // Switching Build ↔ Plan reuses the same engine but starts a fresh session —
+  // a half-finished Build recording shouldn't continue as a Plan session.
+  const prevWorkflowRef = useRef(workflowMode);
+  useEffect(() => {
+    if (prevWorkflowRef.current !== workflowMode) {
+      prevWorkflowRef.current = workflowMode;
+      reset();
+    }
+  }, [workflowMode, reset]);
 
   const beginSelection = useCallback(() => {
     if (!enabled) return;
@@ -190,7 +207,7 @@ export function useBuildModeSession({
       setExtractSource(null);
       go("selected");
       const ready = (async () => {
-        const session = await startBuildSession();
+        const session = await startBuildSession(workflowModeRef.current);
         sessionRef.current = session;
         setBackendMode(session.backendMode);
         // Refine the status with the actual session outcome: a configured URL
@@ -221,7 +238,7 @@ export function useBuildModeSession({
       if (!video || !session || !sel || video.readyState < 2 || !video.videoWidth) return null;
       const crop = captureRegionBase64(video, sel);
       if (!crop) return null;
-      return sendBuildFrame(
+      const frame = await sendBuildFrame(
         session,
         {
           sessionId: session.sessionId,
@@ -236,9 +253,21 @@ export function useBuildModeSession({
               : undefined,
           handLandmarks: getHandLandmarksRef.current?.(),
           gesture: getGestureRef.current?.(),
+          workflowMode: workflowModeRef.current,
         },
         index,
       );
+      // The crop we already captured IS the ghost's object image: keep it
+      // locally on the frame (transient, in-memory only) so the overlay never
+      // needs Cloudflare/RunPod to send pixels back. Backend-provided mask/AI
+      // fields on `frame` are preserved.
+      return {
+        ...frame,
+        sourceImageB64: crop.image_b64,
+        sourceImageSize: { w: crop.cw, h: crop.ch },
+        sourceImageMode: "transient",
+        workflowMode: frame.workflowMode ?? workflowModeRef.current,
+      };
     },
     [videoRef, cameraFacing],
   );
@@ -362,6 +391,7 @@ export function useBuildModeSession({
 
   return {
     phase,
+    workflowMode,
     region,
     frames,
     latestFrame,

@@ -4,6 +4,7 @@ import { mockBlueprintFrame } from "../lib/blueprint";
 import { handLandmarksToRegionLocal } from "../lib/handTracking";
 import type {
   BlueprintFrame,
+  BlueprintWorkflowMode,
   BuildFramePayload,
   BuildReplay,
   BuildSessionInfo,
@@ -62,16 +63,27 @@ async function postJson(base: string, path: string, body: unknown): Promise<unkn
  * Start a session. Resolves the base URL (env → Supabase config → null) and
  * uses the real Cloudflare `/build/*` routes when available; otherwise (or on
  * any failure) falls back to a local mock session — never blocks the UI.
+ * `workflowMode` rides on the SAME routes for both Build and Plan — no /plan/*.
  */
-export async function startBuildSession(): Promise<BuildSessionInfo> {
+export async function startBuildSession(
+  workflowMode: BlueprintWorkflowMode = "build",
+): Promise<BuildSessionInfo> {
   const cfg = await resolveBuildModeApiUrl();
   if (cfg.url) {
     try {
-      const d = (await postJson(cfg.url, "/build/session/start", { camera_id: CAMERA_ID })) as {
+      const d = (await postJson(cfg.url, "/build/session/start", {
+        camera_id: CAMERA_ID,
+        workflowMode,
+      })) as {
         session_id?: unknown;
       };
       if (typeof d.session_id === "string" && d.session_id) {
-        return { sessionId: d.session_id, backendMode: "http", configSource: cfg.source };
+        return {
+          sessionId: d.session_id,
+          backendMode: "http",
+          configSource: cfg.source,
+          workflowMode,
+        };
       }
     } catch {
       // fall through to mock — never block the UI on a backend hiccup
@@ -81,7 +93,7 @@ export async function startBuildSession(): Promise<BuildSessionInfo> {
   mockStore.set(sessionId, []);
   // configSource is preserved so the panel distinguishes "mock-fallback"
   // (URL configured but request failed) from "config-missing" (no URL).
-  return { sessionId, backendMode: "mock", configSource: cfg.source };
+  return { sessionId, backendMode: "mock", configSource: cfg.source, workflowMode };
 }
 
 /** Tell the backend which region was locked (no-op in mock mode). */
@@ -93,7 +105,11 @@ export async function lockBuildSelection(
   const { url } = await resolveBuildModeApiUrl();
   if (!url) return;
   try {
-    await postJson(url, "/build/session/lock", { session_id: session.sessionId, selection });
+    await postJson(url, "/build/session/lock", {
+      session_id: session.sessionId,
+      selection,
+      workflowMode: session.workflowMode ?? "build",
+    });
   } catch {
     // tolerated — the lock is advisory; frames carry the region anyway
   }
@@ -128,6 +144,7 @@ export async function sendBuildFrame(
     frameIndex,
     payload.timestampMs,
     payload.selectedRegion,
+    payload.workflowMode ?? session.workflowMode ?? "build",
   );
   // Carry recorded hand landmarks into the keyframe (mapped to region-local
   // coords) plus the gesture snapshot, so replay draws the finger/wrist path
@@ -147,6 +164,7 @@ export async function finishBuildSession(session: BuildSessionInfo): Promise<str
       if (url) {
         const d = (await postJson(url, "/build/session/finish", {
           session_id: session.sessionId,
+          workflowMode: session.workflowMode ?? "build",
         })) as { replay_id?: unknown };
         if (typeof d.replay_id === "string" && d.replay_id) return d.replay_id;
       }

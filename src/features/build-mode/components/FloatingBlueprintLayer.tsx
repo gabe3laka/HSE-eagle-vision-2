@@ -7,6 +7,7 @@ import { PinchHoldRing } from "./PinchHoldRing";
 import type {
   BlueprintFrame,
   BlueprintTransform,
+  BlueprintVisualMode,
   BuildHandInteraction,
   BuildHandLandmark,
   BuildPhase,
@@ -42,6 +43,8 @@ interface Props {
   onPinned?: (transform: BlueprintTransform) => void;
   /** Reports hover/grab/drag state up for the status chip. */
   onHandInteraction?: (interaction: BuildHandInteraction) => void;
+  /** Ghost rendering style — defaults to "hybrid" (object crop + wireframe). */
+  visualMode?: BlueprintVisualMode;
 }
 
 /**
@@ -70,6 +73,7 @@ export function FloatingBlueprintLayer({
   onExtractRequest,
   onPinned,
   onHandInteraction,
+  visualMode = "hybrid",
 }: Props) {
   const [t, setT] = useState<BlueprintTransform>({ x: 0, y: 0, scale: 1 });
   const [handMode, setHandMode] = useState<HandMode>("idle");
@@ -404,8 +408,9 @@ export function FloatingBlueprintLayer({
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
-      {/* Ghost content: nothing inside the source box; wireframe once extracted. */}
-      {!isSource && frame && <BlueprintOverlay frame={frame} />}
+      {/* Ghost content: nothing inside the source box; once extracted, the
+          layered object-ghost (actual crop + mask + wireframe). */}
+      {!isSource && frame && <BlueprintOverlay frame={frame} visualMode={visualMode} />}
       {/* Never leave the user staring at nothing: a visible shell while the
           ghost exists but its frame hasn't arrived yet. (isSource already
           excludes the selected/extracting phases.) */}
