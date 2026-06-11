@@ -89,6 +89,32 @@ export interface PlanStep {
   qualityCheck?: string;
 }
 
+/**
+ * What the user confirmed they're trying to do (Plan mode). Asked explicitly
+ * when AI confidence is low — suggest, never overclaim.
+ */
+export type BuildUserIntent = "inspect" | "repair" | "clean" | "install" | "remove" | "other";
+
+/**
+ * The pinched object's pixels, held ONCE per capture instead of repeating
+ * base64 images on every keyframe (frames reference it by `sourceAssetId`).
+ * Live sessions keep `imageB64`/`maskB64` transient in memory; saved
+ * blueprints keep at most a compressed `thumbnailB64` + `maskContour`
+ * ("saved-thumbnail" mode) — never full frames, never video.
+ */
+export interface BlueprintSourceAsset {
+  id: string;
+  imageB64?: string;
+  thumbnailB64?: string;
+  maskB64?: string;
+  /** Compact vector form of the mask (region-local 0..1) — the compressed
+   *  mask representation that survives saving. */
+  maskContour?: Array<{ x: number; y: number }>;
+  size?: { w: number; h: number };
+  mode: "transient" | "saved-thumbnail";
+  maskSource?: "none" | "sam2" | "fallback-contour";
+}
+
 export interface BlueprintPoint {
   x: number;
   y: number;
@@ -97,6 +123,8 @@ export interface BlueprintPoint {
 
 /** One instructional "ghost" keyframe of the blueprint replay. */
 export interface BlueprintFrame {
+  /** v2 frames reference their pixels via `sourceAssetId` instead of inline b64. */
+  version?: 2;
   sessionId: string;
   frameId: string;
   timestampMs: number;
@@ -109,9 +137,12 @@ export interface BlueprintFrame {
   /** Gesture recorded with this keyframe — replay highlights pinch points. */
   gesture?: BuildGesture;
 
-  // ── Source-crop visuals (TRANSIENT: kept in memory only, never persisted;
-  //    attached locally from the capture — the backend never sends pixels back). ──
-  /** The actual selected-crop JPEG (no data: prefix) the ghost renders from. */
+  /** The BlueprintSourceAsset this keyframe's ghost pixels live in. */
+  sourceAssetId?: string;
+
+  // ── v1 inline source-crop fields. Kept as the TRANSPORT/back-compat shape
+  //    (a backend frame may arrive with these inline); the app moves them into
+  //    a BlueprintSourceAsset and strips them off stored v2 frames. ──
   sourceImageB64?: string;
   sourceImageSize?: { w: number; h: number };
   sourceImageMode?: "transient" | "saved-thumbnail";
@@ -200,6 +231,8 @@ export interface BuildFramePayload {
   gesture?: BuildGesture;
   /** Which workflow this keyframe serves — same /build/* routes for both. */
   workflowMode?: BlueprintWorkflowMode;
+  /** Confirmed user goal (Plan mode) — guidance stops hedging once known. */
+  userIntent?: BuildUserIntent;
 }
 
 /** Backend transport for the session: real HTTP routes or the local mock. */
@@ -253,4 +286,22 @@ export type BuildPhase =
 export interface BlueprintPlacement {
   transform: BlueprintTransform;
   pinnedAtMs: number;
+}
+
+/**
+ * A saved blueprint procedure (Supabase `blueprints` row, app shape).
+ * Geometry + notes + replay JSON only — frames are stripped of inline images;
+ * `sourceAsset` holds at most a compressed thumbnail + mask contour.
+ */
+export interface SavedBlueprint {
+  id: string;
+  name: string;
+  workflowMode: BlueprintWorkflowMode;
+  backendMode?: string | null;
+  createdAt: string;
+  region: SelectedRegion;
+  placement: BlueprintPlacement | null;
+  baseFrame: BlueprintFrame;
+  frames: BlueprintFrame[];
+  sourceAsset: BlueprintSourceAsset | null;
 }

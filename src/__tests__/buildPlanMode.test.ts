@@ -70,7 +70,7 @@ describe("Build/Plan — AI notes on mock frames", () => {
 });
 
 describe("Build/Plan — mockBlueprintFrame AI fields", () => {
-  it("plan frames carry guided steps + next action from the active step", () => {
+  it("plan frames carry guided steps + a hedged next action from the active step", () => {
     const f = mockBlueprintFrame("s", 10, 3330, REGION, "plan");
     expect(f.workflowMode).toBe("plan");
     expect(f.maskSource).toBe("none");
@@ -78,8 +78,10 @@ describe("Build/Plan — mockBlueprintFrame AI fields", () => {
     expect(f.currentPlanStepIndex).toBe(1); // frame 10 → second step
     const active = f.planSteps![f.currentPlanStepIndex!];
     expect(active.status).toBe("active");
-    expect(f.nextAction).toBe(active.instruction);
-    expect(f.detectedIntent).toContain("Guided");
+    expect(f.nextAction).toBe(`Possible next step: ${active.instruction}`);
+    expect(f.detectedIntent).toContain("may be trying");
+    expect(f.importance).toBe("high"); // this step carries a safety note
+    expect(f.safetyWarning).toBe(active.safetyNote);
     expect(f.aiNotes!.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -88,10 +90,31 @@ describe("Build/Plan — mockBlueprintFrame AI fields", () => {
     expect(f.workflowMode).toBe("build");
     expect(f.planSteps).toBeUndefined();
     expect(f.currentPlanStepIndex).toBeUndefined();
-    expect(f.nextAction!.length).toBeGreaterThan(0);
-    expect(f.detectedIntent).toContain("Documenting");
+    expect(f.nextAction).toContain("Possible next action");
+    expect(f.detectedIntent).toContain("appears to be documenting");
     expect(f.activityLabel!.length).toBeGreaterThan(0);
     expect(f.importance === "medium" || f.importance === "high").toBe(true);
+  });
+
+  it("a confirmed user intent stops the hedging and rides as an intent note", () => {
+    const hedged = mockBlueprintFrame("s", 1, 333, REGION, "plan");
+    const confirmed = mockBlueprintFrame("s", 1, 333, REGION, "plan", "inspect");
+    expect(hedged.detectedIntent).toContain("may be trying");
+    expect(hedged.importance).toBe("low"); // unconfirmed intent → honest low confidence
+    expect(confirmed.detectedIntent).toContain("Confirmed goal: inspect");
+    expect(confirmed.importance).toBe("medium"); // no longer low-confidence
+    expect(confirmed.aiNotes![0].type).toBe("intent");
+    expect(confirmed.aiNotes![0].text).toContain("inspect");
+  });
+
+  it("rule-based notes use cautious language", () => {
+    const buildNotes = mockAiNotes(0, "build");
+    expect(buildNotes[0].text).toBe("The user appears to be working near this point");
+    expect(buildNotes[1].text).toContain("appears to be");
+    const planNotes = mockAiNotes(0, "plan");
+    expect(planNotes[0].text).toBe("Possible next step: check the highlighted area");
+    const safetyFrame = mockBlueprintFrame("s", 5, 1665, REGION, "plan");
+    expect(safetyFrame.safetyWarning).toContain("verify the item is safe");
   });
 
   it("defaults to build when the workflow argument is omitted (back-compat)", () => {

@@ -309,6 +309,9 @@ export default function Live() {
       : build.phase === "recording"
         ? (build.latestFrame ?? build.baseFrame)
         : build.baseFrame;
+  // v2: the ghost's pixels live in the session's transient asset store; the
+  // frame only references them.
+  const ghostAsset = build.getAsset(ghostFrame?.sourceAssetId);
 
   // Status chip: pinch-drag > finger tracking > wrist fallback > waiting
   // (model loading / loop running but no hand yet) > touch fallback.
@@ -630,6 +633,7 @@ export default function Live() {
                       phase={build.phase}
                       region={build.region}
                       frame={ghostFrame}
+                      sourceAsset={ghostAsset}
                       handPointer={hand.primaryPointer}
                       pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
                       onExtractRequest={() => void build.extractBlueprint()}

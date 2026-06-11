@@ -145,6 +145,7 @@ export async function sendBuildFrame(
     payload.timestampMs,
     payload.selectedRegion,
     payload.workflowMode ?? session.workflowMode ?? "build",
+    payload.userIntent,
   );
   // Carry recorded hand landmarks into the keyframe (mapped to region-local
   // coords) plus the gesture snapshot, so replay draws the finger/wrist path

@@ -1,19 +1,41 @@
+import { useEffect, useState } from "react";
 import {
   CircleDot,
+  FolderOpen,
   Hammer,
   Hand,
   Loader2,
   Play,
   Route,
+  Save,
   ScanSearch,
   Square,
+  Trash2,
   Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
 import type { BlueprintReplayControls } from "../hooks/useBlueprintReplay";
 import type { BuildModeSession } from "../hooks/useBuildModeSession";
-import type { BlueprintWorkflowMode, BuildBackendStatus } from "../types";
+import {
+  useDeleteBlueprint,
+  useSaveBlueprint,
+  useSavedBlueprints,
+} from "../hooks/useSavedBlueprints";
+import { serializeBlueprintSave } from "../lib/sourceAssets";
+import { compressImageB64 } from "../lib/thumbnail";
+import type { BlueprintWorkflowMode, BuildBackendStatus, BuildUserIntent } from "../types";
 import { BlueprintTimeline } from "./BlueprintTimeline";
+
+/** The explicit goal chooser — asked instead of overclaiming a guessed intent. */
+const INTENT_OPTIONS: BuildUserIntent[] = [
+  "inspect",
+  "repair",
+  "clean",
+  "install",
+  "remove",
+  "other",
+];
 
 /** Short chip label for the resolved Build Mode backend. */
 const BACKEND_STATUS: Record<BuildBackendStatus, { label: string; live: boolean }> = {
@@ -91,6 +113,62 @@ export function BuildModePanel({
   const { phase, frameCount, backendStatus, error } = session;
   const backend = BACKEND_STATUS[backendStatus];
   const isPlan = workflowMode === "plan";
+
+  // Saved blueprint procedures (owner-only via RLS) + save/load/delete.
+  const { user } = useAuth();
+  const { data: saved = [] } = useSavedBlueprints();
+  const saveBlueprint = useSaveBlueprint();
+  const deleteBlueprint = useDeleteBlueprint();
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  useEffect(() => setSaveState("idle"), [session.baseFrame]);
+
+  const handleSave = async () => {
+    const { region, baseFrame, frames, placement } = session;
+    if (!region || !baseFrame || saveState === "saving") return;
+    setSaveState("saving");
+    try {
+      // Saved form: geometry + notes + replay JSON only; the object image
+      // shrinks to one compressed thumbnail (never per-frame images).
+      const asset = session.getAsset(baseFrame.sourceAssetId);
+      const thumbnailB64 = asset?.imageB64 ? await compressImageB64(asset.imageB64) : null;
+      const stamp = new Date().toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      await saveBlueprint.mutateAsync(
+        serializeBlueprintSave({
+          name: `${session.extractSource?.label || (isPlan ? "Plan" : "Build")} — ${stamp}`,
+          workflowMode,
+          backendMode: session.backendMode,
+          region,
+          placement,
+          baseFrame,
+          frames,
+          sourceAsset: asset,
+          thumbnailB64,
+        }),
+      );
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  };
+
+  const saveButton = (
+    <Button size="sm" variant="secondary" onClick={() => void handleSave()} disabled={!user}>
+      <Save className="mr-1.5 h-4 w-4" />
+      {saveState === "saving"
+        ? "Saving…"
+        : saveState === "saved"
+          ? "Saved ✓"
+          : saveState === "error"
+            ? "Save failed — retry"
+            : "Save blueprint"}
+    </Button>
+  );
+
   // AI guidance comes with each blueprint frame (mock or backend) — show the
   // freshest one from extraction onward.
   const aiFrame = session.latestFrame ?? session.baseFrame;
@@ -179,6 +257,46 @@ export function BuildModePanel({
           {!cameraActive && (
             <p className="text-[11px] text-muted-foreground">Enable the camera first.</p>
           )}
+
+          {/* Saved procedures: load one back into the live session, or delete. */}
+          {user && saved.length > 0 && (
+            <div className="space-y-1 border-t border-border/60 pt-2">
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                <FolderOpen className="h-3.5 w-3.5" />
+                Saved blueprints ({saved.length})
+              </span>
+              <ul className="space-y-1">
+                {saved.map((b) => (
+                  <li
+                    key={b.id}
+                    className="flex items-center justify-between gap-2 rounded-lg bg-muted/40 px-2 py-1 text-xs"
+                  >
+                    <span className="min-w-0 flex-1 truncate" title={b.name}>
+                      {b.name}
+                    </span>
+                    <span className="shrink-0 rounded-full bg-cyan-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-cyan-300">
+                      {b.workflowMode}
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 font-medium text-cyan-300 transition-colors hover:text-cyan-100"
+                      onClick={() => session.loadSavedBlueprint(b)}
+                    >
+                      Load
+                    </button>
+                    <button
+                      type="button"
+                      className="shrink-0 text-muted-foreground transition-colors hover:text-destructive"
+                      onClick={() => deleteBlueprint.mutate(b.id)}
+                      aria-label={`Delete blueprint ${b.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
@@ -225,7 +343,7 @@ export function BuildModePanel({
             Blueprint pinned. Hold your fingertip on the red Record target in the camera (the ring
             fills) to start capturing the real work steps.
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="secondary" onClick={session.startProcedureRecording}>
               <CircleDot className="mr-1.5 h-4 w-4 text-red-400" />
               Record Procedure
@@ -234,6 +352,7 @@ export function BuildModePanel({
               <Undo2 className="mr-1.5 h-4 w-4" />
               New selection
             </Button>
+            {saveButton}
           </div>
         </div>
       )}
@@ -254,16 +373,50 @@ export function BuildModePanel({
       {phase === "review" && (
         <div className="mt-3 space-y-3">
           <BlueprintTimeline replay={replay} frameCount={frameCount} />
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="min-w-0 flex-1 text-[11px] text-muted-foreground">
               Replay shows the pinned blueprint with the recorded hand path and steps.
             </p>
-            <Button size="sm" variant="secondary" onClick={session.beginSelection}>
-              <Undo2 className="mr-1.5 h-4 w-4" />
-              New selection
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              {saveButton}
+              <Button size="sm" variant="secondary" onClick={session.beginSelection}>
+                <Undo2 className="mr-1.5 h-4 w-4" />
+                New selection
+              </Button>
+            </div>
+          </div>
+          {!user && (
+            <p className="text-[10px] text-muted-foreground">Sign in to save blueprints.</p>
+          )}
+        </div>
+      )}
+
+      {/* Low-confidence honesty (Plan mode): instead of pretending to know the
+          goal, ask for it. The confirmed answer rides on every keyframe and
+          guidance stops hedging. */}
+      {isPlan && session.baseFrame && !session.userIntent && (
+        <div className="mt-2 space-y-1.5 rounded-lg border border-violet-400/25 bg-violet-500/5 px-2.5 py-2">
+          <p className="text-[11px] font-medium text-violet-200">
+            What are you trying to do with this item?
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {INTENT_OPTIONS.map((intent) => (
+              <button
+                key={intent}
+                type="button"
+                className="rounded-full border border-violet-300/40 bg-black/30 px-2.5 py-1 text-[11px] capitalize text-violet-100 transition-colors hover:bg-violet-500/25"
+                onClick={() => session.confirmIntent(intent)}
+              >
+                {intent}
+              </button>
+            ))}
           </div>
         </div>
+      )}
+      {isPlan && session.userIntent && (
+        <p className="mt-2 text-[11px] text-violet-200">
+          Goal confirmed: <span className="font-medium capitalize">{session.userIntent}</span>
+        </p>
       )}
 
       {/* AI guidance carried on the blueprint frames: detected intent, the
