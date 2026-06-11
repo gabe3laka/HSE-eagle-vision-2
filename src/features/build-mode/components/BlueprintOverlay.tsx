@@ -1,10 +1,12 @@
 import { useId } from "react";
+import { shouldShowBlueprintDebugLabels } from "../lib/debugLabels";
 import type {
   BlueprintFrame,
   BlueprintNote,
   BlueprintPlanOverlay,
   BlueprintSourceAsset,
   BlueprintVisualMode,
+  VirtualBlueprintPoint,
 } from "../types";
 
 const OUTLINE = "rgba(34,211,238,1)"; // bright cyan — must be unmissable
@@ -59,13 +61,18 @@ export function BlueprintOverlay({
   frame,
   sourceAsset,
   visualMode = "hybrid",
+  showBlueprintDebugLabels = false,
 }: {
   frame: BlueprintFrame;
   /** v2 pixel store entry for `frame.sourceAssetId` (live crop or saved
    *  thumbnail). Inline v1 frame fields remain the fallback. */
   sourceAsset?: BlueprintSourceAsset;
   visualMode?: BlueprintVisualMode;
+  /** Show mask-source/anchor debug text on the ghost (dev only). Default off —
+   *  the holographic ghost stays clean. */
+  showBlueprintDebugLabels?: boolean;
 }) {
+  const debugLabels = shouldShowBlueprintDebugLabels(showBlueprintDebugLabels);
   // useId can contain ":" which breaks SVG url(#…) references — strip it.
   const uid = useId().replace(/:/g, "");
   const gridId = `bp-grid-${uid}`;
@@ -207,10 +214,8 @@ export function BlueprintOverlay({
       <text x={2.5} y={6} fontSize={4} fontWeight={700} letterSpacing={1.4} fill={OUTLINE}>
         {frame.workflowMode === "plan" ? "PLAN" : "BLUEPRINT"}
       </text>
-      {/* mask state (tiny debug label): the segmentation source when present
-          (e.g. yolo26-seg), else "mask fallback" when only the bbox/wireframe
-          drives the outline. Deliberately small — not a big user-facing badge. */}
-      {hasCrop && (
+      {/* Mask-source debug label — DEV + opt-in only. Never on the clean ghost. */}
+      {hasCrop && debugLabels && (
         <text x={97.5} y={97.5} fontSize={2.6} textAnchor="end" fill={OUTLINE_BACK}>
           {maskLabel}
         </text>
@@ -240,7 +245,8 @@ export function BlueprintOverlay({
             strokeWidth={0.5}
           />
           <circle cx={a.x * 100} cy={a.y * 100} r={0.6} fill={ANCHOR} />
-          {a.label && (
+          {/* Anchor names (A1/A2…) are debug-only — hidden on the clean ghost. */}
+          {a.label && debugLabels && (
             <text x={a.x * 100 + 2.4} y={a.y * 100 + 1} fontSize={3} fill={ANCHOR}>
               {a.label}
             </text>
@@ -331,6 +337,17 @@ export function BlueprintOverlay({
           (where a part should go), highlights (inspect), warning zones. */}
       {frame.planOverlays?.map((ov) => (
         <PlanOverlayShape key={ov.id} overlay={ov} />
+      ))}
+
+      {/* Jarvis-style virtual blueprint vector points (DeepSeek/rules). Points
+          linked to the active step stay bright; others fade so the ghost never
+          clutters. Labels are not drawn here — they live in the callout cards. */}
+      {frame.virtualBlueprintPoints?.map((p) => (
+        <VirtualPointShape
+          key={p.id}
+          point={p}
+          active={!activeStep || !p.linkedStepId || p.linkedStepId === activeStep.id}
+        />
       ))}
 
       {/* active Plan step marker — the amber "work here" bubble */}
@@ -515,4 +532,80 @@ function PlanOverlayShape({ overlay }: { overlay: BlueprintPlanOverlay }) {
 
   // Unknown overlay type → ignore gracefully (forward-compatible with the worker).
   return null;
+}
+
+/** One virtual blueprint vector point, drawn by role. Unknown roles fall to a
+ *  subtle dot (never crashes). Inactive points are faded to reduce clutter. */
+function VirtualPointShape({ point, active }: { point: VirtualBlueprintPoint; active: boolean }) {
+  const CYAN = "rgba(34,211,238,1)";
+  const AMBER = "rgba(251,191,36,1)";
+  const BLUE = "rgba(125,211,252,1)";
+  const RED = "rgba(248,113,113,1)";
+  const cx = point.x * 100;
+  const cy = point.y * 100;
+  const op = active ? 1 : 0.32;
+
+  switch (point.role) {
+    case "alignment-point":
+      return (
+        <g opacity={op}>
+          <line x1={cx - 2.6} y1={cy} x2={cx + 2.6} y2={cy} stroke={CYAN} strokeWidth={0.5} />
+          <line x1={cx} y1={cy - 2.6} x2={cx} y2={cy + 2.6} stroke={CYAN} strokeWidth={0.5} />
+        </g>
+      );
+    case "target-position":
+      return (
+        <g opacity={op}>
+          <circle cx={cx} cy={cy} r={3.4} fill="none" stroke={AMBER} strokeWidth={0.7} />
+          <circle cx={cx} cy={cy} r={0.9} fill={AMBER} />
+        </g>
+      );
+    case "connection-point":
+      return (
+        <g opacity={op}>
+          <circle cx={cx} cy={cy} r={1} fill={CYAN} />
+          <line
+            x1={cx}
+            y1={cy}
+            x2={cx + 4}
+            y2={cy - 4}
+            stroke={CYAN}
+            strokeWidth={0.4}
+            strokeDasharray="1 0.8"
+          />
+        </g>
+      );
+    case "inspection-point":
+      return (
+        <g opacity={op}>
+          <circle
+            cx={cx}
+            cy={cy}
+            r={4.5}
+            fill="rgba(125,211,252,0.16)"
+            stroke={BLUE}
+            strokeWidth={0.5}
+          />
+          <circle cx={cx} cy={cy} r={0.8} fill={BLUE} />
+        </g>
+      );
+    case "warning-point":
+      return (
+        <g opacity={op}>
+          <circle
+            cx={cx}
+            cy={cy}
+            r={3.2}
+            fill="none"
+            stroke={RED}
+            strokeWidth={0.7}
+            strokeDasharray="1.6 1"
+          />
+          <circle cx={cx} cy={cy} r={0.9} fill={RED} />
+        </g>
+      );
+    case "anchor":
+    default:
+      return <circle cx={cx} cy={cy} r={1} fill={CYAN} opacity={op * 0.8} />;
+  }
 }

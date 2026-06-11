@@ -5,10 +5,12 @@ import {
   Hammer,
   Hand,
   Loader2,
+  MessageCircle,
   Play,
   Route,
   Save,
   ScanSearch,
+  Sparkles,
   Square,
   Trash2,
   Undo2,
@@ -94,6 +96,9 @@ interface Props {
   debug?: BuildDebugInfo;
   /** Build = record/document; Plan = guided work. Same engine, same panel. */
   workflowMode?: BlueprintWorkflowMode;
+  /** Controlled "reply" drawer (so a Plan callout tap can open the goal input). */
+  replyOpen?: boolean;
+  onReplyOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -112,6 +117,8 @@ export function BuildModePanel({
   handStatus,
   debug,
   workflowMode = "build",
+  replyOpen,
+  onReplyOpenChange,
 }: Props) {
   const { phase, frameCount, backendStatus, error } = session;
   const backend = BACKEND_STATUS[backendStatus];
@@ -124,13 +131,27 @@ export function BuildModePanel({
   const deleteBlueprint = useDeleteBlueprint();
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   useEffect(() => setSaveState("idle"), [session.baseFrame]);
-  /** Free-text goal for Plan mode's "custom task" path. */
-  const [customText, setCustomText] = useState("");
-  const submitCustom = () => {
-    const text = customText.trim();
+
+  // The Plan goal input. In plan_waiting_for_intent it's always shown; in
+  // guiding/review it's a drawer the user opens via "Ask follow-up" / "Change
+  // goal" / a Plan callout tap (the open state can be controlled by the parent).
+  const [internalReplyOpen, setInternalReplyOpen] = useState(false);
+  const drawerOpen = replyOpen ?? internalReplyOpen;
+  const setDrawerOpen = onReplyOpenChange ?? setInternalReplyOpen;
+  const [goalText, setGoalText] = useState("");
+
+  /** Submit a free-text goal: first goal confirms the intent; later ones are
+   *  follow-ups re-reasoned over the same blueprint. Both trigger DeepSeek. */
+  const submitGoal = (raw?: string) => {
+    const text = (raw ?? goalText).trim();
     if (!text) return;
-    void session.confirmIntent("custom", text);
-    setCustomText("");
+    if (session.planStage === "plan_waiting_for_intent") {
+      void session.confirmIntent("custom", text);
+    } else {
+      void session.askFollowUp(text);
+    }
+    setGoalText("");
+    setDrawerOpen(false);
   };
 
   const handleSave = async () => {
@@ -405,68 +426,129 @@ export function BuildModePanel({
         </div>
       )}
 
-      {/* Plan intent capture: after the ghost appears, ask the goal BEFORE
-          guiding (no generic guidance until confirmed). */}
+      {/* Plan goal input — shown automatically after extraction (no generic
+          guidance until a goal is confirmed). Item-captured + quick chips +
+          a clear text box and a "Generate plan" button. */}
       {isPlan && session.planStage === "plan_waiting_for_intent" && (
         <div className="mt-2 space-y-2 rounded-lg border border-violet-400/30 bg-violet-500/5 px-2.5 py-2">
-          <p className="text-xs font-medium text-violet-100">
-            What do you want to do with this item?
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-violet-200">
+            <Sparkles className="h-3.5 w-3.5" /> Item captured for planning
+          </div>
+          <p className="text-xs text-violet-100">
+            What are you trying to build, inspect, repair, or understand?
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {TASK_OPTIONS.map((opt) =>
-              opt.value === "custom" ? null : (
-                <button
-                  key={opt.value}
-                  type="button"
-                  className="rounded-full border border-violet-300/40 bg-black/30 px-2.5 py-1 text-[11px] text-violet-100 transition-colors hover:bg-violet-500/25"
-                  onClick={() => void session.confirmIntent(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ),
-            )}
+            {TASK_OPTIONS.filter((o) => o.value !== "custom").map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className="rounded-full border border-violet-300/40 bg-black/30 px-2.5 py-1 text-[11px] text-violet-100 transition-colors hover:bg-violet-500/25"
+                onClick={() => void session.confirmIntent(opt.value)}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
           <div className="flex items-center gap-1.5">
             <input
-              value={customText}
-              onChange={(e) => setCustomText(e.target.value)}
+              value={goalText}
+              onChange={(e) => setGoalText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") submitCustom();
+                if (e.key === "Enter") submitGoal();
               }}
-              placeholder="…or type a goal, e.g. “How do I assemble these?”"
+              placeholder="e.g. “Help me assemble this PCB board”"
               className="min-w-0 flex-1 rounded-md border border-violet-300/30 bg-black/40 px-2 py-1 text-[11px] text-violet-50 placeholder:text-violet-300/40 focus:border-violet-300/60 focus:outline-none"
             />
             <Button
               size="sm"
-              variant="secondary"
               className="shrink-0"
-              onClick={submitCustom}
-              disabled={!customText.trim()}
+              onClick={() => submitGoal()}
+              disabled={!goalText.trim()}
             >
-              Ask
+              Generate plan
             </Button>
           </div>
         </div>
       )}
+
       {isPlan && session.planStage === "plan_generating_steps" && (
         <div className="mt-2 flex items-center gap-2 text-[11px] text-violet-200">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Generating guided steps for “{intentLabel(session.userIntent)}”…
+          Thinking through parts and next steps…
         </div>
       )}
+
+      {/* Confirmed goal + reasoning source + follow-up drawer. */}
       {isPlan && session.userIntent?.confirmed && session.planStage !== "plan_generating_steps" && (
-        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-violet-200">
-          <span>
-            Goal: <span className="font-medium capitalize">{intentLabel(session.userIntent)}</span>
-          </span>
-          <button
-            type="button"
-            className="text-violet-300/70 underline-offset-2 hover:underline"
-            onClick={session.clearIntent}
-          >
-            change
-          </button>
-        </p>
+        <div className="mt-2 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] text-violet-200">
+              Goal:{" "}
+              <span className="font-medium capitalize">{intentLabel(session.userIntent)}</span>
+            </span>
+            {session.reasoningStatus === "ok" && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/15 px-2 py-0.5 text-[9px] font-semibold text-cyan-300">
+                <Sparkles className="h-3 w-3" /> AI plan
+              </span>
+            )}
+            {session.reasoningStatus === "fallback" && (
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold text-amber-300">
+                Basic guide generated
+              </span>
+            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7"
+              onClick={() => setDrawerOpen(!drawerOpen)}
+            >
+              <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
+              Ask follow-up
+            </Button>
+            {session.planStage !== "plan_review" && (
+              <Button size="sm" variant="secondary" className="h-7" onClick={session.clearIntent}>
+                Change goal
+              </Button>
+            )}
+          </div>
+          {drawerOpen && (
+            <div className="space-y-1.5 rounded-lg border border-violet-400/25 bg-violet-500/5 px-2.5 py-2">
+              {(aiFrame?.suggestedGoals?.length ?? 0) > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {aiFrame!.suggestedGoals!.map((g, i) => (
+                    <button
+                      key={`${g}-${i}`}
+                      type="button"
+                      className="rounded-full border border-violet-300/40 bg-black/30 px-2.5 py-1 text-[11px] text-violet-100 transition-colors hover:bg-violet-500/25"
+                      onClick={() => submitGoal(g)}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={goalText}
+                  onChange={(e) => setGoalText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitGoal();
+                  }}
+                  placeholder="Ask a follow-up or refine the goal…"
+                  className="min-w-0 flex-1 rounded-md border border-violet-300/30 bg-black/40 px-2 py-1 text-[11px] text-violet-50 placeholder:text-violet-300/40 focus:border-violet-300/60 focus:outline-none"
+                />
+                <Button
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => submitGoal()}
+                  disabled={!goalText.trim()}
+                >
+                  Send
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* AI guidance carried on the blueprint frames: detected intent, the

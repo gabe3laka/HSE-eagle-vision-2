@@ -163,6 +163,79 @@ export type PlanStage =
   | "plan_review";
 
 /**
+ * A virtual blueprint vector point placed by the Plan reasoner (DeepSeek or the
+ * local rules fallback). Region-local 0..1 — a clean 2.5D planning layer, never
+ * a real 3D point cloud. `z` is an optional future depth hint (unused today).
+ */
+export interface VirtualBlueprintPoint {
+  id: string;
+  role:
+    | "anchor"
+    | "alignment-point"
+    | "target-position"
+    | "connection-point"
+    | "inspection-point"
+    | "warning-point";
+  x: number;
+  y: number;
+  z?: number;
+  label?: string;
+  instruction?: string;
+  linkedStepId?: string;
+}
+
+/**
+ * Structured plan-reasoning result. Produced by the Supabase `plan-reasoning`
+ * Edge Function (DeepSeek) and re-validated app-side; a local rules fallback
+ * fills the same shape when DeepSeek is unavailable. All x/y are 0..1.
+ */
+export interface PlanReasoningResponse {
+  status: "ok" | "fallback";
+  source: "deepseek" | "rules";
+  detectedIntent: string;
+  suggestedGoals: string[];
+  nextAction: string;
+  safetyWarning?: string;
+  qualityCheck?: string;
+  aiNotes: BlueprintNote[];
+  planSteps: PlanStep[];
+  planOverlays: BlueprintPlanOverlay[];
+  virtualBlueprintPoints: VirtualBlueprintPoint[];
+}
+
+/** Compact, image-free context sent to the Supabase plan-reasoning function. */
+export interface PlanReasoningPayload {
+  sessionId: string;
+  workflowMode: "plan";
+  goalText?: string;
+  taskType?: PlanTaskType;
+  selectedLabel?: string;
+  detectedEntities?: Array<{
+    label: string;
+    confidence?: number;
+    bbox?: SelectedRegion;
+    source?: string;
+  }>;
+  segments?: Array<{
+    label: string;
+    confidence?: number;
+    maskContour: Array<{ x: number; y: number }>;
+    source?: string;
+  }>;
+  blueprintFrame?: {
+    outline?: Array<{ x: number; y: number }>;
+    maskContour?: Array<{ x: number; y: number }>;
+    maskSource?: string;
+  };
+  coordinateSystem: {
+    type: "normalized-crop-2d";
+    xRange: [number, number];
+    yRange: [number, number];
+    origin: "top-left";
+  };
+}
+
+/**
  * The pinched object's pixels, held ONCE per capture instead of repeating
  * base64 images on every keyframe (frames reference it by `sourceAssetId`).
  * Live sessions keep `imageB64`/`maskB64` transient in memory; saved
@@ -232,6 +305,12 @@ export interface BlueprintFrame {
   currentPlanStepIndex?: number;
   /** Visual guidance drawn ON the blueprint (arrows / targets / highlights). */
   planOverlays?: BlueprintPlanOverlay[];
+  /** Jarvis-style virtual vector points from the Plan reasoner (DeepSeek/rules). */
+  virtualBlueprintPoints?: VirtualBlueprintPoint[];
+  /** Where the plan guidance on this frame came from. */
+  reasoningSource?: "deepseek" | "rules" | "worker" | "mock";
+  /** Goal chips the reasoner suggests for this item. */
+  suggestedGoals?: string[];
 }
 
 /** Where the floating blueprint currently sits relative to its origin region. */
