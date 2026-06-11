@@ -49,6 +49,8 @@ interface Props {
   /** Build Mode overlays (selection + floating blueprint) — rendered inside the
    *  same orientation layer as the HSE overlays so coords share one system. */
   buildOverlay?: React.ReactNode;
+  /** Eagle Vision HSE HUD overlay — rendered in the same orientation layer. */
+  hseOverlay?: React.ReactNode;
 }
 
 /**
@@ -91,6 +93,7 @@ export function CameraView({
   editingZones,
   onZoneCreate,
   buildOverlay,
+  hseOverlay,
 }: Props) {
   const TopIcon = topAlert ? HAZARD_ICONS[topAlert.hazardType] : null;
   const topSev = topAlert ? SEVERITY_META[topAlert.severity] : null;
@@ -278,6 +281,7 @@ export function CameraView({
           )}
 
           {active && buildOverlay}
+          {active && hseOverlay}
         </div>
 
         {/* Chips and banners anchored to the SHELL (which IS the visible video rect on mobile). */}

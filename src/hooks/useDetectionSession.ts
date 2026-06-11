@@ -465,6 +465,14 @@ export function useDetectionSession({
     setAlerts((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
+  /** HSE monitoring: push profile/quality/ROI metadata onto the active detector
+   *  (HTTP detector implements it; others ignore it). Never breaks the loop. */
+  const setMonitoringRequest = useCallback((req: unknown) => {
+    (
+      detectorRef.current as { setMonitoringRequest?: (r: unknown) => void } | null
+    )?.setMonitoringRequest?.(req);
+  }, []);
+
   return {
     running,
     alerts,
@@ -480,6 +488,7 @@ export function useDetectionSession({
     start,
     stop,
     dismissAlert,
+    setMonitoringRequest,
   };
 }
 

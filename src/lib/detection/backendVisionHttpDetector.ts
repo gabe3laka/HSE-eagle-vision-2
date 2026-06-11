@@ -12,6 +12,8 @@ import {
   normalizePoses,
   normalizeSegments,
 } from "./backendVisionDetector";
+import { applyHseRequestToBody } from "./hseDetectProfile";
+import type { HSEDetectRequest } from "./hseTypes";
 import { supabase } from "@/integrations/supabase/own-client";
 import { computeCoverCrop, isMobileViewport, MOBILE_VISUAL_ASPECT } from "./coverCrop";
 
@@ -210,6 +212,9 @@ export class BackendVisionHttpDetector implements Detector {
   private sessionPromise: Promise<DetectSession> | null = null;
   private tokenError: string | null = null;
   private tokenErrorAt = 0;
+  // Optional HSE-monitoring request metadata (profile / quality / ROI). When
+  // null the /detect body is exactly the legacy shape — the contract is intact.
+  private monitoringRequest: HSEDetectRequest | null = null;
 
   constructor(opts?: {
     detectUrl?: string | null;
@@ -285,6 +290,12 @@ export class BackendVisionHttpDetector implements Detector {
 
   getLastSegments(): BackendSegment[] {
     return this.lastSegments;
+  }
+
+  /** HSE monitoring: attach optional profile/quality/ROI metadata to /detect.
+   *  Pass null to revert to the legacy body. Worker may ignore the new fields. */
+  setMonitoringRequest(req: HSEDetectRequest | null): void {
+    this.monitoringRequest = req;
   }
 
   getInFlight(): boolean {
@@ -391,7 +402,12 @@ export class BackendVisionHttpDetector implements Detector {
         res = await this.fetchImpl(withToken(detectUrl, token), {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ image_b64, conf: DRY_RUN_CONF, img_size: 640, classes: null }),
+          body: JSON.stringify(
+            applyHseRequestToBody(
+              { image_b64, conf: DRY_RUN_CONF, img_size: 640, classes: null },
+              this.monitoringRequest,
+            ),
+          ),
         });
       } catch (e) {
         // network/CORS failure
