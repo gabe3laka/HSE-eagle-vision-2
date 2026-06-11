@@ -7,6 +7,7 @@ import {
   startBuildSession,
 } from "../api/buildModeClient";
 import { BUILD_CAPTURE_INTERVAL_MS, BUILD_MAX_FRAMES, resolveBuildModeApiUrl } from "../config";
+import { derivePlanStage } from "../lib/blueprint";
 import { captureRegionBase64 } from "../lib/regionCapture";
 import { buildSourceAsset, rehydrateSavedBlueprint, toV2Frame } from "../lib/sourceAssets";
 import type {
@@ -22,6 +23,7 @@ import type {
   BuildPhase,
   BuildSessionInfo,
   BuildUserIntent,
+  PlanTaskType,
   SavedBlueprint,
   SelectedRegion,
 } from "../types";
@@ -82,8 +84,10 @@ export function useBuildModeSession({
   const [extractSource, setExtractSource] = useState<{ source: string; label: string } | null>(
     null,
   );
-  /** Confirmed user goal (Plan mode) — guidance stops hedging once known. */
+  /** Confirmed user goal (Plan mode) — guidance is withheld until this is set. */
   const [userIntent, setUserIntent] = useState<BuildUserIntent | null>(null);
+  /** True while a fresh guided plan frame is being requested after intent. */
+  const [generatingPlan, setGeneratingPlan] = useState(false);
 
   // Resolve the Build Mode API base when Build Mode turns on, so the panel can
   // show the backend status before the first selection.
@@ -164,6 +168,7 @@ export function useBuildModeSession({
     setExtractStatus("idle");
     setExtractSource(null);
     setUserIntent(null);
+    setGeneratingPlan(false);
   }, [clearTimer, go]);
 
   // Leaving Build Mode (or unmount) tears the session down.
@@ -199,6 +204,7 @@ export function useBuildModeSession({
     setExtractStatus("idle");
     setExtractSource(null);
     setUserIntent(null);
+    setGeneratingPlan(false);
   }, [enabled, clearTimer, go]);
 
   const cancelSelection = useCallback(() => {
@@ -424,11 +430,39 @@ export function useBuildModeSession({
     [],
   );
 
-  /** Plan mode: the user answered "What are you trying to do?" — subsequent
-   *  keyframes carry the confirmed goal and guidance stops hedging. */
-  const confirmIntent = useCallback((intent: BuildUserIntent) => {
-    userIntentRef.current = intent;
-    setUserIntent(intent);
+  /**
+   * Plan mode: the user answered "What do you want to do with this item?".
+   * The confirmed intent rides on every subsequent payload, and we immediately
+   * request ONE fresh guided plan frame from the worker (mock) so step 1 +
+   * overlays appear right away — "plan_generating_steps" → "plan_guiding".
+   */
+  const confirmIntent = useCallback(
+    async (taskType?: PlanTaskType, text?: string) => {
+      const intent: BuildUserIntent = { taskType, text, confirmed: true };
+      userIntentRef.current = intent;
+      setUserIntent(intent);
+      const ph = phaseRef.current;
+      if (ph !== "placing" && ph !== "pinned") return;
+      setGeneratingPlan(true);
+      try {
+        const frame = await captureKeyframe(0, 0);
+        if (frame) {
+          setBaseFrame(frame);
+          setLatestFrame(frame);
+        }
+      } finally {
+        setGeneratingPlan(false);
+      }
+    },
+    [captureKeyframe],
+  );
+
+  /** Plan mode: drop the confirmed goal so the chooser reappears (the "change"
+   *  affordance). Guidance is withheld again until a new goal is picked. */
+  const clearIntent = useCallback(() => {
+    userIntentRef.current = null;
+    setUserIntent(null);
+    setGeneratingPlan(false);
   }, []);
 
   /**
@@ -465,10 +499,19 @@ export function useBuildModeSession({
       setExtractSource({ source: "saved", label: saved.name });
       userIntentRef.current = null;
       setUserIntent(null);
+      setGeneratingPlan(false);
       go(loadedFrames.length > 0 ? "review" : "pinned");
     },
     [enabled, clearTimer, go],
   );
+
+  // Plan-mode sub-state — gates the "ask for intent before guiding" flow.
+  const planStage = derivePlanStage({
+    phase,
+    hasBaseFrame: baseFrame != null,
+    intentConfirmed: !!userIntent?.confirmed,
+    generating: generatingPlan,
+  });
 
   return {
     phase,
@@ -484,6 +527,8 @@ export function useBuildModeSession({
     extractStatus,
     extractSource,
     userIntent,
+    generatingPlan,
+    planStage,
     frameCount: frames.length,
     beginSelection,
     cancelSelection,
@@ -495,6 +540,7 @@ export function useBuildModeSession({
     stopRecording,
     getAsset,
     confirmIntent,
+    clearIntent,
     loadSavedBlueprint,
     reset,
   };

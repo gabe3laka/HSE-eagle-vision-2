@@ -22,19 +22,22 @@ import {
   useSaveBlueprint,
   useSavedBlueprints,
 } from "../hooks/useSavedBlueprints";
+import { intentLabel } from "../lib/blueprint";
 import { serializeBlueprintSave } from "../lib/sourceAssets";
 import { compressImageB64 } from "../lib/thumbnail";
-import type { BlueprintWorkflowMode, BuildBackendStatus, BuildUserIntent } from "../types";
+import type { BlueprintWorkflowMode, BuildBackendStatus, PlanTaskType } from "../types";
 import { BlueprintTimeline } from "./BlueprintTimeline";
 
-/** The explicit goal chooser — asked instead of overclaiming a guessed intent. */
-const INTENT_OPTIONS: BuildUserIntent[] = [
-  "inspect",
-  "repair",
-  "clean",
-  "install",
-  "remove",
-  "other",
+/** Quick goal options shown after a Plan blueprint is extracted. */
+const TASK_OPTIONS: Array<{ value: PlanTaskType; label: string }> = [
+  { value: "identify", label: "Identify this" },
+  { value: "inspect", label: "Inspect it" },
+  { value: "repair", label: "Repair it" },
+  { value: "build", label: "Build / assemble" },
+  { value: "clean", label: "Clean it" },
+  { value: "install-remove", label: "Install / remove" },
+  { value: "troubleshoot", label: "Troubleshoot" },
+  { value: "custom", label: "Custom task" },
 ];
 
 /** Short chip label for the resolved Build Mode backend. */
@@ -121,6 +124,14 @@ export function BuildModePanel({
   const deleteBlueprint = useDeleteBlueprint();
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   useEffect(() => setSaveState("idle"), [session.baseFrame]);
+  /** Free-text goal for Plan mode's "custom task" path. */
+  const [customText, setCustomText] = useState("");
+  const submitCustom = () => {
+    const text = customText.trim();
+    if (!text) return;
+    void session.confirmIntent("custom", text);
+    setCustomText("");
+  };
 
   const handleSave = async () => {
     const { region, baseFrame, frames, placement } = session;
@@ -170,12 +181,15 @@ export function BuildModePanel({
   );
 
   // AI guidance comes with each blueprint frame (mock or backend) — show the
-  // freshest one from extraction onward.
+  // freshest one from extraction onward. In Plan mode it is GATED on the user
+  // confirming a goal first (no generic guidance before intent).
   const aiFrame = session.latestFrame ?? session.baseFrame;
+  const planGuiding =
+    !isPlan || session.planStage === "plan_guiding" || session.planStage === "plan_review";
   const showGuidance =
+    planGuiding &&
     aiFrame != null &&
     !!(
-      aiFrame.detectedIntent ||
       aiFrame.nextAction ||
       aiFrame.safetyWarning ||
       aiFrame.qualityCheck ||
@@ -391,31 +405,67 @@ export function BuildModePanel({
         </div>
       )}
 
-      {/* Low-confidence honesty (Plan mode): instead of pretending to know the
-          goal, ask for it. The confirmed answer rides on every keyframe and
-          guidance stops hedging. */}
-      {isPlan && session.baseFrame && !session.userIntent && (
-        <div className="mt-2 space-y-1.5 rounded-lg border border-violet-400/25 bg-violet-500/5 px-2.5 py-2">
-          <p className="text-[11px] font-medium text-violet-200">
-            What are you trying to do with this item?
+      {/* Plan intent capture: after the ghost appears, ask the goal BEFORE
+          guiding (no generic guidance until confirmed). */}
+      {isPlan && session.planStage === "plan_waiting_for_intent" && (
+        <div className="mt-2 space-y-2 rounded-lg border border-violet-400/30 bg-violet-500/5 px-2.5 py-2">
+          <p className="text-xs font-medium text-violet-100">
+            What do you want to do with this item?
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {INTENT_OPTIONS.map((intent) => (
-              <button
-                key={intent}
-                type="button"
-                className="rounded-full border border-violet-300/40 bg-black/30 px-2.5 py-1 text-[11px] capitalize text-violet-100 transition-colors hover:bg-violet-500/25"
-                onClick={() => session.confirmIntent(intent)}
-              >
-                {intent}
-              </button>
-            ))}
+            {TASK_OPTIONS.map((opt) =>
+              opt.value === "custom" ? null : (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className="rounded-full border border-violet-300/40 bg-black/30 px-2.5 py-1 text-[11px] text-violet-100 transition-colors hover:bg-violet-500/25"
+                  onClick={() => void session.confirmIntent(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ),
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <input
+              value={customText}
+              onChange={(e) => setCustomText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitCustom();
+              }}
+              placeholder="…or type a goal, e.g. “How do I assemble these?”"
+              className="min-w-0 flex-1 rounded-md border border-violet-300/30 bg-black/40 px-2 py-1 text-[11px] text-violet-50 placeholder:text-violet-300/40 focus:border-violet-300/60 focus:outline-none"
+            />
+            <Button
+              size="sm"
+              variant="secondary"
+              className="shrink-0"
+              onClick={submitCustom}
+              disabled={!customText.trim()}
+            >
+              Ask
+            </Button>
           </div>
         </div>
       )}
-      {isPlan && session.userIntent && (
-        <p className="mt-2 text-[11px] text-violet-200">
-          Goal confirmed: <span className="font-medium capitalize">{session.userIntent}</span>
+      {isPlan && session.planStage === "plan_generating_steps" && (
+        <div className="mt-2 flex items-center gap-2 text-[11px] text-violet-200">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Generating guided steps for “{intentLabel(session.userIntent)}”…
+        </div>
+      )}
+      {isPlan && session.userIntent?.confirmed && session.planStage !== "plan_generating_steps" && (
+        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-violet-200">
+          <span>
+            Goal: <span className="font-medium capitalize">{intentLabel(session.userIntent)}</span>
+          </span>
+          <button
+            type="button"
+            className="text-violet-300/70 underline-offset-2 hover:underline"
+            onClick={session.clearIntent}
+          >
+            change
+          </button>
         </p>
       )}
 

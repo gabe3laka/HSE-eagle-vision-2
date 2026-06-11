@@ -8,12 +8,13 @@ import {
   toV2Frame,
 } from "../features/build-mode/lib/sourceAssets";
 import { mockBlueprintFrame } from "../features/build-mode/lib/blueprint";
-import type { SavedBlueprint, SelectedRegion } from "../features/build-mode/types";
+import type { BuildUserIntent, SavedBlueprint, SelectedRegion } from "../features/build-mode/types";
 
 const REGION: SelectedRegion = { x: 0.2, y: 0.3, w: 0.4, h: 0.3 };
+const INTENT: BuildUserIntent = { taskType: "build", confirmed: true };
 
 const frameWithPixels = (i: number) => ({
-  ...mockBlueprintFrame("s", i, i * 333, REGION, "plan"),
+  ...mockBlueprintFrame("s", i, i * 333, REGION, "plan", INTENT),
   sourceImageB64: `IMG${i}`,
   sourceMaskB64: `MASK${i}`,
   sourceImageSize: { w: 384, h: 288 },

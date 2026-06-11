@@ -2,6 +2,7 @@ import { useId } from "react";
 import type {
   BlueprintFrame,
   BlueprintNote,
+  BlueprintPlanOverlay,
   BlueprintSourceAsset,
   BlueprintVisualMode,
 } from "../types";
@@ -15,7 +16,6 @@ const TINT = "rgba(34,211,238,0.18)"; // hologram wash over the object crop
 const ANCHOR = "rgba(186,230,253,1)";
 const STEP_BG = "rgba(8,47,73,0.92)";
 const HAND = "rgba(252,211,77,0.9)";
-const TEXT_HALO = "rgba(2,6,23,0.85)"; // paint-order stroke keeps text readable
 
 /** Per-type colors for AI notes pinned on the blueprint. */
 const NOTE_COLOR: Record<BlueprintNote["type"], string> = {
@@ -41,8 +41,12 @@ const DEPTH_Y = -3.8;
  *   4. blueprint grid
  *   5. segmentation outline — or the 2.5D wireframe fallback
  *   6. anchors / sparse points
- *   7. AI notes + numbered step markers (+ Plan step markers)
- *   8. current instruction / next action / safety warning
+ *   7. AI-note MARKERS + numbered step markers (+ Plan step markers)
+ *   8. Plan visual overlays — arrows / targets / highlights / warning zones
+ *
+ * Instruction TEXT is intentionally NOT drawn here (too small inside a phone
+ * crop) — BlueprintCalloutLayer renders it as external cards with leader lines
+ * back to these markers. This overlay keeps only the markers/anchors/overlays.
  *
  * visualMode: "hybrid" (default — crop/mask plus wireframe on top),
  * "object-ghost" (crop/mask + primary outline only), "wireframe" (legacy
@@ -299,7 +303,8 @@ export function BlueprintOverlay({
         </g>
       ))}
 
-      {/* AI notes pinned on the object (type-colored dot + short text) */}
+      {/* AI-note MARKERS only — the readable text lives in external callout
+          cards (BlueprintCalloutLayer) connected here by leader lines. */}
       {frame.aiNotes?.map((n) => (
         <g key={n.id}>
           <circle cx={n.x * 100} cy={n.y * 100} r={1.1} fill={NOTE_COLOR[n.type]} opacity={0.95} />
@@ -312,18 +317,13 @@ export function BlueprintOverlay({
             strokeWidth={0.35}
             opacity={0.7}
           />
-          <text
-            x={n.x * 100 + 2.8}
-            y={n.y * 100 + 1}
-            fontSize={2.8}
-            fill={NOTE_COLOR[n.type]}
-            stroke={TEXT_HALO}
-            strokeWidth={0.7}
-            paintOrder="stroke"
-          >
-            {n.text}
-          </text>
         </g>
+      ))}
+
+      {/* Plan visual overlays — arrows (movement), targets / ghost positions
+          (where a part should go), highlights (inspect), warning zones. */}
+      {frame.planOverlays?.map((ov) => (
+        <PlanOverlayShape key={ov.id} overlay={ov} />
       ))}
 
       {/* active Plan step marker — the amber "work here" bubble */}
@@ -349,50 +349,120 @@ export function BlueprintOverlay({
           </text>
         </g>
       )}
-
-      {/* 8: safety warning (top, unmissable) + next action + instruction */}
-      {frame.safetyWarning && (
-        <text
-          x={50}
-          y={11.5}
-          fontSize={3.2}
-          fontWeight={700}
-          textAnchor="middle"
-          fill={NOTE_COLOR.safety}
-          stroke={TEXT_HALO}
-          strokeWidth={0.8}
-          paintOrder="stroke"
-        >
-          ⚠ {frame.safetyWarning}
-        </text>
-      )}
-      {frame.nextAction && (
-        <text
-          x={2.5}
-          y={92.5}
-          fontSize={3.2}
-          fill={NOTE_COLOR["next-step"]}
-          stroke={TEXT_HALO}
-          strokeWidth={0.7}
-          paintOrder="stroke"
-        >
-          ▶ {frame.nextAction}
-        </text>
-      )}
-      {frame.instruction && (
-        <text
-          x={2.5}
-          y={96.5}
-          fontSize={3.4}
-          fill={ANCHOR}
-          opacity={0.9}
-          stroke={TEXT_HALO}
-          strokeWidth={0.7}
-          paintOrder="stroke"
-        >
-          {frame.instruction}
-        </text>
-      )}
     </svg>
+  );
+}
+
+/** One Plan visual-guidance shape (region-local 0..1 → 0..100 viewBox). */
+function PlanOverlayShape({ overlay }: { overlay: BlueprintPlanOverlay }) {
+  const WARN = "rgba(248,113,113,1)";
+  const NEXT = "rgba(251,191,36,1)";
+  const HILITE = "rgba(125,211,252,1)";
+
+  if (overlay.type === "arrow" && overlay.from && overlay.to) {
+    const fx = overlay.from.x * 100;
+    const fy = overlay.from.y * 100;
+    const tx = overlay.to.x * 100;
+    const ty = overlay.to.y * 100;
+    const ang = Math.atan2(ty - fy, tx - fx);
+    const head = 3.2;
+    const a1 = ang + Math.PI - 0.42;
+    const a2 = ang + Math.PI + 0.42;
+    return (
+      <g opacity={0.95}>
+        <line
+          x1={fx}
+          y1={fy}
+          x2={tx}
+          y2={ty}
+          stroke={NEXT}
+          strokeWidth={1.1}
+          strokeLinecap="round"
+        />
+        <line
+          x1={tx}
+          y1={ty}
+          x2={tx + Math.cos(a1) * head}
+          y2={ty + Math.sin(a1) * head}
+          stroke={NEXT}
+          strokeWidth={1.1}
+          strokeLinecap="round"
+        />
+        <line
+          x1={tx}
+          y1={ty}
+          x2={tx + Math.cos(a2) * head}
+          y2={ty + Math.sin(a2) * head}
+          stroke={NEXT}
+          strokeWidth={1.1}
+          strokeLinecap="round"
+        />
+      </g>
+    );
+  }
+
+  if (overlay.x == null || overlay.y == null) return null;
+  const cx = overlay.x * 100;
+  const cy = overlay.y * 100;
+
+  if (overlay.type === "target") {
+    return (
+      <g opacity={0.95}>
+        <circle cx={cx} cy={cy} r={5} fill="none" stroke={NEXT} strokeWidth={0.7} />
+        <circle cx={cx} cy={cy} r={2.6} fill="none" stroke={NEXT} strokeWidth={0.7} />
+        <line x1={cx - 6.5} y1={cy} x2={cx + 6.5} y2={cy} stroke={NEXT} strokeWidth={0.5} />
+        <line x1={cx} y1={cy - 6.5} x2={cx} y2={cy + 6.5} stroke={NEXT} strokeWidth={0.5} />
+      </g>
+    );
+  }
+
+  if (overlay.type === "ghost-position") {
+    return (
+      <rect
+        x={cx - 7}
+        y={cy - 7}
+        width={14}
+        height={14}
+        rx={1.5}
+        fill="rgba(251,191,36,0.1)"
+        stroke={NEXT}
+        strokeWidth={0.7}
+        strokeDasharray="2 1.4"
+      />
+    );
+  }
+
+  if (overlay.type === "highlight") {
+    return (
+      <g>
+        <circle
+          cx={cx}
+          cy={cy}
+          r={7}
+          fill="rgba(125,211,252,0.16)"
+          stroke={HILITE}
+          strokeWidth={0.6}
+        />
+        <circle cx={cx} cy={cy} r={1} fill={HILITE} />
+      </g>
+    );
+  }
+
+  // warning-zone
+  return (
+    <g>
+      <circle
+        cx={cx}
+        cy={cy}
+        r={7}
+        fill="rgba(248,113,113,0.14)"
+        stroke={WARN}
+        strokeWidth={0.7}
+        strokeDasharray="2 1.2"
+      />
+      <text x={cx} y={cy + 1.4} fontSize={4} fontWeight={700} textAnchor="middle" fill={WARN}>
+        ⚠
+      </text>
+    </g>
   );
 }

@@ -90,10 +90,61 @@ export interface PlanStep {
 }
 
 /**
- * What the user confirmed they're trying to do (Plan mode). Asked explicitly
- * when AI confidence is low — suggest, never overclaim.
+ * What the user confirmed they want to do with the selected item (Plan mode).
+ * Asked explicitly after the blueprint appears — suggest, never overclaim. The
+ * confirmed intent rides on every `/build/session/frame` payload so the worker
+ * (or local mock) can generate task-specific guidance.
  */
-export type BuildUserIntent = "inspect" | "repair" | "clean" | "install" | "remove" | "other";
+export type PlanTaskType =
+  | "identify"
+  | "inspect"
+  | "repair"
+  | "build"
+  | "clean"
+  | "install-remove"
+  | "troubleshoot"
+  | "custom";
+
+export interface BuildUserIntent {
+  taskType?: PlanTaskType;
+  text?: string;
+  confirmed: boolean;
+}
+
+/**
+ * One visual guidance element rendered ON the blueprint (region-local 0..1):
+ * arrows (movement / next area), target ghost outlines (where a part should
+ * go), highlighted inspection regions, and safety warning zones. This is what
+ * gives Plan mode its hologram-instruction feel without 3D reconstruction.
+ */
+export interface BlueprintPlanOverlay {
+  id: string;
+  type: "arrow" | "target" | "ghost-position" | "highlight" | "warning-zone";
+  from?: { x: number; y: number };
+  to?: { x: number; y: number };
+  x?: number;
+  y?: number;
+  label?: string;
+  stepId?: string;
+  confidence?: number;
+}
+
+/**
+ * Plan-mode sub-states, derived from the shared phase + intent (Build never
+ * forks the phase machine):
+ *   plan_selecting_object  no blueprint ghost yet (idle…extracting).
+ *   plan_waiting_for_intent ghost exists, asking "what do you want to do?".
+ *   plan_generating_steps  intent confirmed, requesting the guided plan frame.
+ *   plan_guiding           steps + overlays shown; next action updates as work
+ *                          progresses.
+ *   plan_review            recording finished; replay.
+ */
+export type PlanStage =
+  | "plan_selecting_object"
+  | "plan_waiting_for_intent"
+  | "plan_generating_steps"
+  | "plan_guiding"
+  | "plan_review";
 
 /**
  * The pinched object's pixels, held ONCE per capture instead of repeating
@@ -161,6 +212,8 @@ export interface BlueprintFrame {
   importance?: "low" | "medium" | "high";
   planSteps?: PlanStep[];
   currentPlanStepIndex?: number;
+  /** Visual guidance drawn ON the blueprint (arrows / targets / highlights). */
+  planOverlays?: BlueprintPlanOverlay[];
 }
 
 /** Where the floating blueprint currently sits relative to its origin region. */
