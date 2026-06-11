@@ -51,6 +51,8 @@ interface Props {
   /** Reports the ghost's live card-space bounds (region + drag transform) so an
    *  external layer (callout cards) can attach leader lines to it. */
   onBounds?: (bounds: { x: number; y: number; w: number; h: number }) => void;
+  /** Show mask/anchor debug labels on the ghost (dev only). Default off. */
+  showBlueprintDebugLabels?: boolean;
 }
 
 /**
@@ -82,6 +84,7 @@ export function FloatingBlueprintLayer({
   visualMode = "hybrid",
   sourceAsset,
   onBounds,
+  showBlueprintDebugLabels = false,
 }: Props) {
   const [t, setT] = useState<BlueprintTransform>({ x: 0, y: 0, scale: 1 });
   const [handMode, setHandMode] = useState<HandMode>("idle");
@@ -390,7 +393,6 @@ export function FloatingBlueprintLayer({
 
   const isSource = phase === "selected" || phase === "extracting";
   const isPlacing = phase === "placing";
-  const recording = phase === "recording";
   const detached = Math.abs(t.x) > 0.01 || Math.abs(t.y) > 0.01 || Math.abs(t.scale - 1) > 0.01;
   const handEngaged = handMode === "grab" || handMode === "dragging";
   const borderColor = isSource
@@ -404,9 +406,9 @@ export function FloatingBlueprintLayer({
   return (
     <div
       ref={hostRef}
-      className={`absolute z-30 touch-none select-none rounded-md ${
-        recording || phase === "extracting" ? "animate-pulse" : ""
-      }`}
+      // No whole-object pulse — the ghost stays stable after pinch release.
+      // State is conveyed by the subtle glow/border only.
+      className="absolute z-30 touch-none select-none rounded-md"
       style={{
         left: `${(region.x + t.x) * 100}%`,
         top: `${(region.y + t.y) * 100}%`,
@@ -432,7 +434,12 @@ export function FloatingBlueprintLayer({
       {/* Ghost content: nothing inside the source box; once extracted, the
           layered object-ghost (actual crop + mask + wireframe). */}
       {!isSource && frame && (
-        <BlueprintOverlay frame={frame} sourceAsset={sourceAsset} visualMode={visualMode} />
+        <BlueprintOverlay
+          frame={frame}
+          sourceAsset={sourceAsset}
+          visualMode={visualMode}
+          showBlueprintDebugLabels={showBlueprintDebugLabels}
+        />
       )}
       {/* Never leave the user staring at nothing: a visible shell while the
           ghost exists but its frame hasn't arrived yet. (isSource already

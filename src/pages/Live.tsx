@@ -314,6 +314,28 @@ export default function Live() {
   const [handLayerMode, setHandLayerMode] = useState<BuildHandInteraction["mode"]>("idle");
   const onHandInteraction = useCallback((i: BuildHandInteraction) => setHandLayerMode(i.mode), []);
 
+  // Plan reasoning context (Plan mode only): the live YOLO26 detections feed the
+  // DeepSeek plan reasoner. Refs keep the callback stable. Build mode ignores it.
+  const backendEntitiesRef = useRef(backendEntities);
+  backendEntitiesRef.current = backendEntities;
+  const backendSegmentsRef = useRef(backendSegments);
+  backendSegmentsRef.current = backendSegments;
+  const getPlanContext = useCallback(() => {
+    const ents = (backendEntitiesRef.current as BackendEntity[]).slice(0, 12).map((e) => ({
+      label: e.label,
+      confidence: e.confidence,
+      bbox: e.bbox,
+      source: e.source,
+    }));
+    const segs = (backendSegmentsRef.current as BackendSegment[]).slice(0, 8).map((s) => ({
+      label: s.label,
+      confidence: s.confidence,
+      maskContour: s.maskContour,
+      source: s.source,
+    }));
+    return { detectedEntities: ents, segments: segs };
+  }, []);
+
   const build = useBuildModeSession({
     videoRef,
     enabled: buildModeOn,
@@ -321,7 +343,11 @@ export default function Live() {
     getHandLandmarks,
     getGesture,
     workflowMode,
+    getPlanContext,
   });
+  // Plan "reply" drawer open-state — lifted so a Plan callout tap can open the
+  // goal input in the panel below.
+  const [planReplyOpen, setPlanReplyOpen] = useState(false);
   const replay = useBlueprintReplay(build.phase === "review" ? build.frames : []);
   // Ghost shown on the floating layer: the extracted base blueprint while
   // placing/pinned, the live latest keyframe while recording, and the replay
@@ -685,7 +711,12 @@ export default function Live() {
                       inside the crop. */}
                   {build.region &&
                     ["placing", "pinned", "recording", "review"].includes(build.phase) && (
-                      <BlueprintCalloutLayer frame={ghostFrame} bounds={ghostBounds} />
+                      <BlueprintCalloutLayer
+                        frame={ghostFrame}
+                        bounds={ghostBounds}
+                        mode={appMode === "plan" ? "plan" : "build"}
+                        onReplyRequest={() => setPlanReplyOpen(true)}
+                      />
                     )}
                 </>
               ) : null
@@ -746,6 +777,8 @@ export default function Live() {
               handStatus={handStatus}
               debug={buildDebug}
               workflowMode={workflowMode}
+              replyOpen={planReplyOpen}
+              onReplyOpenChange={setPlanReplyOpen}
             />
           )}
 

@@ -6,8 +6,10 @@ import {
   sendBuildFrame,
   startBuildSession,
 } from "../api/buildModeClient";
+import { requestPlanReasoning } from "../api/planReasoningClient";
 import { BUILD_CAPTURE_INTERVAL_MS, BUILD_MAX_FRAMES, resolveBuildModeApiUrl } from "../config";
 import { derivePlanStage } from "../lib/blueprint";
+import { buildPlanReasoningPayload, mergePlanReasoning } from "../lib/planReasoning";
 import { captureRegionBase64 } from "../lib/regionCapture";
 import { buildSourceAsset, rehydrateSavedBlueprint, toV2Frame } from "../lib/sourceAssets";
 import type {
@@ -23,6 +25,7 @@ import type {
   BuildPhase,
   BuildSessionInfo,
   BuildUserIntent,
+  PlanReasoningPayload,
   PlanTaskType,
   SavedBlueprint,
   SelectedRegion,
@@ -40,6 +43,15 @@ interface Options {
   /** Build = record/document my work; Plan = guide me through work. The SAME
    *  engine serves both — this flag just rides on every payload/frame. */
   workflowMode?: BlueprintWorkflowMode;
+  /** Plan mode: detected entities/segments + selected label, fed to the
+   *  DeepSeek plan reasoner (never images). Build mode never calls it. */
+  getPlanContext?: () =>
+    | {
+        detectedEntities?: PlanReasoningPayload["detectedEntities"];
+        segments?: PlanReasoningPayload["segments"];
+        selectedLabel?: string;
+      }
+    | undefined;
 }
 
 /**
@@ -64,6 +76,7 @@ export function useBuildModeSession({
   getHandLandmarks,
   getGesture,
   workflowMode = "build",
+  getPlanContext,
 }: Options) {
   const [phase, setPhase] = useState<BuildPhase>("idle");
   const [region, setRegion] = useState<SelectedRegion | null>(null);
@@ -88,6 +101,10 @@ export function useBuildModeSession({
   const [userIntent, setUserIntent] = useState<BuildUserIntent | null>(null);
   /** True while a fresh guided plan frame is being requested after intent. */
   const [generatingPlan, setGeneratingPlan] = useState(false);
+  /** Where the latest Plan guidance came from (DeepSeek vs local rules). */
+  const [reasoningStatus, setReasoningStatus] = useState<"idle" | "thinking" | "ok" | "fallback">(
+    "idle",
+  );
 
   // Resolve the Build Mode API base when Build Mode turns on, so the panel can
   // show the backend status before the first selection.
@@ -139,6 +156,12 @@ export function useBuildModeSession({
   getGestureRef.current = getGesture;
   const workflowModeRef = useRef(workflowMode);
   workflowModeRef.current = workflowMode;
+  const getPlanContextRef = useRef(getPlanContext);
+  getPlanContextRef.current = getPlanContext;
+  const baseFrameRef = useRef<BlueprintFrame | null>(null);
+  baseFrameRef.current = baseFrame;
+  const extractSourceRef = useRef<{ source: string; label: string } | null>(null);
+  extractSourceRef.current = extractSource;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -169,6 +192,7 @@ export function useBuildModeSession({
     setExtractSource(null);
     setUserIntent(null);
     setGeneratingPlan(false);
+    setReasoningStatus("idle");
   }, [clearTimer, go]);
 
   // Leaving Build Mode (or unmount) tears the session down.
@@ -205,6 +229,7 @@ export function useBuildModeSession({
     setExtractSource(null);
     setUserIntent(null);
     setGeneratingPlan(false);
+    setReasoningStatus("idle");
   }, [enabled, clearTimer, go]);
 
   const cancelSelection = useCallback(() => {
@@ -431,30 +456,82 @@ export function useBuildModeSession({
   );
 
   /**
+   * Plan reasoning: take the worker's geometry frame as the visual base and ask
+   * the DeepSeek-backed Supabase function (with a local rules fallback) for the
+   * plan — steps, overlays, virtual points, notes — then MERGE it onto the
+   * frame (worker geometry is never replaced). `recapture` grabs a fresh crop
+   * (first confirm); follow-ups reuse the existing base frame.
+   */
+  const runPlanReasoning = useCallback(
+    async (intent: BuildUserIntent, recapture: boolean) => {
+      const ph = phaseRef.current;
+      if (ph !== "placing" && ph !== "pinned" && ph !== "review") return;
+      setGeneratingPlan(true);
+      try {
+        const base = recapture ? await captureKeyframe(0, 0) : baseFrameRef.current;
+        if (!base) return;
+        if (recapture) {
+          setBaseFrame(base);
+          setLatestFrame(base);
+        }
+        // Build mode never reasons — it stays simple (extract / pin / record).
+        if (workflowModeRef.current !== "plan") return;
+        setReasoningStatus("thinking");
+        const ctx = getPlanContextRef.current?.();
+        const payload = buildPlanReasoningPayload({
+          sessionId: sessionRef.current?.sessionId ?? "plan",
+          intent,
+          frame: base,
+          region: regionRef.current,
+          selectedLabel: ctx?.selectedLabel ?? extractSourceRef.current?.label,
+          detectedEntities: ctx?.detectedEntities,
+          segments: ctx?.segments,
+        });
+        const resp = await requestPlanReasoning(payload);
+        if (phaseRef.current === "idle" || phaseRef.current === "selecting") return; // reset mid-flight
+        const merged = mergePlanReasoning(base, resp);
+        setBaseFrame(merged);
+        setLatestFrame(merged);
+        setReasoningStatus(resp.status === "ok" && resp.source === "deepseek" ? "ok" : "fallback");
+      } finally {
+        setGeneratingPlan(false);
+      }
+    },
+    [captureKeyframe],
+  );
+
+  /**
    * Plan mode: the user answered "What do you want to do with this item?".
-   * The confirmed intent rides on every subsequent payload, and we immediately
-   * request ONE fresh guided plan frame from the worker (mock) so step 1 +
-   * overlays appear right away — "plan_generating_steps" → "plan_guiding".
+   * The confirmed intent rides on every payload; we immediately run the plan
+   * reasoner so step 1 + overlays + virtual points appear right away
+   * ("plan_generating_steps" → "plan_guiding").
    */
   const confirmIntent = useCallback(
     async (taskType?: PlanTaskType, text?: string) => {
       const intent: BuildUserIntent = { taskType, text, confirmed: true };
       userIntentRef.current = intent;
       setUserIntent(intent);
-      const ph = phaseRef.current;
-      if (ph !== "placing" && ph !== "pinned") return;
-      setGeneratingPlan(true);
-      try {
-        const frame = await captureKeyframe(0, 0);
-        if (frame) {
-          setBaseFrame(frame);
-          setLatestFrame(frame);
-        }
-      } finally {
-        setGeneratingPlan(false);
-      }
+      setReasoningStatus("idle");
+      await runPlanReasoning(intent, true);
     },
-    [captureKeyframe],
+    [runPlanReasoning],
+  );
+
+  /**
+   * Plan mode follow-up question / new goal text — re-reason over the SAME
+   * extracted blueprint (no re-capture) and re-merge the guidance.
+   */
+  const askFollowUp = useCallback(
+    async (text: string) => {
+      const t = text.trim();
+      if (!t) return;
+      const prev = userIntentRef.current;
+      const intent: BuildUserIntent = { taskType: prev?.taskType, text: t, confirmed: true };
+      userIntentRef.current = intent;
+      setUserIntent(intent);
+      await runPlanReasoning(intent, false);
+    },
+    [runPlanReasoning],
   );
 
   /** Plan mode: drop the confirmed goal so the chooser reappears (the "change"
@@ -463,6 +540,7 @@ export function useBuildModeSession({
     userIntentRef.current = null;
     setUserIntent(null);
     setGeneratingPlan(false);
+    setReasoningStatus("idle");
   }, []);
 
   /**
@@ -500,6 +578,7 @@ export function useBuildModeSession({
       userIntentRef.current = null;
       setUserIntent(null);
       setGeneratingPlan(false);
+      setReasoningStatus("idle");
       go(loadedFrames.length > 0 ? "review" : "pinned");
     },
     [enabled, clearTimer, go],
@@ -529,6 +608,7 @@ export function useBuildModeSession({
     userIntent,
     generatingPlan,
     planStage,
+    reasoningStatus,
     frameCount: frames.length,
     beginSelection,
     cancelSelection,
@@ -540,6 +620,7 @@ export function useBuildModeSession({
     stopRecording,
     getAsset,
     confirmIntent,
+    askFollowUp,
     clearIntent,
     loadSavedBlueprint,
     reset,

@@ -99,19 +99,37 @@ function cardStyle(c: PlacedCallout): React.CSSProperties {
   };
 }
 
-function CalloutCard({ callout }: { callout: PlacedCallout }) {
+function CalloutCard({
+  callout,
+  mode = "build",
+  onReplyRequest,
+}: {
+  callout: PlacedCallout;
+  mode?: "build" | "plan";
+  onReplyRequest?: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const meta = META[callout.type];
   const Icon = meta.icon;
   const isSafety = callout.type === "safety";
   const long = callout.text.length > 64;
+  // In Plan mode, goal/intent/next-step callouts are conversational: tapping
+  // opens the Plan input drawer to reply, instead of just expanding text.
+  const replyable =
+    mode === "plan" &&
+    !!onReplyRequest &&
+    (callout.type === "intent" || callout.type === "next-step");
+  const interactive = replyable || long;
   return (
     <button
       type="button"
-      onClick={() => long && setExpanded((v) => !v)}
+      onClick={() => {
+        if (replyable) onReplyRequest!();
+        else if (long) setExpanded((v) => !v);
+      }}
       className={`pointer-events-auto absolute z-[1] rounded-lg border px-2 py-1 text-left shadow-lg backdrop-blur-sm ${
         isSafety ? "ring-1 ring-red-400/50" : ""
-      } ${long ? "cursor-pointer" : "cursor-default"}`}
+      } ${interactive ? "cursor-pointer" : "cursor-default"}`}
       style={{
         ...cardStyle(callout),
         borderColor: meta.border,
@@ -133,11 +151,13 @@ function CalloutCard({ callout }: { callout: PlacedCallout }) {
       >
         {callout.text}
       </span>
-      {long && (
+      {replyable ? (
+        <span className="text-[9px] font-medium text-amber-200/80">tap to reply</span>
+      ) : long ? (
         <span className="text-[9px] text-white/50">
           {expanded ? "tap to collapse" : "tap to expand"}
         </span>
-      )}
+      ) : null}
     </button>
   );
 }
@@ -145,10 +165,15 @@ function CalloutCard({ callout }: { callout: PlacedCallout }) {
 export function BlueprintCalloutLayer({
   frame,
   bounds,
+  mode = "build",
+  onReplyRequest,
 }: {
   frame: BlueprintFrame | null;
   /** Live ghost bounds in card space (region + drag transform). */
   bounds: CardBounds | null;
+  /** Plan mode makes goal/intent/next-step cards tappable to reply. */
+  mode?: "build" | "plan";
+  onReplyRequest?: () => void;
 }) {
   if (!frame || !bounds) return null;
   // The readable text comes from AI notes AND any "callout" plan overlays the
@@ -192,7 +217,7 @@ export function BlueprintCalloutLayer({
         ))}
       </svg>
       {callouts.map((c) => (
-        <CalloutCard key={c.id} callout={c} />
+        <CalloutCard key={c.id} callout={c} mode={mode} onReplyRequest={onReplyRequest} />
       ))}
     </div>
   );
