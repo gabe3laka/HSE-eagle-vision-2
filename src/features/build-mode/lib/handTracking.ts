@@ -246,14 +246,60 @@ export function findDetectionAtPointer(
 /** A candidate box must be at least this big to be extractable. */
 const CANDIDATE_MIN_SIZE = 0.04;
 
+interface CandidateEntity {
+  label: string;
+  confidence: number;
+  bbox: SelectedRegion;
+  /** YOLO26 seg outline carried on a det entity (optional metadata). */
+  maskContour?: { x: number; y: number }[];
+  source?: string;
+}
+
+interface CandidateSegment {
+  label: string;
+  confidence: number;
+  maskContour: { x: number; y: number }[];
+}
+
+/** Pick the entity `source` label from the active backend (default keeps the
+ *  legacy "edgecrafter-entity" so existing behavior/tests are unchanged). */
+function entitySource(backend?: string | null): ExtractCandidate["source"] {
+  if (backend === "yolo26") return "yolo26-entity";
+  if (backend === "deimv2") return "deimv2-entity";
+  return "edgecrafter-entity";
+}
+
+/** Axis-aligned bounds of a normalized contour (for making a segment pinchable). */
+function contourBounds(contour: { x: number; y: number }[]): SelectedRegion | null {
+  if (!contour || contour.length < 3) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of contour) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  if (!Number.isFinite(minX) || maxX <= minX || maxY <= minY) return null;
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
 /**
- * Normalize the LIVE detection streams into Build extraction candidates:
- * EdgeCrafter entities + HSE live boxes (both already visible-card coords).
- * Invalid/degenerate boxes (outside 0..1, below the minimum size) are dropped.
+ * Normalize the LIVE detection streams into Build extraction candidates. The
+ * default vision backend is YOLO26 (EdgeCrafter is the fallback, DEIMv2 legacy)
+ * — entities from any of them become pinch-extractable boxes identically. HSE
+ * live boxes are also candidates. Optional YOLO26 segments (mask-only, no bbox)
+ * become candidates via the contour's bounding box. Any `maskContour` is
+ * preserved on the candidate as optional metadata; bbox extraction works with
+ * or without it. Invalid/degenerate boxes are dropped.
  */
 export function buildExtractCandidates(
-  entities: Array<{ label: string; confidence: number; bbox: SelectedRegion }>,
+  entities: CandidateEntity[],
   liveBoxes: Array<{ hazardType: string; confidence: number; bbox: SelectedRegion }>,
+  opts?: { backend?: string | null; segments?: CandidateSegment[] },
 ): ExtractCandidate[] {
   const out: ExtractCandidate[] = [];
   const valid = (b: SelectedRegion) =>
@@ -267,14 +313,29 @@ export function buildExtractCandidates(
     b.h >= CANDIDATE_MIN_SIZE &&
     b.x + b.w <= 1.001 &&
     b.y + b.h <= 1.001;
+  const src = entitySource(opts?.backend);
   entities.forEach((e, i) => {
     if (!e?.bbox || !valid(e.bbox)) return;
     out.push({
       id: `ent-${i}-${e.label}`,
       label: e.label,
       bbox: e.bbox,
-      source: "edgecrafter-entity",
+      // A seg-carrying det entity is surfaced as a segment source.
+      source: e.maskContour && e.maskContour.length >= 3 ? "yolo26-segment" : src,
       confidence: e.confidence,
+      ...(e.maskContour && e.maskContour.length >= 3 ? { maskContour: e.maskContour } : {}),
+    });
+  });
+  (opts?.segments ?? []).forEach((s, i) => {
+    const bbox = contourBounds(s.maskContour);
+    if (!bbox || !valid(bbox)) return;
+    out.push({
+      id: `seg-${i}-${s.label}`,
+      label: s.label,
+      bbox,
+      source: "yolo26-segment",
+      confidence: s.confidence,
+      maskContour: s.maskContour,
     });
   });
   liveBoxes.forEach((b, i) => {

@@ -99,6 +99,7 @@ export function useDetectionSession({
   const [backendStatus, setBackendStatus] = useState<unknown>(null);
   const [backendEntities, setBackendEntities] = useState<unknown[]>([]);
   const [backendPoses, setBackendPoses] = useState<unknown[]>([]);
+  const [backendSegments, setBackendSegments] = useState<unknown[]>([]);
 
   const detectorRef = useRef<Detector | null>(null);
   const engineRef = useRef<RiskEngine | null>(null);
@@ -291,6 +292,9 @@ export function useDetectionSession({
           (det as { getLastEntities?: () => unknown[] }).getLastEntities?.() ?? [],
         );
         setBackendPoses((det as { getLastPoses?: () => unknown[] }).getLastPoses?.() ?? []);
+        setBackendSegments(
+          (det as { getLastSegments?: () => unknown[] }).getLastSegments?.() ?? [],
+        );
       }
     },
     [persistDetection, persistIncident, videoRef],
@@ -422,6 +426,7 @@ export function useDetectionSession({
     setBackendStatus(null);
     setBackendEntities([]);
     setBackendPoses([]);
+    setBackendSegments([]);
     const sid = sessionIdRef.current;
     sessionIdRef.current = null;
     if (sid && user) {
@@ -471,6 +476,7 @@ export function useDetectionSession({
     backendStatus,
     backendEntities,
     backendPoses,
+    backendSegments,
     start,
     stop,
     dismissAlert,

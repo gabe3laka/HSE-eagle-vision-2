@@ -1,11 +1,19 @@
-import type { BackendEntity, BackendPose, Detector, DetectorInput, Observation } from "./types";
-import { type BackendStatus, normalizeEntities, normalizePoses } from "./backendVisionDetector";
-import { supabase } from "@/integrations/supabase/own-client";
+import type {
+  BackendEntity,
+  BackendPose,
+  BackendSegment,
+  Detector,
+  DetectorInput,
+  Observation,
+} from "./types";
 import {
-  computeCoverCrop,
-  isMobileViewport,
-  MOBILE_VISUAL_ASPECT,
-} from "./coverCrop";
+  type BackendStatus,
+  normalizeEntities,
+  normalizePoses,
+  normalizeSegments,
+} from "./backendVisionDetector";
+import { supabase } from "@/integrations/supabase/own-client";
+import { computeCoverCrop, isMobileViewport, MOBILE_VISUAL_ASPECT } from "./coverCrop";
 
 /**
  * Resolve the visual crop aspect that mirrors what the user sees right now.
@@ -23,10 +31,12 @@ function resolveViewportTargetAspect(): number | null {
 }
 
 /**
- * BackendVisionHttpDetector — "EdgeCrafter HTTP — fast dry run".
+ * BackendVisionHttpDetector — "Vision HTTP — fast dry run" (YOLO26 by default,
+ * EdgeCrafter as fallback; the worker chooses and reports `backend`).
  *
  * Browser frame -> captureFrame() -> base64 JPEG -> POST directly to the
- * Cloudflare HTTP Worker `/detect` endpoint (VITE_EDGECRAFT_HTTP_DETECT_URL).
+ * Cloudflare HTTP Worker `/detect` endpoint (VITE_VISION_HTTP_DETECT_URL, or the
+ * legacy VITE_EDGECRAFT_HTTP_DETECT_URL).
  * The Worker holds the RunPod API key as a secret and forwards the request to
  * the RunPod load balancer (`POST .../detect`); the browser NEVER sees the key.
  * A short-lived Supabase session token (?token=, reused from the
@@ -59,16 +69,27 @@ const AUTH_COOLDOWN_MS = 15_000; // back off after an auth failure (don't hammer
 /**
  * Public, browser-safe Cloudflare Worker `/detect` URL. This is a gateway URL
  * only — it is NOT the raw RunPod endpoint and carries no API key. Overridable
- * per-deploy via VITE_EDGECRAFT_HTTP_DETECT_URL.
+ * per-deploy via VITE_VISION_HTTP_DETECT_URL (preferred) or the legacy
+ * VITE_EDGECRAFT_HTTP_DETECT_URL.
  */
 const DEFAULT_DETECT_URL = "https://eagle-vision-stream-gateway.abdullahiking33.workers.dev/detect";
 
-/** Resolve the Cloudflare `/detect` URL: env override, else the public default. */
+/**
+ * Resolve the Cloudflare `/detect` URL. Priority:
+ *   1. VITE_VISION_HTTP_DETECT_URL    (new, backend-agnostic name)
+ *   2. VITE_EDGECRAFT_HTTP_DETECT_URL (legacy — kept working)
+ *   3. the public default Cloudflare gateway
+ * Always a gateway URL — never the raw RunPod endpoint.
+ */
 export function readDetectUrl(): string | null {
   try {
-    const v = import.meta.env.VITE_EDGECRAFT_HTTP_DETECT_URL;
-    const fromEnv = typeof v === "string" && v.trim() ? v.trim() : null;
-    return fromEnv ?? DEFAULT_DETECT_URL;
+    const env = import.meta.env;
+    const pick = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+    return (
+      pick(env.VITE_VISION_HTTP_DETECT_URL) ??
+      pick(env.VITE_EDGECRAFT_HTTP_DETECT_URL) ??
+      DEFAULT_DETECT_URL
+    );
   } catch {
     return DEFAULT_DETECT_URL;
   }
@@ -119,10 +140,12 @@ export async function fetchDetectSession(cameraId: string): Promise<DetectSessio
   return { token: d.token, expiresAt: Number.isFinite(exp) ? exp : null };
 }
 
-/** Shape of a `/detect` JSON response (fields are all optional / best-effort). */
+/** Shape of a `/detect` JSON response (fields are all optional / best-effort).
+ *  YOLO26 adds segments + fallback metadata; older responses omit them. */
 interface DetectResponse {
   entities?: unknown;
   poses?: unknown;
+  segments?: unknown;
   backend?: string;
   tasks?: unknown;
   inference_ms?: number;
@@ -130,6 +153,9 @@ interface DetectResponse {
   error?: string;
   img_w?: number;
   img_h?: number;
+  fallbackUsed?: boolean;
+  fallbackReason?: string | null;
+  warning?: string | null;
 }
 
 function freshStatus(state: BackendStatus["state"]): BackendStatus {
@@ -174,6 +200,7 @@ export class BackendVisionHttpDetector implements Detector {
   private lastSubmitAt = 0;
   private lastEntities: BackendEntity[] = [];
   private lastPoses: BackendPose[] = [];
+  private lastSegments: BackendSegment[] = [];
   private captureCanvas: HTMLCanvasElement | null = null;
   private captureCtx: CanvasRenderingContext2D | null = null;
   private status: BackendStatus = freshStatus("idle");
@@ -204,6 +231,7 @@ export class BackendVisionHttpDetector implements Detector {
     this.lastSubmitAt = 0;
     this.lastEntities = [];
     this.lastPoses = [];
+    this.lastSegments = [];
     this.session = null;
     this.sessionPromise = null;
     this.tokenError = null;
@@ -229,6 +257,7 @@ export class BackendVisionHttpDetector implements Detector {
     this.inFlight = false;
     this.lastEntities = [];
     this.lastPoses = [];
+    this.lastSegments = [];
     this.captureCanvas = null;
     this.captureCtx = null;
     this.session = null;
@@ -252,6 +281,10 @@ export class BackendVisionHttpDetector implements Detector {
 
   getLastPoses(): BackendPose[] {
     return this.lastPoses;
+  }
+
+  getLastSegments(): BackendSegment[] {
+    return this.lastSegments;
   }
 
   getInFlight(): boolean {
@@ -388,10 +421,17 @@ export class BackendVisionHttpDetector implements Detector {
       this.status.lastRawResponse = JSON.stringify(resp).slice(0, 1500);
       this.status.backend = typeof resp.backend === "string" ? resp.backend : this.status.backend;
       this.status.tasks = Array.isArray(resp.tasks) ? (resp.tasks as string[]) : this.status.tasks;
+      // YOLO26 fallback metadata — surfaced in the debug panel so an
+      // edgecrafter-fallback is obvious. All optional; absent => null.
+      if (typeof resp.fallbackUsed === "boolean") this.status.fallbackUsed = resp.fallbackUsed;
+      this.status.fallbackReason =
+        typeof resp.fallbackReason === "string" ? resp.fallbackReason : null;
+      this.status.warning = typeof resp.warning === "string" ? resp.warning : null;
 
       if (resp.error) {
         this.lastEntities = [];
         this.lastPoses = [];
+        this.lastSegments = [];
         const loading = resp.error === "model_not_ready" || resp.error === "runpod_queued";
         this.status.state = loading ? "loading" : "error";
         this.status.error = resp.error;
@@ -401,6 +441,9 @@ export class BackendVisionHttpDetector implements Detector {
 
       this.lastEntities = normalizeEntities(resp.entities, resp.img_w, resp.img_h);
       this.lastPoses = normalizePoses(resp.poses, resp.img_w, resp.img_h);
+      // Segments are OPTIONAL — missing/invalid => [] (never breaks parsing).
+      this.lastSegments = normalizeSegments(resp.segments, resp.img_w, resp.img_h);
+      this.status.segmentCount = this.lastSegments.length;
       this.status.lastBackendImgW = typeof resp.img_w === "number" ? resp.img_w : null;
       this.status.lastBackendImgH = typeof resp.img_h === "number" ? resp.img_h : null;
       this.status.state = "ready";

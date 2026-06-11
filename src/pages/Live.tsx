@@ -16,7 +16,7 @@ import {
   captureVideoFrameBase64,
 } from "@/lib/detection/backendVisionHttpDetector";
 import { isMobileViewport, MOBILE_VISUAL_ASPECT } from "@/lib/detection/coverCrop";
-import type { BackendEntity, BackendPose } from "@/lib/detection/types";
+import type { BackendEntity, BackendPose, BackendSegment } from "@/lib/detection/types";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/own-client";
@@ -59,7 +59,7 @@ import type {
 /** Top-level app workflow: HSE monitoring | Build (document) | Plan (guide). */
 type AppMode = "hse" | "build" | "plan";
 
-/** Readout of the EdgeCrafter backend — fast Cloudflare HTTP, legacy HTTP dry-run, or WebSocket stream. */
+/** Readout of the vision backend (YOLO26 default, EdgeCrafter fallback) — fast Cloudflare HTTP, legacy HTTP dry-run, or WebSocket stream. */
 function BackendDebugPanel({
   status,
   entities,
@@ -79,10 +79,13 @@ function BackendDebugPanel({
   const isCloudflare = status.transport === "http-cloudflare";
   const fmt = (v?: number | null) => (v != null ? `${v}` : "—");
   const ms = (v?: number | null) => (v != null ? `${Math.round(v)} ms` : "—");
+  const isYolo = status.backend === "yolo26";
   const transportLabel = isStream
-    ? "WebSocket stream (beta)"
+    ? "Vision stream (beta)"
     : isCloudflare
-      ? "http-cloudflare"
+      ? isYolo
+        ? "YOLO26 HTTP"
+        : "Vision HTTP"
       : "HTTP dry-run";
   const detectorName = isStream
     ? "BackendVisionStreamDetector"
@@ -110,8 +113,25 @@ function BackendDebugPanel({
           transport: <span className="text-foreground">{transportLabel}</span>
         </div>
         <div>
-          backend: {status.backend ?? "—"} · tasks: {status.tasks?.join(",") ?? "—"}
+          backend:{" "}
+          <span className={isYolo ? "text-emerald-500" : "text-foreground"}>
+            {status.backend ?? "—"}
+          </span>{" "}
+          · tasks: {status.tasks?.join(",") ?? "—"}
+          {status.model ? ` · model ${status.model}` : ""}
         </div>
+        {/* Fallback + segmentation metadata — makes a YOLO26→EdgeCrafter
+            fallback obvious, and shows the seg count when present. */}
+        {(status.fallbackUsed || status.fallbackReason || status.warning) && (
+          <div className="text-amber-500">
+            {status.fallbackUsed ? `${status.backend ?? "backend"} fallback` : "warning"}
+            {status.fallbackReason ? ` · reason: ${status.fallbackReason}` : ""}
+            {status.warning ? ` · ${status.warning}` : ""}
+          </div>
+        )}
+        {status.segmentCount != null && status.segmentCount > 0 && (
+          <div>segments: {status.segmentCount}</div>
+        )}
         <div>
           detector: {detectorName} · mode {modeName}
         </div>
@@ -190,20 +210,21 @@ function BackendDebugPanel({
       {/* Transport note. */}
       {isStream && (
         <div className="mt-2 border-t border-border/60 pt-2 text-[10px] not-italic text-muted-foreground">
-          <span className="font-semibold text-foreground">WebSocket stream (beta).</span>{" "}
-          Authenticated with a short-lived Supabase-issued session token (<code>?token=</code>); the
-          gateway URL comes from the session (override with{" "}
+          <span className="font-semibold text-foreground">Vision stream (beta).</span> Authenticated
+          with a short-lived Supabase-issued session token (<code>?token=</code>); the gateway URL
+          comes from the session (override with <code>VITE_VISION_STREAM_WS_URL</code>, legacy{" "}
           <code>VITE_EDGECRAFT_STREAM_WS_URL</code>). The browser never holds the RunPod API key or
           the signing secret.
         </div>
       )}
       {isCloudflare && (
         <div className="mt-2 border-t border-border/60 pt-2 text-[10px] not-italic text-muted-foreground">
-          <span className="font-semibold text-foreground">Fast HTTP dry-run.</span> Frames POST
-          directly to the Cloudflare <code>/detect</code> Worker, which holds the RunPod API key and
-          forwards to the worker. Authenticated with a short-lived Supabase session token (
-          <code>?token=</code>, reused from <code>create-stream-session</code>). One request in
-          flight, newest frame only — no alerts, no incidents.
+          <span className="font-semibold text-foreground">Fast vision HTTP dry-run.</span> Frames
+          POST directly to the Cloudflare <code>/detect</code> Worker (YOLO26 by default,
+          EdgeCrafter fallback), which holds the RunPod API key and forwards to the worker.
+          Authenticated with a short-lived Supabase session token (<code>?token=</code>, reused from{" "}
+          <code>create-stream-session</code>). One request in flight, newest frame only — no alerts,
+          no incidents.
         </div>
       )}
       {!isStream && !isCloudflare && (
@@ -252,6 +273,7 @@ export default function Live() {
     backendStatus,
     backendEntities,
     backendPoses,
+    backendSegments,
     start,
     stop,
     dismissAlert,
@@ -344,9 +366,16 @@ export default function Live() {
   // blueprint. Hit-testing uses BOTH the index tip and the thumb↔index pinch
   // midpoint so the visual pinch point can't miss. Manual Select-object stays
   // as the fallback path.
+  // YOLO26 entities (and optional seg outlines) become candidates exactly like
+  // EdgeCrafter entities; the resolved backend just sets the candidate `source`.
+  const backendName = (backendStatus as BackendStatus | null)?.backend ?? null;
   const candidates = useMemo(
-    () => buildExtractCandidates(backendEntities as BackendEntity[], liveBoxes),
-    [backendEntities, liveBoxes],
+    () =>
+      buildExtractCandidates(backendEntities as BackendEntity[], liveBoxes, {
+        backend: backendName,
+        segments: backendSegments as BackendSegment[],
+      }),
+    [backendEntities, liveBoxes, backendName, backendSegments],
   );
   const [extractHold, setExtractHold] = useState<{
     x: number;
@@ -820,16 +849,14 @@ export default function Live() {
               {showFrameTest && (
                 <div className="rounded-xl border border-border bg-background/40 p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">
-                      EdgeCrafter dry-run · single-frame test
-                    </span>
+                    <span className="text-sm font-medium">Vision dry-run · single-frame test</span>
                     <Button
                       size="sm"
                       variant="secondary"
                       onClick={testBackendFrame}
                       disabled={!active || backendTesting}
                     >
-                      {backendTesting ? "Testing…" : "Test EdgeCrafter frame"}
+                      {backendTesting ? "Testing…" : "Test detect frame"}
                     </Button>
                   </div>
                   {(backendTestImg || backendTest) && (

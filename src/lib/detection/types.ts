@@ -92,15 +92,37 @@ export interface LiveBox {
 }
 
 /**
- * A raw DEIMv2 entity returned by the backend worker (dry-run mode).
- * These are displayed in dev/debug overlays but do NOT drive RiskEngine alerts
- * in Sprint 4A. In Sprint 4B+ they will be mapped to Observations.
+ * A raw detected entity returned by the backend worker (dry-run mode). YOLO26 is
+ * the default backend; EdgeCrafter is the fallback and DEIMv2 is legacy/debug.
+ * These are displayed in dev/debug overlays and (in Build Mode) become
+ * pinch-extractable candidates; they do NOT drive RiskEngine alerts.
+ *
+ * `source` / `maskContour` / `maskSource` are OPTIONAL — older responses that
+ * only carry label/bbox/confidence keep working unchanged.
  */
 export interface BackendEntity {
   label: string;
   class_id: number;
   confidence: number;
   bbox: BBox;
+  /** Which backend produced this entity, e.g. "yolo26" | "yolo26-seg". */
+  source?: string;
+  /** Segmentation outline, normalized 0..1 to the frame (when seg ran). */
+  maskContour?: { x: number; y: number }[];
+  maskSource?: "none" | "yolo26-seg" | "fallback-contour" | "sam2" | string;
+}
+
+/**
+ * A raw segmentation result (YOLO26 seg task). Optional — only present when the
+ * worker ran segmentation. Carries the mask outline (no bbox; a bbox can be
+ * derived from the contour when one is needed).
+ */
+export interface BackendSegment {
+  label: string;
+  class_id: number;
+  confidence: number;
+  maskContour: { x: number; y: number }[];
+  source?: "yolo26-seg" | string;
 }
 
 /** A single EdgeCrafter (ECPose) keypoint, normalized to 0..1. */

@@ -30,8 +30,17 @@ export interface ExtractCandidate {
   id: string;
   label: string;
   bbox: SelectedRegion;
-  source: "hse-livebox" | "edgecrafter-entity";
+  source:
+    | "hse-livebox"
+    | "yolo26-entity"
+    | "yolo26-segment"
+    | "edgecrafter-entity"
+    | "deimv2-entity"
+    | string;
   confidence?: number;
+  /** Segmentation outline (region-local-to-card 0..1) when the detection carried
+   *  one — optional metadata; bbox extraction works without it. */
+  maskContour?: { x: number; y: number }[];
 }
 
 export interface BlueprintAnchor {
@@ -119,7 +128,14 @@ export interface BuildUserIntent {
  */
 export interface BlueprintPlanOverlay {
   id: string;
-  type: "arrow" | "target" | "ghost-position" | "highlight" | "warning-zone";
+  type:
+    | "arrow"
+    | "target"
+    | "ghost-position"
+    | "highlight"
+    | "warning-zone"
+    | "callout"
+    | "step-marker";
   from?: { x: number; y: number };
   to?: { x: number; y: number };
   x?: number;
@@ -163,7 +179,7 @@ export interface BlueprintSourceAsset {
   maskContour?: Array<{ x: number; y: number }>;
   size?: { w: number; h: number };
   mode: "transient" | "saved-thumbnail";
-  maskSource?: "none" | "sam2" | "fallback-contour";
+  maskSource?: "none" | "yolo26-seg" | "fallback-contour" | "sam2" | string;
 }
 
 export interface BlueprintPoint {
@@ -197,9 +213,11 @@ export interface BlueprintFrame {
   sourceImageB64?: string;
   sourceImageSize?: { w: number; h: number };
   sourceImageMode?: "transient" | "saved-thumbnail";
-  /** SAM2-style segmentation mask PNG (white = object) when the backend has one. */
+  /** Segmentation mask PNG (white = object) when the backend has one. */
   sourceMaskB64?: string;
-  maskSource?: "none" | "sam2" | "fallback-contour";
+  /** Segmentation outline (region-local 0..1) — YOLO26 seg / fallback contour. */
+  maskContour?: Array<{ x: number; y: number }>;
+  maskSource?: "none" | "yolo26-seg" | "fallback-contour" | "sam2" | string;
 
   // ── AI work-instruction fields (Build documents, Plan guides). ──
   workflowMode?: BlueprintWorkflowMode;
