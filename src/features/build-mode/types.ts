@@ -50,6 +50,45 @@ export interface BlueprintStepMarker {
   timestampMs: number;
 }
 
+/**
+ * Which workflow the shared blueprint engine is serving:
+ *   build → "record/document my work"
+ *   plan  → "guide me through work"
+ * One engine, one flag — Plan never duplicates the Build system.
+ */
+export type BlueprintWorkflowMode = "build" | "plan";
+
+/**
+ * How the ghost renders: pure cyan wireframe (legacy), the actual object crop
+ * ("object-ghost"), or both layered ("hybrid" — the default: crop/mask with
+ * the wireframe on top).
+ */
+export type BlueprintVisualMode = "wireframe" | "object-ghost" | "hybrid";
+
+/** One AI note pinned onto the blueprint (region-local 0..1 coords). */
+export interface BlueprintNote {
+  id: string;
+  type: "instruction" | "safety" | "quality" | "observation" | "next-step" | "intent";
+  text: string;
+  x: number;
+  y: number;
+  timestampMs: number;
+  confidence?: number;
+}
+
+/** One step of a guided Plan-mode procedure. */
+export interface PlanStep {
+  id: string;
+  title: string;
+  instruction: string;
+  /** Optional region-local marker position for the step. */
+  x?: number;
+  y?: number;
+  status: "pending" | "active" | "completed" | "skipped";
+  safetyNote?: string;
+  qualityCheck?: string;
+}
+
 export interface BlueprintPoint {
   x: number;
   y: number;
@@ -69,6 +108,28 @@ export interface BlueprintFrame {
   instruction?: string;
   /** Gesture recorded with this keyframe — replay highlights pinch points. */
   gesture?: BuildGesture;
+
+  // ── Source-crop visuals (TRANSIENT: kept in memory only, never persisted;
+  //    attached locally from the capture — the backend never sends pixels back). ──
+  /** The actual selected-crop JPEG (no data: prefix) the ghost renders from. */
+  sourceImageB64?: string;
+  sourceImageSize?: { w: number; h: number };
+  sourceImageMode?: "transient" | "saved-thumbnail";
+  /** SAM2-style segmentation mask PNG (white = object) when the backend has one. */
+  sourceMaskB64?: string;
+  maskSource?: "none" | "sam2" | "fallback-contour";
+
+  // ── AI work-instruction fields (Build documents, Plan guides). ──
+  workflowMode?: BlueprintWorkflowMode;
+  aiNotes?: BlueprintNote[];
+  nextAction?: string;
+  safetyWarning?: string;
+  qualityCheck?: string;
+  activityLabel?: string;
+  detectedIntent?: string;
+  importance?: "low" | "medium" | "high";
+  planSteps?: PlanStep[];
+  currentPlanStepIndex?: number;
 }
 
 /** Where the floating blueprint currently sits relative to its origin region. */
@@ -137,6 +198,8 @@ export interface BuildFramePayload {
   handLandmarks?: BuildHandLandmark[];
   /** Gesture snapshot at capture time (e.g. an active pinch) — kept tiny. */
   gesture?: BuildGesture;
+  /** Which workflow this keyframe serves — same /build/* routes for both. */
+  workflowMode?: BlueprintWorkflowMode;
 }
 
 /** Backend transport for the session: real HTTP routes or the local mock. */
@@ -155,6 +218,8 @@ export interface BuildSessionInfo {
   backendMode: BuildBackendMode;
   /** Where the base URL was resolved from (null = no URL configured). */
   configSource?: "env" | "supabase-config" | null;
+  /** Workflow this session was started for (stamped into lock/finish payloads). */
+  workflowMode?: BlueprintWorkflowMode;
 }
 
 export interface BuildReplay {

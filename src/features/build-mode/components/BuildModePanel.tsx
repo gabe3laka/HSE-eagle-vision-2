@@ -1,8 +1,18 @@
-import { CircleDot, Hammer, Hand, Loader2, Play, ScanSearch, Square, Undo2 } from "lucide-react";
+import {
+  CircleDot,
+  Hammer,
+  Hand,
+  Loader2,
+  Play,
+  Route,
+  ScanSearch,
+  Square,
+  Undo2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BlueprintReplayControls } from "../hooks/useBlueprintReplay";
 import type { BuildModeSession } from "../hooks/useBuildModeSession";
-import type { BuildBackendStatus } from "../types";
+import type { BlueprintWorkflowMode, BuildBackendStatus } from "../types";
 import { BlueprintTimeline } from "./BlueprintTimeline";
 
 /** Short chip label for the resolved Build Mode backend. */
@@ -57,11 +67,15 @@ interface Props {
   candidateCount?: number;
   handStatus?: HandControlStatus;
   debug?: BuildDebugInfo;
+  /** Build = record/document; Plan = guided work. Same engine, same panel. */
+  workflowMode?: BlueprintWorkflowMode;
 }
 
 /**
- * Build Mode control card (below the camera): drives the
- * detect → pinch-extract → pin → record → review workflow.
+ * Build/Plan control card (below the camera): drives the
+ * detect → pinch-extract → pin → record → review workflow, and surfaces the
+ * AI guidance carried on the latest blueprint frame (intent / next action /
+ * safety / guided plan steps).
  */
 export function BuildModePanel({
   session,
@@ -72,15 +86,33 @@ export function BuildModePanel({
   candidateCount = 0,
   handStatus,
   debug,
+  workflowMode = "build",
 }: Props) {
   const { phase, frameCount, backendStatus, error } = session;
   const backend = BACKEND_STATUS[backendStatus];
+  const isPlan = workflowMode === "plan";
+  // AI guidance comes with each blueprint frame (mock or backend) — show the
+  // freshest one from extraction onward.
+  const aiFrame = session.latestFrame ?? session.baseFrame;
+  const showGuidance =
+    aiFrame != null &&
+    !!(
+      aiFrame.detectedIntent ||
+      aiFrame.nextAction ||
+      aiFrame.safetyWarning ||
+      aiFrame.qualityCheck ||
+      (aiFrame.planSteps?.length ?? 0) > 0
+    );
   return (
     <div className="rounded-xl border border-cyan-500/30 bg-background/40 p-3">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-sm font-medium">
-          <Hammer className="h-4 w-4 text-cyan-400" />
-          Build Mode
+          {isPlan ? (
+            <Route className="h-4 w-4 text-cyan-400" />
+          ) : (
+            <Hammer className="h-4 w-4 text-cyan-400" />
+          )}
+          {isPlan ? "Plan Mode" : "Build Mode"}
           <span
             title="Build backend"
             className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
@@ -131,7 +163,7 @@ export function BuildModePanel({
           ) : (
             <p className="text-xs text-muted-foreground">
               {candidateCount > 0
-                ? `${candidateCount} extractable object${candidateCount === 1 ? "" : "s"} detected. Hold a pinch on a highlighted box for 4 seconds (the mini clock fills) to pull out its blueprint.`
+                ? `${candidateCount} extractable object${candidateCount === 1 ? "" : "s"} detected. Hold a pinch on a highlighted box for 4 seconds (the mini clock fills) to pull out its blueprint${isPlan ? " and start the guided steps" : ""}.`
                 : "Scanning… point the camera at an object. Detected boxes become pinch-extractable."}
             </p>
           )}
@@ -231,6 +263,56 @@ export function BuildModePanel({
               New selection
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* AI guidance carried on the blueprint frames: detected intent, the
+          suggested next action (updates while working), safety/quality notes
+          and — in Plan mode — the guided step list. */}
+      {showGuidance && aiFrame && (
+        <div className="mt-2 space-y-1.5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-2.5 py-2">
+          <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+            <span>{isPlan ? "Guided steps" : "AI notes"}</span>
+            {aiFrame.activityLabel && (
+              <span className="font-normal normal-case text-muted-foreground">
+                {aiFrame.activityLabel}
+              </span>
+            )}
+          </div>
+          {aiFrame.detectedIntent && (
+            <p className="text-[11px] text-muted-foreground">Intent: {aiFrame.detectedIntent}</p>
+          )}
+          {aiFrame.safetyWarning && (
+            <p className="text-[11px] font-medium text-red-400">⚠ {aiFrame.safetyWarning}</p>
+          )}
+          {aiFrame.nextAction && (
+            <p className="text-[11px] text-amber-300">▶ Next: {aiFrame.nextAction}</p>
+          )}
+          {aiFrame.qualityCheck && (
+            <p className="text-[11px] text-emerald-300">✓ Check: {aiFrame.qualityCheck}</p>
+          )}
+          {aiFrame.planSteps && aiFrame.planSteps.length > 0 && (
+            <ol className="space-y-0.5">
+              {aiFrame.planSteps.map((s, i) => (
+                <li
+                  key={s.id}
+                  className={`flex items-start gap-1.5 text-[11px] ${
+                    s.status === "active"
+                      ? "font-medium text-cyan-200"
+                      : s.status === "completed"
+                        ? "text-muted-foreground line-through"
+                        : "text-muted-foreground"
+                  }`}
+                >
+                  <span>{s.status === "completed" ? "✓" : `${i + 1}.`}</span>
+                  <span>
+                    {s.title}
+                    {s.status === "active" ? ` — ${s.instruction}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
       )}
 
