@@ -6,9 +6,11 @@ import {
   mockPlanSteps,
 } from "../features/build-mode/lib/blueprint";
 import { sendBuildFrame, startBuildSession } from "../features/build-mode/api/buildModeClient";
-import type { SelectedRegion } from "../features/build-mode/types";
+import type { BuildUserIntent, SelectedRegion } from "../features/build-mode/types";
 
 const REGION: SelectedRegion = { x: 0.2, y: 0.3, w: 0.4, h: 0.3 };
+const BUILD_INTENT: BuildUserIntent = { taskType: "build", confirmed: true };
+const INSPECT_INTENT: BuildUserIntent = { taskType: "inspect", confirmed: true };
 
 describe("Plan Mode — guided step progression (mock)", () => {
   it("starts on step 1 active, rest pending", () => {
@@ -70,19 +72,28 @@ describe("Build/Plan — AI notes on mock frames", () => {
 });
 
 describe("Build/Plan — mockBlueprintFrame AI fields", () => {
-  it("plan frames carry guided steps + a hedged next action from the active step", () => {
-    const f = mockBlueprintFrame("s", 10, 3330, REGION, "plan");
+  it("CONFIRMED plan frames carry guided steps + a hedged next action", () => {
+    const f = mockBlueprintFrame("s", 9, 2997, REGION, "plan", BUILD_INTENT);
     expect(f.workflowMode).toBe("plan");
     expect(f.maskSource).toBe("none");
     expect(f.planSteps!.length).toBeGreaterThanOrEqual(3);
-    expect(f.currentPlanStepIndex).toBe(1); // frame 10 → second step
+    expect(f.currentPlanStepIndex).toBe(1); // frame 9 → second step
     const active = f.planSteps![f.currentPlanStepIndex!];
     expect(active.status).toBe("active");
     expect(f.nextAction).toBe(`Possible next step: ${active.instruction}`);
-    expect(f.detectedIntent).toContain("may be trying");
-    expect(f.importance).toBe("high"); // this step carries a safety note
-    expect(f.safetyWarning).toBe(active.safetyNote);
-    expect(f.aiNotes!.length).toBeGreaterThanOrEqual(2);
+    expect(f.detectedIntent).toContain("Confirmed goal: build");
+    expect(f.planOverlays!.length).toBeGreaterThan(0);
+    expect(f.aiNotes!.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("UNCONFIRMED plan frames are bare — no generic guidance before intent", () => {
+    const f = mockBlueprintFrame("s", 9, 2997, REGION, "plan");
+    expect(f.planSteps).toBeUndefined();
+    expect(f.planOverlays).toBeUndefined();
+    expect(f.nextAction).toBeUndefined();
+    expect(f.aiNotes).toEqual([]);
+    expect(f.importance).toBe("low");
+    expect(f.detectedIntent).toContain("Waiting");
   });
 
   it("build frames carry notes + next action but no plan steps", () => {
@@ -96,25 +107,20 @@ describe("Build/Plan — mockBlueprintFrame AI fields", () => {
     expect(f.importance === "medium" || f.importance === "high").toBe(true);
   });
 
-  it("a confirmed user intent stops the hedging and rides as an intent note", () => {
-    const hedged = mockBlueprintFrame("s", 1, 333, REGION, "plan");
-    const confirmed = mockBlueprintFrame("s", 1, 333, REGION, "plan", "inspect");
-    expect(hedged.detectedIntent).toContain("may be trying");
-    expect(hedged.importance).toBe("low"); // unconfirmed intent → honest low confidence
+  it("a confirmed intent names the goal; the next-step note carries the step", () => {
+    const confirmed = mockBlueprintFrame("s", 1, 333, REGION, "plan", INSPECT_INTENT);
     expect(confirmed.detectedIntent).toContain("Confirmed goal: inspect");
-    expect(confirmed.importance).toBe("medium"); // no longer low-confidence
-    expect(confirmed.aiNotes![0].type).toBe("intent");
-    expect(confirmed.aiNotes![0].text).toContain("inspect");
+    const next = confirmed.aiNotes!.find((n) => n.type === "next-step");
+    expect(next).toBeTruthy();
+    expect(next!.text).toContain("Possible next step");
   });
 
   it("rule-based notes use cautious language", () => {
     const buildNotes = mockAiNotes(0, "build");
     expect(buildNotes[0].text).toBe("The user appears to be working near this point");
     expect(buildNotes[1].text).toContain("appears to be");
-    const planNotes = mockAiNotes(0, "plan");
-    expect(planNotes[0].text).toBe("Possible next step: check the highlighted area");
-    const safetyFrame = mockBlueprintFrame("s", 5, 1665, REGION, "plan");
-    expect(safetyFrame.safetyWarning).toContain("verify the item is safe");
+    const f = mockBlueprintFrame("s", 0, 0, REGION, "plan", INSPECT_INTENT);
+    expect(f.nextAction).toContain("Possible next step");
   });
 
   it("defaults to build when the workflow argument is omitted (back-compat)", () => {
@@ -140,13 +146,13 @@ describe("Build/Plan — mockBlueprintFrame AI fields", () => {
 describe("Build/Plan — transient crop + AI fields survive replay interpolation", () => {
   it("interpolated frames keep the nearest keyframe's crop and guidance", () => {
     const a = {
-      ...mockBlueprintFrame("s", 0, 0, REGION, "plan"),
+      ...mockBlueprintFrame("s", 0, 0, REGION, "plan", BUILD_INTENT),
       sourceImageB64: "QUJD",
       sourceImageSize: { w: 384, h: 288 },
       sourceImageMode: "transient" as const,
     };
     const b = {
-      ...mockBlueprintFrame("s", 9, 3000, REGION, "plan"),
+      ...mockBlueprintFrame("s", 9, 3000, REGION, "plan", BUILD_INTENT),
       sourceImageB64: "REVG",
       sourceImageSize: { w: 384, h: 288 },
       sourceImageMode: "transient" as const,
@@ -175,6 +181,7 @@ describe("Build/Plan — mock API client threads workflowMode", () => {
         selectedRegion: REGION,
         image_b64: "QUJD",
         workflowMode: "plan",
+        userIntent: BUILD_INTENT,
       },
       0,
     );

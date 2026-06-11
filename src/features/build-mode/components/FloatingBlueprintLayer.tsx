@@ -48,6 +48,9 @@ interface Props {
   visualMode?: BlueprintVisualMode;
   /** Pixel store entry for the current frame's `sourceAssetId`. */
   sourceAsset?: BlueprintSourceAsset;
+  /** Reports the ghost's live card-space bounds (region + drag transform) so an
+   *  external layer (callout cards) can attach leader lines to it. */
+  onBounds?: (bounds: { x: number; y: number; w: number; h: number }) => void;
 }
 
 /**
@@ -78,6 +81,7 @@ export function FloatingBlueprintLayer({
   onHandInteraction,
   visualMode = "hybrid",
   sourceAsset,
+  onBounds,
 }: Props) {
   const [t, setT] = useState<BlueprintTransform>({ x: 0, y: 0, scale: 1 });
   const [handMode, setHandMode] = useState<HandMode>("idle");
@@ -120,6 +124,19 @@ export function FloatingBlueprintLayer({
   useEffect(() => {
     setT({ x: 0, y: 0, scale: 1 });
   }, [region]);
+
+  // Report live card-space bounds up so the external callout layer can attach
+  // leader lines to the (draggable, scalable) ghost.
+  const onBoundsRef = useRef(onBounds);
+  onBoundsRef.current = onBounds;
+  useEffect(() => {
+    onBoundsRef.current?.({
+      x: region.x + t.x,
+      y: region.y + t.y,
+      w: region.w * t.scale,
+      h: region.h * t.scale,
+    });
+  }, [region, t]);
 
   // Make the extraction moment unmistakable: flash a badge when the ghost is
   // born (phase enters "placing").

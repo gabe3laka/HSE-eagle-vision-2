@@ -38,6 +38,7 @@ import {
   SelectionOverlay,
 } from "@/features/build-mode/components/SelectionOverlay";
 import { FloatingBlueprintLayer } from "@/features/build-mode/components/FloatingBlueprintLayer";
+import { BlueprintCalloutLayer } from "@/features/build-mode/components/BlueprintCalloutLayer";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
 import { ARRecordButton } from "@/features/build-mode/components/ARRecordButton";
 import { ExtractableCandidateOverlay } from "@/features/build-mode/components/ExtractableCandidateOverlay";
@@ -312,6 +313,14 @@ export default function Live() {
   // v2: the ghost's pixels live in the session's transient asset store; the
   // frame only references them.
   const ghostAsset = build.getAsset(ghostFrame?.sourceAssetId);
+  // Live ghost bounds (card space) reported by the floating layer — the
+  // external callout cards attach their leader lines to it.
+  const [ghostBounds, setGhostBounds] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
 
   // Status chip: pinch-drag > finger tracking > wrist fallback > waiting
   // (model loading / loop running but no hand yet) > touch fallback.
@@ -639,8 +648,16 @@ export default function Live() {
                       onExtractRequest={() => void build.extractBlueprint()}
                       onPinned={build.pinBlueprint}
                       onHandInteraction={onHandInteraction}
+                      onBounds={setGhostBounds}
                     />
                   )}
+                  {/* Readable instruction text as external callout cards with
+                      leader lines back to the blueprint markers — never trapped
+                      inside the crop. */}
+                  {build.region &&
+                    ["placing", "pinned", "recording", "review"].includes(build.phase) && (
+                      <BlueprintCalloutLayer frame={ghostFrame} bounds={ghostBounds} />
+                    )}
                 </>
               ) : null
             }

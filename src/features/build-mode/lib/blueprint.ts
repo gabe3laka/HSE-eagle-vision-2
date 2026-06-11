@@ -2,8 +2,11 @@ import type {
   BlueprintAnchor,
   BlueprintFrame,
   BlueprintNote,
+  BlueprintPlanOverlay,
   BlueprintWorkflowMode,
+  BuildPhase,
   BuildUserIntent,
+  PlanStage,
   PlanStep,
   SelectedRegion,
 } from "../types";
@@ -105,48 +108,179 @@ const BUILD_NEXT_ACTIONS = [
 const BUILD_SAFETY = "Safety reminder: verify the area is safe before continuing.";
 const PLAN_SAFETY = "Before continuing, verify the item is safe to handle.";
 
-/** Fixed guided-procedure template the Plan mock walks through. */
-const PLAN_TEMPLATE: Array<Omit<PlanStep, "id" | "status">> = [
+/**
+ * Tasks that warrant a safety-first response: electrical, machinery, chemicals,
+ * height, confined spaces, pressure, hot work. Detected from the free-text
+ * intent (the worker also classifies). When dangerous, guidance becomes
+ * inspection/checklist style — never risky direct operational instructions.
+ */
+const DANGER_PATTERN =
+  /electric|wir(e|ing)|voltage|\bpower\b|mains|machin|motor|gear|chemical|acid|solvent|\bgas\b|height|ladder|roof|scaffold|confined|pressur|hydraulic|pneumatic|weld|grind|saw|blade|\bhot\b|steam|boiler/i;
+
+export function isDangerousTask(intent?: BuildUserIntent | null): boolean {
+  if (!intent) return false;
+  return DANGER_PATTERN.test(intent.text ?? "");
+}
+
+/** Inspection/checklist-style steps for a dangerous task — no risky actions. */
+const DANGER_STEPS: Array<Omit<PlanStep, "id" | "status">> = [
   {
-    title: "Position the part",
-    instruction: "Align the part with the anchor corners",
-    x: 0.26,
-    y: 0.3,
-    qualityCheck: "Edges flush with A1–A2",
-  },
-  {
-    title: "Fasten left side",
-    instruction: "Drive the two left fasteners snug",
-    x: 0.2,
-    y: 0.62,
-    safetyNote: "Keep fingers clear of the driver",
-  },
-  {
-    title: "Fasten right side",
-    instruction: "Drive the two right fasteners snug",
-    x: 0.78,
-    y: 0.62,
-    qualityCheck: "No gap along the right edge",
-  },
-  {
-    title: "Verify alignment",
-    instruction: "Check the part matches the blueprint ghost",
+    title: "Confirm it is safe",
+    instruction: "Confirm power is isolated / the area is made safe",
     x: 0.5,
-    y: 0.45,
-    qualityCheck: "Outline within the cyan guide",
+    y: 0.2,
+    safetyNote: "Do not touch until isolation is verified",
+  },
+  {
+    title: "Confirm qualification",
+    instruction: "Confirm a qualified person is involved",
+    x: 0.3,
+    y: 0.5,
+    safetyNote: "Stop if you are not qualified for this task",
+  },
+  {
+    title: "Identify the component",
+    instruction: "Identify the component and confirm the task goal",
+    x: 0.7,
+    y: 0.55,
+    qualityCheck: "Component and task confirmed before any action",
+  },
+  {
+    title: "Inspect before action",
+    instruction: "Inspect for damage or hazards before proceeding",
+    x: 0.5,
+    y: 0.78,
+    qualityCheck: "No visible damage or hazard",
   },
 ];
 
+type StepTemplate = Omit<PlanStep, "id" | "status">;
+
+/** Per-task-type guided templates (safe tasks). Keeps Plan guidance concrete. */
+const TASK_STEPS: Partial<Record<NonNullable<BuildUserIntent["taskType"]>, StepTemplate[]>> = {
+  identify: [
+    {
+      title: "Frame the item",
+      instruction: "Frame the whole item in the blueprint",
+      x: 0.5,
+      y: 0.25,
+    },
+    {
+      title: "Find markings",
+      instruction: "Note any labels, model numbers or markings",
+      x: 0.3,
+      y: 0.6,
+      qualityCheck: "Markings captured",
+    },
+    {
+      title: "Confirm identity",
+      instruction: "Compare shape and features to confirm what it is",
+      x: 0.7,
+      y: 0.6,
+    },
+  ],
+  inspect: [
+    {
+      title: "Check highlighted area",
+      instruction: "Check the highlighted area for wear or damage",
+      x: 0.32,
+      y: 0.3,
+      qualityCheck: "No wear or damage",
+    },
+    {
+      title: "Work the edges",
+      instruction: "Work around the outline, edge by edge",
+      x: 0.7,
+      y: 0.55,
+    },
+    {
+      title: "Confirm condition",
+      instruction: "Confirm the item matches the expected condition",
+      x: 0.5,
+      y: 0.8,
+      qualityCheck: "Condition matches expectation",
+    },
+  ],
+  clean: [
+    {
+      title: "Find the area",
+      instruction: "Identify the area that needs cleaning",
+      x: 0.3,
+      y: 0.3,
+    },
+    {
+      title: "Clean top-down",
+      instruction: "Work from the top down across the surface",
+      x: 0.6,
+      y: 0.5,
+    },
+    {
+      title: "Verify clean",
+      instruction: "Verify the surface is clean and dry",
+      x: 0.5,
+      y: 0.8,
+      qualityCheck: "Surface clean and dry",
+    },
+  ],
+  build: [
+    {
+      title: "Position part",
+      instruction: "Position the first part on the anchor points",
+      x: 0.26,
+      y: 0.3,
+    },
+    {
+      title: "Align edges",
+      instruction: "Align mating edges with the blueprint ghost",
+      x: 0.74,
+      y: 0.45,
+    },
+    {
+      title: "Secure & verify",
+      instruction: "Secure the part, then verify alignment",
+      x: 0.5,
+      y: 0.78,
+      qualityCheck: "Part secured and aligned",
+    },
+  ],
+};
+
+const GENERIC_STEPS: StepTemplate[] = [
+  { title: "Frame the item", instruction: "Frame the item inside the blueprint", x: 0.5, y: 0.28 },
+  { title: "Follow the guide", instruction: "Follow the highlighted area", x: 0.4, y: 0.6 },
+  {
+    title: "Confirm result",
+    instruction: "Confirm the result matches the guide",
+    x: 0.6,
+    y: 0.78,
+    qualityCheck: "Result matches the guide",
+  },
+];
+
+/** The guided step template for a confirmed intent (safety-first if dangerous). */
+export function stepTemplateForIntent(intent?: BuildUserIntent | null): StepTemplate[] {
+  if (isDangerousTask(intent)) return DANGER_STEPS;
+  const t = intent?.taskType;
+  // "repair" / "troubleshoot" / "install-remove" without danger keywords fall
+  // back to the generic safe flow; named safe tasks get their template.
+  return (t && TASK_STEPS[t]) || GENERIC_STEPS;
+}
+
 /**
- * Deterministic guided steps for one Plan-mode keyframe: the active step
+ * Deterministic guided steps for one Plan-mode keyframe: the template depends
+ * on the confirmed intent (safety-first when dangerous); the active step
  * advances every PLAN_STEP_EVERY frames and clamps on the final step.
  */
-export function mockPlanSteps(frameIndex: number): { steps: PlanStep[]; currentIndex: number } {
+export function mockPlanSteps(
+  frameIndex: number,
+  intent?: BuildUserIntent | null,
+): { steps: PlanStep[]; currentIndex: number } {
+  const template = stepTemplateForIntent(intent);
   const currentIndex = Math.min(
-    PLAN_TEMPLATE.length - 1,
+    template.length - 1,
     Math.floor(Math.max(0, frameIndex) / PLAN_STEP_EVERY),
   );
-  const steps = PLAN_TEMPLATE.map((s, i) => ({
+  const steps = template.map((s, i) => ({
     ...s,
     id: `plan-${i + 1}`,
     status: (i < currentIndex ? "completed" : i === currentIndex ? "active" : "pending") as
@@ -155,6 +289,90 @@ export function mockPlanSteps(frameIndex: number): { steps: PlanStep[]; currentI
       | "pending",
   }));
   return { steps, currentIndex };
+}
+
+/**
+ * Visual guidance drawn ON the blueprint for the active step: an arrow from the
+ * previous step toward the active one (movement), a target ghost outline where
+ * the work should happen, a highlight for inspect-type tasks, and a warning
+ * zone for dangerous tasks. Region-local 0..1.
+ */
+export function mockPlanOverlays(
+  steps: PlanStep[],
+  currentIndex: number,
+  intent?: BuildUserIntent | null,
+): BlueprintPlanOverlay[] {
+  const active = steps[currentIndex];
+  if (!active || active.x == null || active.y == null) return [];
+  const overlays: BlueprintPlanOverlay[] = [];
+  const prev = currentIndex > 0 ? steps[currentIndex - 1] : null;
+  if (prev && prev.x != null && prev.y != null) {
+    overlays.push({
+      id: `ov-arrow-${currentIndex}`,
+      type: "arrow",
+      from: { x: prev.x, y: prev.y },
+      to: { x: active.x, y: active.y },
+      stepId: active.id,
+      label: "next",
+    });
+  }
+  const dangerous = isDangerousTask(intent);
+  if (dangerous) {
+    overlays.push({
+      id: `ov-warn-${currentIndex}`,
+      type: "warning-zone",
+      x: active.x,
+      y: active.y,
+      label: "Safety check first",
+      stepId: active.id,
+    });
+  } else if (intent?.taskType === "inspect" || intent?.taskType === "identify") {
+    overlays.push({
+      id: `ov-hi-${currentIndex}`,
+      type: "highlight",
+      x: active.x,
+      y: active.y,
+      label: active.title,
+      stepId: active.id,
+    });
+  } else {
+    overlays.push({
+      id: `ov-target-${currentIndex}`,
+      type: "target",
+      x: active.x,
+      y: active.y,
+      label: active.title,
+      stepId: active.id,
+    });
+  }
+  return overlays;
+}
+
+/**
+ * Derive the Plan-mode sub-state from the shared phase + intent. Pure so the
+ * panel/overlay gating ("no generic guidance before intent is confirmed") is
+ * unit-testable.
+ */
+export function derivePlanStage(opts: {
+  phase: BuildPhase;
+  hasBaseFrame: boolean;
+  intentConfirmed: boolean;
+  generating: boolean;
+}): PlanStage {
+  const { phase, hasBaseFrame, intentConfirmed, generating } = opts;
+  if (phase === "review") return "plan_review";
+  if (
+    !hasBaseFrame ||
+    phase === "idle" ||
+    phase === "selecting" ||
+    phase === "selected" ||
+    phase === "extracting"
+  ) {
+    return "plan_selecting_object";
+  }
+  if (!intentConfirmed) return "plan_waiting_for_intent";
+  if (generating) return "plan_generating_steps";
+  return "plan_guiding";
 }
 
 /** 2–3 deterministic AI notes per keyframe (instruction/observation + occasional safety). */
@@ -215,7 +433,7 @@ export function mockBlueprintFrame(
   timestampMs: number,
   _region: SelectedRegion,
   workflowMode: BlueprintWorkflowMode = "build",
-  userIntent?: BuildUserIntent,
+  userIntent?: BuildUserIntent | null,
 ): BlueprintFrame {
   const stepCount = Math.floor(frameIndex / MOCK_STEP_EVERY) + 1;
   const stepMarkers = Array.from({ length: stepCount }, (_, i) => {
@@ -228,49 +446,109 @@ export function mockBlueprintFrame(
       timestampMs: i * MOCK_STEP_EVERY * 333,
     };
   });
-  const isPlan = workflowMode === "plan";
-  const plan = isPlan ? mockPlanSteps(frameIndex) : null;
-  const active = plan ? plan.steps[plan.currentIndex] : null;
-  const aiNotes = mockAiNotes(frameIndex, workflowMode);
-  if (isPlan && userIntent) {
-    aiNotes.unshift({
-      id: `note-g-${frameIndex}`,
-      type: "intent",
-      text: `Confirmed goal: ${userIntent}`,
-      x: 0.55,
-      y: 0.08,
-      timestampMs: frameIndex * 333,
-      confidence: 1,
-    });
-  }
-  const safety = active?.safetyNote ?? aiNotes.find((n) => n.type === "safety")?.text;
-  return {
+  const base: BlueprintFrame = {
     sessionId,
     frameId: `f-${frameIndex}`,
     timestampMs,
     outline: mockOutline(frameIndex),
     anchors: mockAnchors(frameIndex),
     stepMarkers,
-    instruction: `Step ${stepCount} — follow the highlighted anchors`,
     workflowMode,
     maskSource: "none",
+  };
+
+  // ── PLAN: only guide once the user CONFIRMS a goal. Before that the frame is
+  //    intentionally bare — no generic steps/overlays/notes. ──
+  if (workflowMode === "plan") {
+    if (!userIntent?.confirmed) {
+      return {
+        ...base,
+        aiNotes: [],
+        detectedIntent: "Waiting for the user to choose a goal",
+        importance: "low",
+      };
+    }
+    const { steps, currentIndex } = mockPlanSteps(frameIndex, userIntent);
+    const active = steps[currentIndex];
+    const dangerous = isDangerousTask(userIntent);
+    const goal = intentLabel(userIntent);
+    const safety =
+      active?.safetyNote ??
+      (dangerous ? "Safety reminder: confirm the task is safe before any action." : undefined);
+    const notes: BlueprintNote[] = [];
+    if (active?.x != null && active.y != null) {
+      notes.push({
+        id: `note-next-${frameIndex}`,
+        type: "next-step",
+        text: `Possible next step: ${active.instruction}`,
+        x: active.x,
+        y: active.y,
+        timestampMs,
+        confidence: 0.7,
+      });
+    }
+    if (safety) {
+      notes.push({
+        id: `note-safety-${frameIndex}`,
+        type: "safety",
+        text: safety,
+        x: 0.5,
+        y: 0.12,
+        timestampMs,
+      });
+    }
+    if (active?.qualityCheck) {
+      notes.push({
+        id: `note-q-${frameIndex}`,
+        type: "quality",
+        text: active.qualityCheck,
+        x: clamp01((active.x ?? 0.5) + 0.12),
+        y: clamp01((active.y ?? 0.5) + 0.2),
+        timestampMs,
+      });
+    }
+    return {
+      ...base,
+      aiNotes: notes,
+      planSteps: steps,
+      currentPlanStepIndex: currentIndex,
+      planOverlays: mockPlanOverlays(steps, currentIndex, userIntent),
+      activityLabel: dangerous ? "safety check" : goal,
+      detectedIntent: `Confirmed goal: ${goal}${active ? ` — ${active.title.toLowerCase()}` : ""}`,
+      // Dangerous tasks lead with safety/inspection guidance, never a risky
+      // direct operational instruction.
+      nextAction: dangerous
+        ? "Possible next step: confirm it is safe, then identify the component"
+        : active
+          ? `Possible next step: ${active.instruction}`
+          : undefined,
+      safetyWarning: safety,
+      qualityCheck: active?.qualityCheck,
+      importance: safety ? "high" : "medium",
+    };
+  }
+
+  // ── BUILD: document what appears to happen (cautious language). ──
+  const aiNotes = mockAiNotes(frameIndex, "build");
+  const safety = aiNotes.find((n) => n.type === "safety")?.text;
+  return {
+    ...base,
+    instruction: `Step ${stepCount} — follow the highlighted anchors`,
     aiNotes,
     activityLabel: ACTIVITIES[frameIndex % ACTIVITIES.length],
-    detectedIntent: active
-      ? userIntent
-        ? `Confirmed goal: ${userIntent} — ${active.title.toLowerCase()}`
-        : `The user may be trying to: ${active.title.toLowerCase()}`
-      : "The user appears to be documenting work on this item",
-    nextAction: active
-      ? `Possible next step: ${active.instruction}`
-      : BUILD_NEXT_ACTIONS[Math.floor(frameIndex / MOCK_STEP_EVERY) % BUILD_NEXT_ACTIONS.length],
+    detectedIntent: "The user appears to be documenting work on this item",
+    nextAction:
+      BUILD_NEXT_ACTIONS[Math.floor(frameIndex / MOCK_STEP_EVERY) % BUILD_NEXT_ACTIONS.length],
     safetyWarning: safety,
-    qualityCheck: active?.qualityCheck,
-    // Confidence honesty: hedged guidance stays low-importance-aware; a safety
-    // note always escalates.
-    importance: safety ? "high" : isPlan && !userIntent ? "low" : "medium",
-    ...(plan ? { planSteps: plan.steps, currentPlanStepIndex: plan.currentIndex } : {}),
+    importance: safety ? "high" : "medium",
   };
+}
+
+/** Short human label for a confirmed intent — task type or the free text. */
+export function intentLabel(intent?: BuildUserIntent | null): string {
+  if (!intent) return "task";
+  if (intent.taskType && intent.taskType !== "custom") return intent.taskType.replace("-", " / ");
+  return intent.text?.trim() || "custom task";
 }
 
 /** Linear interpolation between two frames' geometry (same-index mapping). */
