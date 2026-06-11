@@ -115,11 +115,14 @@ export interface StreamClientState {
   lastRawResponse: string | null;
 }
 
-/** Optional dev override for the gateway URL (normally provided by the session). */
+/** Optional dev override for the gateway URL (normally provided by the session).
+ *  Prefers the new VITE_VISION_STREAM_WS_URL, falling back to the legacy
+ *  VITE_EDGECRAFT_STREAM_WS_URL. */
 function readEnvUrl(): string | null {
   try {
-    const v = import.meta.env.VITE_EDGECRAFT_STREAM_WS_URL;
-    return typeof v === "string" && v.trim() ? v.trim() : null;
+    const env = import.meta.env;
+    const pick = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+    return pick(env.VITE_VISION_STREAM_WS_URL) ?? pick(env.VITE_EDGECRAFT_STREAM_WS_URL);
   } catch {
     return null;
   }

@@ -151,7 +151,20 @@ export function BlueprintCalloutLayer({
   bounds: CardBounds | null;
 }) {
   if (!frame || !bounds) return null;
-  const notes = frame.aiNotes ?? [];
+  // The readable text comes from AI notes AND any "callout" plan overlays the
+  // worker returned — both rendered as external cards, never tiny text inside
+  // the crop.
+  const overlayNotes: BlueprintNote[] = (frame.planOverlays ?? [])
+    .filter((o) => o.type === "callout" && o.label && o.x != null && o.y != null)
+    .map((o) => ({
+      id: `ov-${o.id}`,
+      type: "instruction" as const,
+      text: o.label as string,
+      x: o.x as number,
+      y: o.y as number,
+      timestampMs: 0,
+    }));
+  const notes = [...(frame.aiNotes ?? []), ...overlayNotes];
   const callouts = layoutCallouts(bounds, notes);
   if (callouts.length === 0) return null;
   return (

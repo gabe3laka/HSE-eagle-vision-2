@@ -82,8 +82,14 @@ export function BlueprintOverlay({
   // The mask contour (when segmentation produced one) is the PRIMARY object
   // outline; otherwise the frame outline; an inset bounding box is the final
   // fallback so the ghost always has a body.
-  const contour = asset?.maskContour;
+  const contour = asset?.maskContour ?? frame.maskContour;
   const outlineSrc = contour && contour.length >= 3 ? contour : frame.outline;
+  // Tiny debug label: the real segmentation source, or "mask fallback" when the
+  // ghost is driven by bbox/wireframe only.
+  const maskSrc = asset?.maskSource ?? frame.maskSource;
+  const hasContour = !!(contour && contour.length >= 3);
+  const maskLabel =
+    maskSrc && maskSrc !== "none" ? maskSrc : hasMask || hasContour ? "segmented" : "mask fallback";
   const outline =
     outlineSrc.length >= 3
       ? outlineSrc
@@ -201,11 +207,12 @@ export function BlueprintOverlay({
       <text x={2.5} y={6} fontSize={4} fontWeight={700} letterSpacing={1.4} fill={OUTLINE}>
         {frame.workflowMode === "plan" ? "PLAN" : "BLUEPRINT"}
       </text>
-      {/* mask state: crop present but no segmentation mask/contour → tiny
-          fallback label */}
-      {hasCrop && !hasMask && !(contour && contour.length >= 3) && (
+      {/* mask state (tiny debug label): the segmentation source when present
+          (e.g. yolo26-seg), else "mask fallback" when only the bbox/wireframe
+          drives the outline. Deliberately small — not a big user-facing badge. */}
+      {hasCrop && (
         <text x={97.5} y={97.5} fontSize={2.6} textAnchor="end" fill={OUTLINE_BACK}>
-          mask fallback
+          {maskLabel}
         </text>
       )}
 
@@ -448,21 +455,64 @@ function PlanOverlayShape({ overlay }: { overlay: BlueprintPlanOverlay }) {
     );
   }
 
-  // warning-zone
-  return (
-    <g>
-      <circle
-        cx={cx}
-        cy={cy}
-        r={7}
-        fill="rgba(248,113,113,0.14)"
-        stroke={WARN}
-        strokeWidth={0.7}
-        strokeDasharray="2 1.2"
-      />
-      <text x={cx} y={cy + 1.4} fontSize={4} fontWeight={700} textAnchor="middle" fill={WARN}>
-        ⚠
-      </text>
-    </g>
-  );
+  if (overlay.type === "step-marker") {
+    // Numbered marker on the blueprint (the readable card is external).
+    const label = (overlay.label ?? "•").slice(0, 3);
+    return (
+      <g>
+        <circle cx={cx} cy={cy} r={3.4} fill="rgba(8,47,73,0.92)" stroke={NEXT} strokeWidth={0.6} />
+        <text
+          x={cx}
+          y={cy + 1.4}
+          fontSize={3.8}
+          fontWeight={700}
+          textAnchor="middle"
+          fill="#fde68a"
+        >
+          {label}
+        </text>
+      </g>
+    );
+  }
+
+  if (overlay.type === "callout") {
+    // The readable card lives OUTSIDE the crop (BlueprintCalloutLayer); on the
+    // blueprint a callout is just its anchor marker.
+    return (
+      <g>
+        <circle cx={cx} cy={cy} r={1.1} fill={HILITE} opacity={0.95} />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={2}
+          fill="none"
+          stroke={HILITE}
+          strokeWidth={0.35}
+          opacity={0.7}
+        />
+      </g>
+    );
+  }
+
+  if (overlay.type === "warning-zone") {
+    return (
+      <g>
+        <circle
+          cx={cx}
+          cy={cy}
+          r={7}
+          fill="rgba(248,113,113,0.14)"
+          stroke={WARN}
+          strokeWidth={0.7}
+          strokeDasharray="2 1.2"
+        />
+        <text x={cx} y={cy + 1.4} fontSize={4} fontWeight={700} textAnchor="middle" fill={WARN}>
+          ⚠
+        </text>
+      </g>
+    );
+  }
+
+  // Unknown overlay type → ignore gracefully (forward-compatible with the worker).
+  return null;
 }

@@ -3,6 +3,7 @@ import type {
   BackendEntity,
   BackendKeypoint,
   BackendPose,
+  BackendSegment,
   Detector,
   DetectorInput,
   Observation,
@@ -79,12 +80,17 @@ export interface BackendStatus {
   lastRequestAt: number | null;
   lastSuccessAt: number | null;
   lastInferenceMs: number | null;
-  backend: string | null; // "edgecrafter" | "deimv2" | ...
-  tasks: string[] | null; // ["det","pose"]
+  backend: string | null; // "yolo26" | "edgecrafter" | "deimv2" | ...
+  tasks: string[] | null; // ["det"] | ["det","seg"] | ["det","pose"]
   model: string | null;
   entityCount: number;
   poseCount: number;
   error: string | null;
+  // YOLO26-era optional metadata. All default null and never break old responses.
+  segmentCount?: number | null; // count of returned segments (seg task)
+  fallbackUsed?: boolean | null; // worker fell back off the default backend
+  fallbackReason?: string | null; // e.g. "yolo26_load_failed"
+  warning?: string | null; // non-fatal worker warning
   videoWidth: number;
   videoHeight: number;
   lastB64Bytes: number;
@@ -320,7 +326,9 @@ export class BackendVisionDetector implements Detector {
   }
 }
 
-/** Coerce arbitrary worker output into normalized BackendEntity[] (bbox 0..1). */
+/** Coerce arbitrary worker output into normalized BackendEntity[] (bbox 0..1).
+ *  Optional `source` / `maskContour` / `maskSource` (YOLO26 seg) are preserved
+ *  when present; older det-only responses are unaffected. */
 export function normalizeEntities(raw: unknown, imgW?: number, imgH?: number): BackendEntity[] {
   if (!Array.isArray(raw)) return [];
   const out: BackendEntity[] = [];
@@ -329,7 +337,7 @@ export function normalizeEntities(raw: unknown, imgW?: number, imgH?: number): B
     const e = item as Record<string, unknown>;
     const bbox = toBBox(e.bbox ?? e.box ?? e.xyxy ?? e.xywh, imgW, imgH);
     if (!bbox) continue;
-    out.push({
+    const entity: BackendEntity = {
       label:
         typeof e.label === "string"
           ? e.label
@@ -343,9 +351,74 @@ export function normalizeEntities(raw: unknown, imgW?: number, imgH?: number): B
       class_id: typeof e.class_id === "number" ? e.class_id : -1,
       confidence: num(e.confidence) ?? num(e.score) ?? 0,
       bbox,
+    };
+    if (typeof e.source === "string") entity.source = e.source;
+    const contour = normalizeContour(e.maskContour ?? e.mask_contour ?? e.contour, imgW, imgH);
+    if (contour.length >= 3) entity.maskContour = contour;
+    if (typeof e.maskSource === "string") entity.maskSource = e.maskSource;
+    else if (typeof e.mask_source === "string") entity.maskSource = e.mask_source;
+    out.push(entity);
+  }
+  return out;
+}
+
+/** Coerce arbitrary worker output into normalized BackendSegment[] (contour
+ *  0..1). Missing/invalid segments are simply dropped — never throws. */
+export function normalizeSegments(raw: unknown, imgW?: number, imgH?: number): BackendSegment[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BackendSegment[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const s = item as Record<string, unknown>;
+    const contour = normalizeContour(
+      s.maskContour ?? s.mask_contour ?? s.contour ?? s.points,
+      imgW,
+      imgH,
+    );
+    if (contour.length < 3) continue;
+    out.push({
+      label:
+        typeof s.label === "string"
+          ? s.label
+          : typeof s.class_name === "string"
+            ? s.class_name
+            : typeof s.class_id === "number"
+              ? `class_${s.class_id}`
+              : "object",
+      class_id: typeof s.class_id === "number" ? s.class_id : -1,
+      confidence: num(s.confidence) ?? num(s.score) ?? 0,
+      maskContour: contour,
+      source: typeof s.source === "string" ? s.source : "yolo26-seg",
     });
   }
   return out;
+}
+
+/** Coerce a polygon (array of {x,y} or [x,y]) into normalized 0..1 points. */
+function normalizeContour(raw: unknown, imgW?: number, imgH?: number): { x: number; y: number }[] {
+  if (!Array.isArray(raw)) return [];
+  const pts: { x: number; y: number }[] = [];
+  let maxCoord = 0;
+  for (const p of raw) {
+    let x: number | null = null;
+    let y: number | null = null;
+    if (Array.isArray(p)) {
+      x = num(p[0]);
+      y = num(p[1]);
+    } else if (p && typeof p === "object") {
+      const o = p as Record<string, unknown>;
+      x = num(o.x);
+      y = num(o.y);
+    }
+    if (x == null || y == null) continue;
+    maxCoord = Math.max(maxCoord, Math.abs(x), Math.abs(y));
+    pts.push({ x, y });
+  }
+  const pixel = maxCoord > 1.5 && !!imgW && !!imgH && imgW > 0 && imgH > 0;
+  return pts.map((p) => ({
+    x: clamp01(pixel ? p.x / imgW! : p.x),
+    y: clamp01(pixel ? p.y / imgH! : p.y),
+  }));
 }
 
 /** Coerce arbitrary worker pose output into normalized BackendPose[] (kpts 0..1). */

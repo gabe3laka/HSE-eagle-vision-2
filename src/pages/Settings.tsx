@@ -68,9 +68,9 @@ export default function Settings() {
         <h2 className="font-display text-sm font-semibold">Detection engine</h2>
         <p className="mb-4 text-xs text-muted-foreground">
           Three modes: Simulated drives the demo. Pose (beta) uses your camera with MediaPipe to
-          detect real unsafe lifting on-device. EdgeCrafter HTTP (fast dry run) posts camera frames
-          to the EdgeCrafter worker over a fast Cloudflare HTTP endpoint and previews
-          boxes/skeletons in a dry-run overlay only.
+          detect real unsafe lifting on-device. Vision HTTP (fast dry run) posts camera frames to
+          the vision worker (YOLO26 by default, EdgeCrafter fallback) over a fast Cloudflare HTTP
+          endpoint and previews boxes/skeletons in a dry-run overlay only.
         </p>
         <Select
           value={draft.detectionMode}
@@ -83,7 +83,7 @@ export default function Settings() {
             <SelectItem value="simulated">Simulated</SelectItem>
             <SelectItem value="pose-beta">Pose — unsafe lifting (beta)</SelectItem>
             <SelectItem value="backend-edgecrafter-http">
-              EdgeCrafter HTTP — fast dry run
+              Vision HTTP (YOLO26) — fast dry run
             </SelectItem>
           </SelectContent>
         </Select>
