@@ -39,6 +39,10 @@ import {
 } from "@/features/build-mode/components/SelectionOverlay";
 import { FloatingBlueprintLayer } from "@/features/build-mode/components/FloatingBlueprintLayer";
 import { BlueprintCalloutLayer } from "@/features/build-mode/components/BlueprintCalloutLayer";
+import { useHseMonitoring } from "@/features/hse-monitoring/hooks/useHseMonitoring";
+import { EagleVisionHUD } from "@/components/live/EagleVisionHUD";
+import { WearableAlertOverlay } from "@/components/live/WearableAlertOverlay";
+import { HseMonitoringPanel } from "@/components/live/HseMonitoringPanel";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
 import { ARRecordButton } from "@/features/build-mode/components/ARRecordButton";
 import { ExtractableCandidateOverlay } from "@/features/build-mode/components/ExtractableCandidateOverlay";
@@ -277,12 +281,30 @@ export default function Live() {
     start,
     stop,
     dismissAlert,
+    setMonitoringRequest,
   } = useDetectionSession({
     videoRef,
     config,
     zones,
     onIncidentSaved,
     suppressIncidents: buildModeOn,
+  });
+
+  // Eagle Vision HSE monitoring pipeline (HSE mode only) — backend detections →
+  // tracks → risk rules → wearable alerts + HUD + throttled DeepSeek. Runs
+  // alongside the existing RiskEngine/pose path without touching it.
+  const hseActive = appMode === "hse" && running;
+  const [focusArmed, setFocusArmed] = useState(false);
+  const hse = useHseMonitoring({
+    enabled: hseActive,
+    backendEntities: backendEntities as BackendEntity[],
+    backendPoses: backendPoses as BackendPose[],
+    backendSegments: backendSegments as BackendSegment[],
+    liveBoxes,
+    zones,
+    backendName: (backendStatus as BackendStatus | null)?.backend ?? null,
+    fallbackActive: !!(backendStatus as BackendStatus | null)?.fallbackUsed,
+    setMonitoringRequest,
   });
 
   // Finger-level hand tracking (MediaPipe Hand Landmarker) — Build Mode only,
@@ -722,6 +744,33 @@ export default function Live() {
                 </>
               ) : null
             }
+            hseOverlay={
+              hseActive ? (
+                <>
+                  <WearableAlertOverlay severity={hse.topAlert?.severity ?? null} />
+                  <EagleVisionHUD
+                    tracks={hse.tracks}
+                    topAlert={hse.topAlert}
+                    status={hse.status}
+                    objectCount={hse.objectCount}
+                    stableCount={hse.stableCount}
+                    reasoningSource={hse.reasoningSource}
+                  />
+                  {focusArmed && (
+                    <button
+                      type="button"
+                      className="absolute inset-0 z-30 cursor-crosshair bg-cyan-400/5"
+                      aria-label="Tap an area to focus the scan"
+                      onClick={(e) => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        hse.focusAt((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+                        setFocusArmed(false);
+                      }}
+                    />
+                  )}
+                </>
+              ) : null
+            }
           />
           <SessionControls
             cameraActive={active}
@@ -766,6 +815,21 @@ export default function Live() {
               ) : undefined
             }
           />
+
+          {appMode === "hse" && !running && (
+            <p className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs text-cyan-100/90">
+              Start Eagle Vision monitoring to detect people, vehicles, PPE, zones, and unsafe
+              proximity.
+            </p>
+          )}
+
+          {hseActive && (
+            <HseMonitoringPanel
+              hse={hse}
+              focusArmed={focusArmed}
+              onArmFocus={() => setFocusArmed(true)}
+            />
+          )}
 
           {buildModeOn && (
             <BuildModePanel
