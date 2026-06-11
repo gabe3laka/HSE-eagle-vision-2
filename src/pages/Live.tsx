@@ -702,6 +702,7 @@ export default function Live() {
                       pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
                       onExtractRequest={() => void build.extractBlueprint()}
                       onPinned={build.pinBlueprint}
+                      onDelete={build.reset}
                       onHandInteraction={onHandInteraction}
                       onBounds={setGhostBounds}
                     />

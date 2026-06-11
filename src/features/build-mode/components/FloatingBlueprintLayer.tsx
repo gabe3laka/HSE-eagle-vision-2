@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Hand, Loader2, Locate, Minus, Move, Pin, Plus } from "lucide-react";
+import { Hand, Loader2, Locate, Minus, Move, Pin, Plus, Trash2 } from "lucide-react";
 import { pointerInBounds } from "../lib/handTracking";
 import { BUILD_EXTRACT_HOLD_MS } from "../config";
 import { BlueprintOverlay } from "./BlueprintOverlay";
@@ -42,6 +42,8 @@ interface Props {
   onExtractRequest?: () => void;
   /** Drag released in "placing" (or repositioned later) → pin the ghost here. */
   onPinned?: (transform: BlueprintTransform) => void;
+  /** Delete/discard the extracted blueprint (the trash button on the ghost). */
+  onDelete?: () => void;
   /** Reports hover/grab/drag state up for the status chip. */
   onHandInteraction?: (interaction: BuildHandInteraction) => void;
   /** Ghost rendering style — defaults to "hybrid" (object crop + wireframe). */
@@ -80,6 +82,7 @@ export function FloatingBlueprintLayer({
   pinch,
   onExtractRequest,
   onPinned,
+  onDelete,
   onHandInteraction,
   visualMode = "hybrid",
   sourceAsset,
@@ -553,6 +556,25 @@ export function FloatingBlueprintLayer({
             >
               <Locate className="h-3 w-3" />
             </button>
+          )}
+          {/* Delete/discard this blueprint — separated by a divider so it isn't
+              hit by accident. */}
+          {onDelete && (
+            <>
+              <span className="mx-0.5 h-3 w-px bg-white/20" aria-hidden />
+              <button
+                type="button"
+                aria-label="Delete blueprint"
+                className="text-red-300 hover:text-red-100"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </>
           )}
         </div>
       )}
