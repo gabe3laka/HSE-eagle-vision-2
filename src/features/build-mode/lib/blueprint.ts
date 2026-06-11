@@ -3,6 +3,7 @@ import type {
   BlueprintFrame,
   BlueprintNote,
   BlueprintWorkflowMode,
+  BuildUserIntent,
   PlanStep,
   SelectedRegion,
 } from "../types";
@@ -86,11 +87,23 @@ const PLAN_STEP_EVERY = 9;
 
 const ACTIVITIES = ["positioning", "aligning", "fastening", "adjusting", "inspecting"];
 
-const BUILD_NEXT_ACTIONS = [
-  "Hold the part steady on the anchor points",
-  "Work left to right across the outline",
-  "Keep the blueprint ghost aligned with the part",
+// Rule-based notes use CAUTIOUS language — the AI documents what APPEARS to
+// happen and suggests POSSIBLE next steps; it never overclaims. This matters
+// for safety and trust.
+const BUILD_NOTE_TEXTS = [
+  "The user appears to be working near this point",
+  "Possible inspection point",
+  "Check this area before finishing",
 ];
+
+const BUILD_NEXT_ACTIONS = [
+  "Possible next action: check the highlighted area",
+  "Possible next action: keep the part aligned with the blueprint ghost",
+  "Possible next action: check this area before finishing",
+];
+
+const BUILD_SAFETY = "Safety reminder: verify the area is safe before continuing.";
+const PLAN_SAFETY = "Before continuing, verify the item is safe to handle.";
 
 /** Fixed guided-procedure template the Plan mock walks through. */
 const PLAN_TEMPLATE: Array<Omit<PlanStep, "id" | "status">> = [
@@ -154,7 +167,10 @@ export function mockAiNotes(
     {
       id: `note-i-${frameIndex}`,
       type: workflowMode === "plan" ? "next-step" : "instruction",
-      text: workflowMode === "plan" ? "Work the highlighted step" : "Keep the part on the anchors",
+      text:
+        workflowMode === "plan"
+          ? "Possible next step: check the highlighted area"
+          : BUILD_NOTE_TEXTS[Math.floor(frameIndex / MOCK_STEP_EVERY) % BUILD_NOTE_TEXTS.length],
       x: clamp01(0.2 + rand() * 0.3),
       y: clamp01(0.12 + rand() * 0.12),
       timestampMs: frameIndex * 333,
@@ -163,17 +179,18 @@ export function mockAiNotes(
     {
       id: `note-o-${frameIndex}`,
       type: "observation",
-      text: ACTIVITIES[frameIndex % ACTIVITIES.length],
+      text: `The user appears to be ${ACTIVITIES[frameIndex % ACTIVITIES.length]}`,
       x: clamp01(0.55 + rand() * 0.3),
       y: clamp01(0.72 + rand() * 0.18),
       timestampMs: frameIndex * 333,
+      confidence: 0.4 + rand() * 0.3,
     },
   ];
   if (frameIndex % 10 === 5) {
     notes.push({
       id: `note-s-${frameIndex}`,
       type: "safety",
-      text: "Watch your grip near the edge",
+      text: workflowMode === "plan" ? PLAN_SAFETY : BUILD_SAFETY,
       x: 0.5,
       y: 0.5,
       timestampMs: frameIndex * 333,
@@ -188,6 +205,9 @@ export function mockAiNotes(
  * work-instruction fields (notes / next action / guided plan steps) so Build
  * and Plan are fully usable before the Worker returns them; the mock never
  * produces a mask (maskSource "none" → the overlay's crop fallback).
+ *
+ * Language is deliberately cautious ("appears to", "may be", "possible next
+ * step") until the user CONFIRMS their goal — then guidance names it.
  */
 export function mockBlueprintFrame(
   sessionId: string,
@@ -195,6 +215,7 @@ export function mockBlueprintFrame(
   timestampMs: number,
   _region: SelectedRegion,
   workflowMode: BlueprintWorkflowMode = "build",
+  userIntent?: BuildUserIntent,
 ): BlueprintFrame {
   const stepCount = Math.floor(frameIndex / MOCK_STEP_EVERY) + 1;
   const stepMarkers = Array.from({ length: stepCount }, (_, i) => {
@@ -211,6 +232,17 @@ export function mockBlueprintFrame(
   const plan = isPlan ? mockPlanSteps(frameIndex) : null;
   const active = plan ? plan.steps[plan.currentIndex] : null;
   const aiNotes = mockAiNotes(frameIndex, workflowMode);
+  if (isPlan && userIntent) {
+    aiNotes.unshift({
+      id: `note-g-${frameIndex}`,
+      type: "intent",
+      text: `Confirmed goal: ${userIntent}`,
+      x: 0.55,
+      y: 0.08,
+      timestampMs: frameIndex * 333,
+      confidence: 1,
+    });
+  }
   const safety = active?.safetyNote ?? aiNotes.find((n) => n.type === "safety")?.text;
   return {
     sessionId,
@@ -225,14 +257,18 @@ export function mockBlueprintFrame(
     aiNotes,
     activityLabel: ACTIVITIES[frameIndex % ACTIVITIES.length],
     detectedIntent: active
-      ? `Guided: ${active.title.toLowerCase()}`
-      : "Documenting work on the selected part",
+      ? userIntent
+        ? `Confirmed goal: ${userIntent} — ${active.title.toLowerCase()}`
+        : `The user may be trying to: ${active.title.toLowerCase()}`
+      : "The user appears to be documenting work on this item",
     nextAction: active
-      ? active.instruction
+      ? `Possible next step: ${active.instruction}`
       : BUILD_NEXT_ACTIONS[Math.floor(frameIndex / MOCK_STEP_EVERY) % BUILD_NEXT_ACTIONS.length],
     safetyWarning: safety,
     qualityCheck: active?.qualityCheck,
-    importance: safety ? "high" : "medium",
+    // Confidence honesty: hedged guidance stays low-importance-aware; a safety
+    // note always escalates.
+    importance: safety ? "high" : isPlan && !userIntent ? "low" : "medium",
     ...(plan ? { planSteps: plan.steps, currentPlanStepIndex: plan.currentIndex } : {}),
   };
 }

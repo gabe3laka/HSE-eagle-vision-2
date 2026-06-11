@@ -8,9 +8,11 @@ import {
 } from "../api/buildModeClient";
 import { BUILD_CAPTURE_INTERVAL_MS, BUILD_MAX_FRAMES, resolveBuildModeApiUrl } from "../config";
 import { captureRegionBase64 } from "../lib/regionCapture";
+import { buildSourceAsset, rehydrateSavedBlueprint, toV2Frame } from "../lib/sourceAssets";
 import type {
   BlueprintFrame,
   BlueprintPlacement,
+  BlueprintSourceAsset,
   BlueprintTransform,
   BlueprintWorkflowMode,
   BuildBackendMode,
@@ -19,6 +21,8 @@ import type {
   BuildHandLandmark,
   BuildPhase,
   BuildSessionInfo,
+  BuildUserIntent,
+  SavedBlueprint,
   SelectedRegion,
 } from "../types";
 
@@ -78,6 +82,8 @@ export function useBuildModeSession({
   const [extractSource, setExtractSource] = useState<{ source: string; label: string } | null>(
     null,
   );
+  /** Confirmed user goal (Plan mode) — guidance stops hedging once known. */
+  const [userIntent, setUserIntent] = useState<BuildUserIntent | null>(null);
 
   // Resolve the Build Mode API base when Build Mode turns on, so the panel can
   // show the backend status before the first selection.
@@ -103,6 +109,10 @@ export function useBuildModeSession({
   const sessionRef = useRef<BuildSessionInfo | null>(null);
   const regionRef = useRef<SelectedRegion | null>(null);
   const framesRef = useRef<BlueprintFrame[]>([]);
+  /** v2 source assets: pixels stored ONCE per capture; frames reference by id.
+   *  Transient — in memory only, cleared with the session. */
+  const assetsRef = useRef<Map<string, BlueprintSourceAsset>>(new Map());
+  const userIntentRef = useRef<BuildUserIntent | null>(null);
   const startedAtRef = useRef(0);
   const inFlightRef = useRef(false);
   const extractingRef = useRef(false);
@@ -139,6 +149,8 @@ export function useBuildModeSession({
     sessionReadyRef.current = null;
     regionRef.current = null;
     framesRef.current = [];
+    assetsRef.current = new Map();
+    userIntentRef.current = null;
     inFlightRef.current = false;
     extractingRef.current = false;
     go("idle");
@@ -151,6 +163,7 @@ export function useBuildModeSession({
     setError(null);
     setExtractStatus("idle");
     setExtractSource(null);
+    setUserIntent(null);
   }, [clearTimer, go]);
 
   // Leaving Build Mode (or unmount) tears the session down.
@@ -177,12 +190,15 @@ export function useBuildModeSession({
     regionRef.current = null;
     setFrames([]);
     framesRef.current = [];
+    assetsRef.current = new Map();
+    userIntentRef.current = null;
     setLatestFrame(null);
     setBaseFrame(null);
     setPlacement(null);
     setError(null);
     setExtractStatus("idle");
     setExtractSource(null);
+    setUserIntent(null);
   }, [enabled, clearTimer, go]);
 
   const cancelSelection = useCallback(() => {
@@ -254,20 +270,32 @@ export function useBuildModeSession({
           handLandmarks: getHandLandmarksRef.current?.(),
           gesture: getGestureRef.current?.(),
           workflowMode: workflowModeRef.current,
+          userIntent: userIntentRef.current ?? undefined,
         },
         index,
       );
       // The crop we already captured IS the ghost's object image: keep it
-      // locally on the frame (transient, in-memory only) so the overlay never
-      // needs Cloudflare/RunPod to send pixels back. Backend-provided mask/AI
-      // fields on `frame` are preserved.
-      return {
-        ...frame,
-        sourceImageB64: crop.image_b64,
-        sourceImageSize: { w: crop.cw, h: crop.ch },
-        sourceImageMode: "transient",
-        workflowMode: frame.workflowMode ?? workflowModeRef.current,
-      };
+      // locally (transient, in-memory only) so the overlay never needs
+      // Cloudflare/RunPod to send pixels back. v2: pixels live ONCE in a
+      // source asset (merged with any backend-returned mask) and the frame
+      // carries only the reference — never repeated base64 per keyframe.
+      const asset = buildSourceAsset({
+        id: `${session.sessionId}-a${index}`,
+        imageB64: crop.image_b64,
+        size: { w: crop.cw, h: crop.ch },
+        backendFrame: frame,
+      });
+      assetsRef.current.set(asset.id, asset);
+      return toV2Frame(
+        {
+          ...frame,
+          sourceImageSize: { w: crop.cw, h: crop.ch },
+          sourceImageMode: "transient",
+          maskSource: frame.maskSource ?? "none",
+          workflowMode: frame.workflowMode ?? workflowModeRef.current,
+        },
+        asset.id,
+      );
     },
     [videoRef, cameraFacing],
   );
@@ -389,6 +417,59 @@ export function useBuildModeSession({
   const stopRecordingRef = useRef<typeof stopRecording | null>(null);
   stopRecordingRef.current = stopRecording;
 
+  /** Resolve a frame's v2 source asset (transient pixel store lookup). */
+  const getAsset = useCallback(
+    (id?: string | null): BlueprintSourceAsset | undefined =>
+      id ? assetsRef.current.get(id) : undefined,
+    [],
+  );
+
+  /** Plan mode: the user answered "What are you trying to do?" — subsequent
+   *  keyframes carry the confirmed goal and guidance stops hedging. */
+  const confirmIntent = useCallback((intent: BuildUserIntent) => {
+    userIntentRef.current = intent;
+    setUserIntent(intent);
+  }, []);
+
+  /**
+   * Load a SAVED blueprint into the live session: region + ghost + replay
+   * keyframes restored locally (no backend round-trip), the saved thumbnail
+   * asset standing in for every frame's pixels. Lands in "review" when the
+   * procedure has keyframes, else "pinned".
+   */
+  const loadSavedBlueprint = useCallback(
+    (saved: SavedBlueprint) => {
+      if (!enabled) return;
+      clearTimer();
+      const { asset, baseFrame: loadedBase, frames: loadedFrames } = rehydrateSavedBlueprint(saved);
+      sessionRef.current = {
+        sessionId: `loaded-${saved.id}`,
+        backendMode: "mock",
+        configSource: null,
+        workflowMode: saved.workflowMode,
+      };
+      sessionReadyRef.current = Promise.resolve();
+      regionRef.current = saved.region;
+      setRegion(saved.region);
+      assetsRef.current = new Map(asset ? [[asset.id, asset]] : []);
+      framesRef.current = loadedFrames;
+      setFrames(loadedFrames);
+      setBaseFrame(loadedBase);
+      setLatestFrame(loadedFrames[loadedFrames.length - 1] ?? loadedBase);
+      setPlacement(
+        saved.placement ?? { transform: { x: 0, y: 0, scale: 1 }, pinnedAtMs: Date.now() },
+      );
+      setBackendMode("mock");
+      setError(null);
+      setExtractStatus("frame_received");
+      setExtractSource({ source: "saved", label: saved.name });
+      userIntentRef.current = null;
+      setUserIntent(null);
+      go(loadedFrames.length > 0 ? "review" : "pinned");
+    },
+    [enabled, clearTimer, go],
+  );
+
   return {
     phase,
     workflowMode,
@@ -402,6 +483,7 @@ export function useBuildModeSession({
     error,
     extractStatus,
     extractSource,
+    userIntent,
     frameCount: frames.length,
     beginSelection,
     cancelSelection,
@@ -411,6 +493,9 @@ export function useBuildModeSession({
     pinBlueprint,
     startProcedureRecording,
     stopRecording,
+    getAsset,
+    confirmIntent,
+    loadSavedBlueprint,
     reset,
   };
 }

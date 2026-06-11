@@ -1,5 +1,10 @@
 import { useId } from "react";
-import type { BlueprintFrame, BlueprintNote, BlueprintVisualMode } from "../types";
+import type {
+  BlueprintFrame,
+  BlueprintNote,
+  BlueprintSourceAsset,
+  BlueprintVisualMode,
+} from "../types";
 
 const OUTLINE = "rgba(34,211,238,1)"; // bright cyan — must be unmissable
 const OUTLINE_GLOW = "rgba(34,211,238,0.35)"; // wide soft underlay = glow
@@ -48,9 +53,13 @@ const DEPTH_Y = -3.8;
  */
 export function BlueprintOverlay({
   frame,
+  sourceAsset,
   visualMode = "hybrid",
 }: {
   frame: BlueprintFrame;
+  /** v2 pixel store entry for `frame.sourceAssetId` (live crop or saved
+   *  thumbnail). Inline v1 frame fields remain the fallback. */
+  sourceAsset?: BlueprintSourceAsset;
   visualMode?: BlueprintVisualMode;
 }) {
   // useId can contain ":" which breaks SVG url(#…) references — strip it.
@@ -58,14 +67,22 @@ export function BlueprintOverlay({
   const gridId = `bp-grid-${uid}`;
   const maskId = `bp-mask-${uid}`;
 
-  const hasCrop = !!frame.sourceImageB64 && visualMode !== "wireframe";
-  const hasMask = hasCrop && !!frame.sourceMaskB64;
+  const asset =
+    frame.sourceAssetId && sourceAsset?.id === frame.sourceAssetId ? sourceAsset : undefined;
+  const cropB64 = asset?.imageB64 ?? asset?.thumbnailB64 ?? frame.sourceImageB64;
+  const maskB64 = asset?.maskB64 ?? frame.sourceMaskB64;
+  const hasCrop = !!cropB64 && visualMode !== "wireframe";
+  const hasMask = hasCrop && !!maskB64;
   const wireframe = visualMode !== "object-ghost"; // extrusion + glow layers
 
-  // Fall back to an inset bounding box when the outline can't form a polygon.
+  // The mask contour (when segmentation produced one) is the PRIMARY object
+  // outline; otherwise the frame outline; an inset bounding box is the final
+  // fallback so the ghost always has a body.
+  const contour = asset?.maskContour;
+  const outlineSrc = contour && contour.length >= 3 ? contour : frame.outline;
   const outline =
-    frame.outline.length >= 3
-      ? frame.outline
+    outlineSrc.length >= 3
+      ? outlineSrc
       : [
           { x: 0.1, y: 0.1 },
           { x: 0.9, y: 0.1 },
@@ -105,7 +122,7 @@ export function BlueprintOverlay({
             {/* SAM2-style mask: white = object. Luminance-clips the crop+tint
                 group into a floating cutout of the real object. */}
             <image
-              href={`data:image/png;base64,${frame.sourceMaskB64}`}
+              href={`data:image/png;base64,${maskB64}`}
               x="0"
               y="0"
               width="100"
@@ -121,7 +138,7 @@ export function BlueprintOverlay({
       {hasCrop ? (
         <g mask={hasMask ? `url(#${maskId})` : undefined} opacity={0.88}>
           <image
-            href={`data:image/jpeg;base64,${frame.sourceImageB64}`}
+            href={`data:image/jpeg;base64,${cropB64}`}
             x="0"
             y="0"
             width="100"
@@ -180,8 +197,9 @@ export function BlueprintOverlay({
       <text x={2.5} y={6} fontSize={4} fontWeight={700} letterSpacing={1.4} fill={OUTLINE}>
         {frame.workflowMode === "plan" ? "PLAN" : "BLUEPRINT"}
       </text>
-      {/* mask state: crop present but no segmentation → tiny fallback label */}
-      {hasCrop && !hasMask && (
+      {/* mask state: crop present but no segmentation mask/contour → tiny
+          fallback label */}
+      {hasCrop && !hasMask && !(contour && contour.length >= 3) && (
         <text x={97.5} y={97.5} fontSize={2.6} textAnchor="end" fill={OUTLINE_BACK}>
           mask fallback
         </text>
