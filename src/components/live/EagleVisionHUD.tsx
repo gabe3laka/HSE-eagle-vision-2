@@ -1,4 +1,6 @@
 import { AlertTriangle, HardHat, ScanLine, ShieldCheck, Truck } from "lucide-react";
+import { poseCoversBox } from "@/lib/detection/hseEntityMapper";
+import type { BackendPose } from "@/lib/detection/types";
 import type { HSEActiveAlert, HSESeverity, HSETrack } from "@/lib/detection/hseTypes";
 
 /**
@@ -46,6 +48,8 @@ const STATUS_META: Record<
 
 interface Props {
   tracks: HSETrack[];
+  /** Live poses — a person's box is hidden when a skeleton covers them. */
+  poses?: BackendPose[];
   topAlert: HSEActiveAlert | null;
   status: "monitoring" | "scanning" | "risk" | "critical";
   objectCount: number;
@@ -55,6 +59,7 @@ interface Props {
 
 export function EagleVisionHUD({
   tracks,
+  poses,
   topAlert,
   status,
   objectCount,
@@ -89,6 +94,9 @@ export function EagleVisionHUD({
       >
         {tracks
           .filter((t) => t.stable)
+          // People are drawn as a skeleton — hide their box when a pose covers
+          // them (the track stays for proximity/zone/PPE logic).
+          .filter((t) => t.category !== "person" || !poseCoversBox(t.bbox, poses))
           .map((t) => (
             <rect
               key={t.id}

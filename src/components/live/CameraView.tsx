@@ -269,7 +269,11 @@ export function CameraView({
 
           {active && running && backendDryRun && (
             <>
-              <BackendEntityOverlay entities={backendEntities ?? []} />
+              <BackendEntityOverlay
+                entities={backendEntities ?? []}
+                poses={backendPoses ?? []}
+                debug={showSkeleton}
+              />
               <BackendPoseOverlay poses={backendPoses ?? []} />
             </>
           )}

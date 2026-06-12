@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { mapToHseObservations, normalizeHseLabel } from "../lib/detection/hseEntityMapper";
+import {
+  isPersonLabel,
+  mapToHseObservations,
+  normalizeHseLabel,
+  poseBoundingBox,
+  poseCoversBox,
+} from "../lib/detection/hseEntityMapper";
 import { HSETracker } from "../lib/detection/hseTracker";
 import { runHseRules } from "../lib/detection/hseRiskRules";
 import {
@@ -84,6 +90,37 @@ describe("HSE entity mapper", () => {
     // segment with a valid contour becomes a trip-hazard observation; empty one is dropped gracefully
     expect(obs.some((o) => o.normalizedLabel === "trip-hazard")).toBe(true);
     expect(() => obs.length).not.toThrow();
+  });
+});
+
+describe("Person box hiding (pose available)", () => {
+  const pose = (cx: number, cy: number) => ({
+    confidence: 0.8,
+    keypoints: [
+      { name: "nose", x: cx, y: cy - 0.1, score: 0.9 },
+      { name: "left_hip", x: cx - 0.05, y: cy + 0.1, score: 0.8 },
+      { name: "right_hip", x: cx + 0.05, y: cy + 0.1, score: 0.8 },
+    ],
+  });
+
+  it("identifies person/worker labels", () => {
+    expect(isPersonLabel("person")).toBe(true);
+    expect(isPersonLabel("Worker")).toBe(true);
+    expect(isPersonLabel("forklift")).toBe(false);
+    expect(isPersonLabel("")).toBe(false);
+  });
+
+  it("builds a pose bbox only when there are enough keypoints", () => {
+    expect(poseBoundingBox(pose(0.5, 0.5))).toBeTruthy();
+    expect(poseBoundingBox({ keypoints: [{ x: 0.5, y: 0.5, score: 0.9 }] })).toBeUndefined();
+  });
+
+  it("reports when a pose covers a person box (and not when it doesn't)", () => {
+    const personBox = { x: 0.4, y: 0.3, w: 0.2, h: 0.4 };
+    expect(poseCoversBox(personBox, [pose(0.5, 0.5)])).toBe(true);
+    expect(poseCoversBox(personBox, [pose(0.05, 0.05)])).toBe(false);
+    expect(poseCoversBox(personBox, [])).toBe(false);
+    expect(poseCoversBox(personBox, undefined)).toBe(false);
   });
 });
 
