@@ -10,19 +10,19 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "border border-cyan-300/20 bg-gradient-to-b from-cyan-300 to-cyan-400 text-slate-950 shadow-[0_8px_24px_-12px_rgba(34,211,238,0.9)] hover:brightness-110",
+          "bg-primary text-primary-foreground border border-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] hover:bg-primary/90",
         destructive:
-          "border border-red-300/15 bg-gradient-to-b from-red-500 to-red-600 text-white shadow-[0_8px_24px_-12px_rgba(239,68,68,0.9)] hover:brightness-110",
+          "bg-destructive text-destructive-foreground border border-destructive/40 hover:bg-destructive/90",
         outline:
-          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
+          "border border-border bg-transparent hover:bg-secondary hover:text-foreground",
         secondary:
-          "border border-white/[0.07] bg-white/[0.055] text-secondary-foreground shadow-sm hover:border-white/[0.12] hover:bg-white/[0.09]",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+          "border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "hover:bg-secondary hover:text-foreground",
         link: "text-primary underline-offset-4 hover:underline",
         gradient:
-          "border border-cyan-200/20 bg-gradient-to-r from-cyan-300 via-sky-400 to-violet-400 text-slate-950 shadow-[0_12px_30px_-14px_rgba(56,189,248,0.9)] hover:brightness-110",
+          "bg-primary text-primary-foreground border border-primary/30 hover:bg-primary/90",
         glass:
-          "border border-white/15 bg-white/5 text-foreground backdrop-blur-md hover:bg-white/10",
+          "border border-border bg-card/70 text-foreground backdrop-blur-md hover:bg-card",
       },
       size: {
         default: "h-9 px-4 py-2",
