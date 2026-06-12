@@ -52,6 +52,7 @@ import {
   findCandidateAtPoints,
   pointerInBounds,
 } from "@/features/build-mode/lib/handTracking";
+import { isRecordTargetPhase, isStopTargetPhase } from "@/features/build-mode/lib/holdToTrigger";
 import type {
   BlueprintWorkflowMode,
   BuildGesture,
@@ -695,9 +696,9 @@ export default function Live() {
                     ["placing", "pinned", "recording", "review"].includes(build.phase) && (
                       <SelectedRegionMarker region={build.region} />
                     )}
-                  {/* In-camera Record/Stop targets: pressed with the tracked
-                      finger (dwell ring / pinch) — never instant. */}
-                  {build.phase === "pinned" && (
+                  {/* In-camera Record/Stop targets: a full pinch-hold or dwell
+                      on the target triggers — never instant. */}
+                  {isRecordTargetPhase(build.phase) && (
                     <ARRecordButton
                       variant="record"
                       pointer={hand.primaryPointer}
@@ -705,7 +706,7 @@ export default function Live() {
                       onTrigger={build.startProcedureRecording}
                     />
                   )}
-                  {build.phase === "recording" && (
+                  {isStopTargetPhase(build.phase) && (
                     <ARRecordButton
                       variant="stop"
                       pointer={hand.primaryPointer}
@@ -727,13 +728,19 @@ export default function Live() {
                       onDelete={build.reset}
                       onHandInteraction={onHandInteraction}
                       onBounds={setGhostBounds}
+                      // Build keeps a clean minimal ghost (crop + outline only)
+                      // until review; Plan shows the guidance markers.
+                      showGuidanceMarkers={appMode !== "build" || build.phase === "review"}
                     />
                   )}
                   {/* Readable instruction text as external callout cards with
                       leader lines back to the blueprint markers — never trapped
                       inside the crop. */}
+                  {/* Callout cards: Plan shows them while guiding; Build stays
+                      clean and only shows notes in review. */}
                   {build.region &&
-                    ["placing", "pinned", "recording", "review"].includes(build.phase) && (
+                    ["placing", "pinned", "recording", "review"].includes(build.phase) &&
+                    (appMode === "plan" || build.phase === "review") && (
                       <BlueprintCalloutLayer
                         frame={ghostFrame}
                         bounds={ghostBounds}

@@ -173,9 +173,10 @@ export function validatePlanReasoning(raw: unknown): PlanReasoningResponse | nul
     safetyWarning: str(r.safetyWarning) || undefined,
     qualityCheck: str(r.qualityCheck) || undefined,
     aiNotes,
-    planSteps,
-    planOverlays,
-    virtualBlueprintPoints,
+    // Hard caps — a runaway model can never flood the ghost.
+    planSteps: planSteps.slice(0, 8),
+    planOverlays: planOverlays.slice(0, 12),
+    virtualBlueprintPoints: virtualBlueprintPoints.slice(0, 20),
   };
 }
 
@@ -282,8 +283,13 @@ export function buildPlanReasoningPayload(opts: {
   selectedLabel?: string;
   detectedEntities?: PlanReasoningPayload["detectedEntities"];
   segments?: PlanReasoningPayload["segments"];
+  /** The latest follow-up text (when refining an existing plan). */
+  followUpText?: string;
+  /** Compact recent conversation (last few user/assistant turns). */
+  history?: PlanReasoningPayload["history"];
 }): PlanReasoningPayload {
   const { frame } = opts;
+  const depthPoints = frame.depthPoints?.slice(0, 24);
   return {
     sessionId: opts.sessionId,
     workflowMode: "plan",
@@ -297,12 +303,18 @@ export function buildPlanReasoningPayload(opts: {
       maskContour: frame.maskContour,
       maskSource: frame.maskSource,
     },
-    coordinateSystem: {
-      type: "normalized-crop-2d",
-      xRange: [0, 1],
-      yRange: [0, 1],
-      origin: "top-left",
-    },
+    ...(depthPoints?.length ? { depthPoints } : {}),
+    ...(opts.followUpText ? { followUpText: opts.followUpText } : {}),
+    ...(opts.history?.length ? { history: opts.history.slice(-6) } : {}),
+    coordinateSystem: depthPoints?.length
+      ? {
+          type: "normalized-crop-2d-plus-optional-depth",
+          xRange: [0, 1],
+          yRange: [0, 1],
+          origin: "top-left",
+          zMeaning: "relative pseudo-depth, optional",
+        }
+      : { type: "normalized-crop-2d", xRange: [0, 1], yRange: [0, 1], origin: "top-left" },
   };
 }
 

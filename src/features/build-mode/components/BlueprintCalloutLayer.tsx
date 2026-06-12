@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { AlertTriangle, ArrowRight, CheckCircle2, Eye, Info, Target } from "lucide-react";
-import { layoutCallouts, type CardBounds, type PlacedCallout } from "../lib/calloutLayout";
+import {
+  isReplyableCallout,
+  layoutCallouts,
+  prioritizeCallouts,
+  type CardBounds,
+  type PlacedCallout,
+} from "../lib/calloutLayout";
 import type { BlueprintFrame, BlueprintNote } from "../types";
 
 /**
@@ -115,10 +121,7 @@ function CalloutCard({
   const long = callout.text.length > 64;
   // In Plan mode, goal/intent/next-step callouts are conversational: tapping
   // opens the Plan input drawer to reply, instead of just expanding text.
-  const replyable =
-    mode === "plan" &&
-    !!onReplyRequest &&
-    (callout.type === "intent" || callout.type === "next-step");
+  const replyable = !!onReplyRequest && isReplyableCallout(mode, callout.type);
   const interactive = replyable || long;
   return (
     <button
@@ -189,7 +192,10 @@ export function BlueprintCalloutLayer({
       y: o.y as number,
       timestampMs: 0,
     }));
-  const notes = [...(frame.aiNotes ?? []), ...overlayNotes];
+  // Readability cap: at most MAX_VISIBLE_CALLOUTS cards, prioritized safety →
+  // next step → goal/intent → quality → instruction → observation. Everything
+  // below the cut lives in the bottom panel/drawer instead.
+  const notes = prioritizeCallouts([...(frame.aiNotes ?? []), ...overlayNotes]);
   const callouts = layoutCallouts(bounds, notes);
   if (callouts.length === 0) return null;
   return (

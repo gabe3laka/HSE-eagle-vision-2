@@ -55,6 +55,9 @@ interface Props {
   onBounds?: (bounds: { x: number; y: number; w: number; h: number }) => void;
   /** Show mask/anchor debug labels on the ghost (dev only). Default off. */
   showBlueprintDebugLabels?: boolean;
+  /** Show guidance markers (notes/steps/overlays/points). Build placing turns
+   *  this off so the ghost is a clean crop + outline. Default on. */
+  showGuidanceMarkers?: boolean;
 }
 
 /**
@@ -88,6 +91,7 @@ export function FloatingBlueprintLayer({
   sourceAsset,
   onBounds,
   showBlueprintDebugLabels = false,
+  showGuidanceMarkers = true,
 }: Props) {
   const [t, setT] = useState<BlueprintTransform>({ x: 0, y: 0, scale: 1 });
   const [handMode, setHandMode] = useState<HandMode>("idle");
@@ -442,6 +446,7 @@ export function FloatingBlueprintLayer({
           sourceAsset={sourceAsset}
           visualMode={visualMode}
           showBlueprintDebugLabels={showBlueprintDebugLabels}
+          showGuidanceMarkers={showGuidanceMarkers}
         />
       )}
       {/* Never leave the user staring at nothing: a visible shell while the

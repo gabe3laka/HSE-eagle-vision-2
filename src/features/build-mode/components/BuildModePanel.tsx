@@ -29,18 +29,7 @@ import { serializeBlueprintSave } from "../lib/sourceAssets";
 import { compressImageB64 } from "../lib/thumbnail";
 import type { BlueprintWorkflowMode, BuildBackendStatus, PlanTaskType } from "../types";
 import { BlueprintTimeline } from "./BlueprintTimeline";
-
-/** Quick goal options shown after a Plan blueprint is extracted. */
-const TASK_OPTIONS: Array<{ value: PlanTaskType; label: string }> = [
-  { value: "identify", label: "Identify this" },
-  { value: "inspect", label: "Inspect it" },
-  { value: "repair", label: "Repair it" },
-  { value: "build", label: "Build / assemble" },
-  { value: "clean", label: "Clean it" },
-  { value: "install-remove", label: "Install / remove" },
-  { value: "troubleshoot", label: "Troubleshoot" },
-  { value: "custom", label: "Custom task" },
-];
+import { PlanInputDrawer } from "./PlanInputDrawer";
 
 /** Short chip label for the resolved Build Mode backend. */
 const BACKEND_STATUS: Record<BuildBackendStatus, { label: string; live: boolean }> = {
@@ -132,25 +121,44 @@ export function BuildModePanel({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   useEffect(() => setSaveState("idle"), [session.baseFrame]);
 
-  // The Plan goal input. In plan_waiting_for_intent it's always shown; in
-  // guiding/review it's a drawer the user opens via "Ask follow-up" / "Change
-  // goal" / a Plan callout tap (the open state can be controlled by the parent).
+  // The Plan goal input drawer (fixed bottom sheet — see PlanInputDrawer). It
+  // opens AUTOMATICALLY in plan_waiting_for_intent, and on demand via "Ask
+  // follow-up" / "Change goal" / a floating callout's "tap to reply" (the open
+  // state can be controlled by the parent so callout taps reach it).
   const [internalReplyOpen, setInternalReplyOpen] = useState(false);
   const drawerOpen = replyOpen ?? internalReplyOpen;
   const setDrawerOpen = onReplyOpenChange ?? setInternalReplyOpen;
-  const [goalText, setGoalText] = useState("");
+  // Respect a manual close while waiting for the first goal (until stage changes).
+  const [closedWaiting, setClosedWaiting] = useState(false);
+  useEffect(() => {
+    if (session.planStage !== "plan_waiting_for_intent") setClosedWaiting(false);
+  }, [session.planStage]);
+  const drawerVisible =
+    isPlan &&
+    session.planStage !== "plan_generating_steps" &&
+    (drawerOpen || (session.planStage === "plan_waiting_for_intent" && !closedWaiting));
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    if (session.planStage === "plan_waiting_for_intent") setClosedWaiting(true);
+  };
 
-  /** Submit a free-text goal: first goal confirms the intent; later ones are
+  /** Free-text goal: the first goal confirms the intent; later ones are
    *  follow-ups re-reasoned over the same blueprint. Both trigger DeepSeek. */
-  const submitGoal = (raw?: string) => {
-    const text = (raw ?? goalText).trim();
-    if (!text) return;
+  const handleGoalText = (text: string) => {
     if (session.planStage === "plan_waiting_for_intent") {
       void session.confirmIntent("custom", text);
     } else {
       void session.askFollowUp(text);
     }
-    setGoalText("");
+    setDrawerOpen(false);
+  };
+  /** Quick-action chip (clear task type) — submits immediately. */
+  const handleQuickGoal = (taskType: PlanTaskType, label: string) => {
+    if (session.planStage === "plan_waiting_for_intent") {
+      void session.confirmIntent(taskType);
+    } else {
+      void session.askFollowUp(label);
+    }
     setDrawerOpen(false);
   };
 
@@ -242,6 +250,11 @@ export function BuildModePanel({
           </span>
         )}
       </div>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">
+        {isPlan
+          ? "Capture an item or parts, tell me the goal, and I’ll generate guided steps."
+          : "Create and arrange a clean virtual blueprint, then record the procedure."}
+      </p>
 
       {handStatus && (
         <div className="mt-1.5">
@@ -349,8 +362,9 @@ export function BuildModePanel({
       {phase === "selected" && (
         <div className="mt-2 flex items-center justify-between gap-2">
           <p className="text-xs text-cyan-200">
-            Object selected. Hold a pinch inside the glowing box for 4 seconds (the clock fills) to
-            pull out the blueprint — or touch-drag it.
+            {isPlan
+              ? "Hold pinch to capture the item for planning — or touch the box."
+              : "Hold pinch to extract the blueprint — or touch the box."}
           </p>
           <Button size="sm" variant="secondary" onClick={session.beginSelection}>
             <Undo2 className="mr-1.5 h-4 w-4" />
@@ -362,21 +376,22 @@ export function BuildModePanel({
       {phase === "extracting" && (
         <div className="mt-2 flex items-center gap-2">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-300" />
-          <p className="text-xs text-muted-foreground">Extracting blueprint…</p>
+          <p className="text-xs text-muted-foreground">
+            {isPlan ? "Capturing item for planning…" : "Extracting blueprint…"}
+          </p>
         </div>
       )}
 
       {phase === "placing" && (
         <p className="mt-2 text-xs text-cyan-200">
-          Drag the blueprint away from the object. Release the pinch to pin it in place.
+          Drag/pinch the ghost into position. Release to pin it.
         </p>
       )}
 
-      {phase === "pinned" && (
+      {phase === "pinned" && !isPlan && (
         <div className="mt-2 space-y-2">
           <p className="text-xs text-cyan-200">
-            Blueprint pinned. Hold your fingertip on the red Record target in the camera (the ring
-            fills) to start capturing the real work steps.
+            Blueprint pinned. Hold the red Record target to start recording.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="secondary" onClick={session.startProcedureRecording}>
@@ -395,8 +410,7 @@ export function BuildModePanel({
       {phase === "recording" && (
         <div className="mt-2 space-y-2">
           <p className="text-xs text-muted-foreground">
-            Recording procedure keyframes of the selected region (~3/s). Perform the work, then hold
-            your fingertip on the red Stop target in the camera — or press below.
+            Perform the work. Hold the red Stop target to finish — or press below.
           </p>
           <Button size="sm" variant="destructive" onClick={() => void session.stopRecording()}>
             <Square className="mr-1.5 h-4 w-4" />
@@ -410,7 +424,7 @@ export function BuildModePanel({
           <BlueprintTimeline replay={replay} frameCount={frameCount} />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="min-w-0 flex-1 text-[11px] text-muted-foreground">
-              Replay shows the pinned blueprint with the recorded hand path and steps.
+              {isPlan ? "Review or ask a follow-up." : "Replay and save the procedure."}
             </p>
             <div className="flex shrink-0 items-center gap-2">
               {saveButton}
@@ -426,55 +440,22 @@ export function BuildModePanel({
         </div>
       )}
 
-      {/* Plan goal input — shown automatically after extraction (no generic
-          guidance until a goal is confirmed). Item-captured + quick chips +
-          a clear text box and a "Generate plan" button. */}
+      {/* Plan: item captured → ask the goal (the fixed bottom drawer opens
+          automatically; this slim card re-opens it if dismissed). */}
       {isPlan && session.planStage === "plan_waiting_for_intent" && (
-        <div className="mt-2 space-y-2 rounded-lg border border-violet-400/30 bg-violet-500/5 px-2.5 py-2">
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-violet-200">
-            <Sparkles className="h-3.5 w-3.5" /> Item captured for planning
-          </div>
-          <p className="text-xs text-violet-100">
-            What are you trying to build, inspect, repair, or understand?
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {TASK_OPTIONS.filter((o) => o.value !== "custom").map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                className="rounded-full border border-violet-300/40 bg-black/30 px-2.5 py-1 text-[11px] text-violet-100 transition-colors hover:bg-violet-500/25"
-                onClick={() => void session.confirmIntent(opt.value)}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-1.5">
-            <input
-              value={goalText}
-              onChange={(e) => setGoalText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submitGoal();
-              }}
-              placeholder="e.g. “Help me assemble this PCB board”"
-              className="min-w-0 flex-1 rounded-md border border-violet-300/30 bg-black/40 px-2 py-1 text-[11px] text-violet-50 placeholder:text-violet-300/40 focus:border-violet-300/60 focus:outline-none"
-            />
-            <Button
-              size="sm"
-              className="shrink-0"
-              onClick={() => submitGoal()}
-              disabled={!goalText.trim()}
-            >
-              Generate plan
-            </Button>
-          </div>
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-violet-400/30 bg-violet-500/5 px-2.5 py-2">
+          <p className="text-xs text-violet-100">Item captured. Tell me what you want to do.</p>
+          <Button size="sm" className="shrink-0" onClick={() => setDrawerOpen(true)}>
+            <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+            Set goal
+          </Button>
         </div>
       )}
 
       {isPlan && session.planStage === "plan_generating_steps" && (
         <div className="mt-2 flex items-center gap-2 text-[11px] text-violet-200">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Thinking through parts and next steps…
+          Thinking through selected parts and next steps…
         </div>
       )}
 
@@ -500,7 +481,7 @@ export function BuildModePanel({
               size="sm"
               variant="secondary"
               className="h-7"
-              onClick={() => setDrawerOpen(!drawerOpen)}
+              onClick={() => setDrawerOpen(true)}
             >
               <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
               Ask follow-up
@@ -511,43 +492,6 @@ export function BuildModePanel({
               </Button>
             )}
           </div>
-          {drawerOpen && (
-            <div className="space-y-1.5 rounded-lg border border-violet-400/25 bg-violet-500/5 px-2.5 py-2">
-              {(aiFrame?.suggestedGoals?.length ?? 0) > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {aiFrame!.suggestedGoals!.map((g, i) => (
-                    <button
-                      key={`${g}-${i}`}
-                      type="button"
-                      className="rounded-full border border-violet-300/40 bg-black/30 px-2.5 py-1 text-[11px] text-violet-100 transition-colors hover:bg-violet-500/25"
-                      onClick={() => submitGoal(g)}
-                    >
-                      {g}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="flex items-center gap-1.5">
-                <input
-                  value={goalText}
-                  onChange={(e) => setGoalText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") submitGoal();
-                  }}
-                  placeholder="Ask a follow-up or refine the goal…"
-                  className="min-w-0 flex-1 rounded-md border border-violet-300/30 bg-black/40 px-2 py-1 text-[11px] text-violet-50 placeholder:text-violet-300/40 focus:border-violet-300/60 focus:outline-none"
-                />
-                <Button
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => submitGoal()}
-                  disabled={!goalText.trim()}
-                >
-                  Send
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -618,6 +562,19 @@ export function BuildModePanel({
           {debug.candidateUnderPinch ? <span className="text-cyan-300">yes</span> : "no"} · label{" "}
           {debug.candidateLabel ?? "—"}
         </div>
+      )}
+
+      {/* Fixed bottom goal/follow-up drawer — always on-screen when open. */}
+      {isPlan && (
+        <PlanInputDrawer
+          open={drawerVisible}
+          onOpenChange={(o) => (o ? setDrawerOpen(true) : closeDrawer())}
+          stage={session.planStage}
+          suggestedGoals={aiFrame?.suggestedGoals}
+          thinking={session.generatingPlan}
+          onSubmitText={handleGoalText}
+          onQuickGoal={handleQuickGoal}
+        />
       )}
     </div>
   );

@@ -227,11 +227,18 @@ export interface PlanReasoningPayload {
     maskContour?: Array<{ x: number; y: number }>;
     maskSource?: string;
   };
+  /** Optional pseudo-depth points from the worker (relative z, never real 3D). */
+  depthPoints?: Array<{ x: number; y: number; z: number }>;
+  /** The latest follow-up question (when this is a refinement, not a first goal). */
+  followUpText?: string;
+  /** Compact recent conversation so follow-ups keep context. */
+  history?: Array<{ role: "user" | "assistant"; text: string }>;
   coordinateSystem: {
-    type: "normalized-crop-2d";
+    type: "normalized-crop-2d" | "normalized-crop-2d-plus-optional-depth";
     xRange: [number, number];
     yRange: [number, number];
     origin: "top-left";
+    zMeaning?: string;
   };
 }
 
@@ -311,6 +318,11 @@ export interface BlueprintFrame {
   reasoningSource?: "deepseek" | "rules" | "worker" | "mock";
   /** Goal chips the reasoner suggests for this item. */
   suggestedGoals?: string[];
+  /** Optional pseudo-depth points from the worker (relative z, NOT real 3D). */
+  depthPoints?: Array<{ x: number; y: number; z: number }>;
+  /** Where depth came from — "none" when only 2D contour pseudo-points exist. */
+  depthSource?: string;
+  depthConfidence?: number;
 }
 
 /** Where the floating blueprint currently sits relative to its origin region. */
