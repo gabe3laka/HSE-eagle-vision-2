@@ -42,16 +42,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {!collapsed && (
             <Link
               to="/"
-              className="flex items-center gap-3 font-display text-lg font-bold"
+              className="flex items-center gap-2.5 font-display text-[15px] font-semibold tracking-tight"
               aria-label="SafeLens home"
             >
               <span className="brand-mark">
-                <ShieldCheck className="h-5 w-5 text-slate-950" />
+                <ShieldCheck className="h-4 w-4" />
               </span>
               <span className="leading-tight">
                 <span className="block">SafeLens</span>
-                <span className="block text-[9px] font-semibold uppercase tracking-[0.24em] text-cyan-300/70">
-                  Operator console
+                <span className="block text-[9px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
+                  Operator
                 </span>
               </span>
             </Link>
@@ -59,23 +59,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <button
             onClick={() => setCollapsed(!collapsed)}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className={`rounded-lg border border-white/5 bg-white/[0.03] p-1.5 text-muted-foreground transition-colors hover:bg-white/[0.07] hover:text-foreground ${collapsed ? "mx-auto" : ""}`}
+            className={`rounded-md border border-border bg-transparent p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground ${collapsed ? "mx-auto" : ""}`}
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>
         </div>
 
-        {!collapsed && (
-          <div className="mx-3 mt-4 rounded-2xl border border-cyan-400/10 bg-cyan-400/[0.04] p-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-cyan-100">
-              <Radio className="h-3.5 w-3.5 text-cyan-300" />
-              Field system ready
-            </div>
-            <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-              Live safety, procedure capture, and guided planning in one workspace.
-            </p>
-          </div>
-        )}
+
 
         <nav className="flex-1 space-y-1 p-3">
           {!collapsed && <p className="nav-section-label">Workspace</p>}
