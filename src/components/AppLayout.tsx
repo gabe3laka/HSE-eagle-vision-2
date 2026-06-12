@@ -148,11 +148,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <Link
           to="/"
-          className="flex items-center gap-2.5 font-display text-base font-bold"
+          className="flex items-center gap-2.5 font-display text-[15px] font-semibold tracking-tight"
           aria-label="SafeLens home"
         >
           <span className="brand-mark h-8 w-8">
-            <ShieldCheck className="h-4 w-4 text-slate-950" />
+            <ShieldCheck className="h-4 w-4" />
           </span>
           <span>SafeLens</span>
         </Link>
