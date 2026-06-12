@@ -17,6 +17,36 @@ export interface CardBounds {
   h: number;
 }
 
+/** At most this many floating cards — lower priority moves to the panel. */
+export const MAX_VISIBLE_CALLOUTS = 3;
+
+// Callout priority: safety first, then the current step, the goal/reply
+// prompt, quality checks, and observations last.
+const CALLOUT_PRIORITY: Record<BlueprintNote["type"], number> = {
+  safety: 0,
+  "next-step": 1,
+  intent: 2,
+  quality: 3,
+  instruction: 4,
+  observation: 5,
+};
+
+/** Sort notes by callout priority and keep only the top `max`. */
+export function prioritizeCallouts(
+  notes: BlueprintNote[],
+  max = MAX_VISIBLE_CALLOUTS,
+): BlueprintNote[] {
+  return [...notes]
+    .sort((a, b) => CALLOUT_PRIORITY[a.type] - CALLOUT_PRIORITY[b.type])
+    .slice(0, max);
+}
+
+/** Plan goal/intent/next-step callouts are conversational: tapping REPLIES
+ *  (opens the goal input drawer) instead of just expanding the text. */
+export function isReplyableCallout(mode: "build" | "plan", type: BlueprintNote["type"]): boolean {
+  return mode === "plan" && (type === "intent" || type === "next-step");
+}
+
 export type CalloutSide = "left" | "right" | "bottom";
 
 export interface PlacedCallout {

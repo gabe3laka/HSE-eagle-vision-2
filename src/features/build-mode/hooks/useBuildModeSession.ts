@@ -10,6 +10,7 @@ import { requestPlanReasoning } from "../api/planReasoningClient";
 import { BUILD_CAPTURE_INTERVAL_MS, BUILD_MAX_FRAMES, resolveBuildModeApiUrl } from "../config";
 import { derivePlanStage } from "../lib/blueprint";
 import { buildPlanReasoningPayload, mergePlanReasoning } from "../lib/planReasoning";
+import { pseudoPointsForFrame } from "../lib/pseudoPointCloud";
 import { captureRegionBase64 } from "../lib/regionCapture";
 import { buildSourceAsset, rehydrateSavedBlueprint, toV2Frame } from "../lib/sourceAssets";
 import type {
@@ -134,6 +135,9 @@ export function useBuildModeSession({
    *  Transient — in memory only, cleared with the session. */
   const assetsRef = useRef<Map<string, BlueprintSourceAsset>>(new Map());
   const userIntentRef = useRef<BuildUserIntent | null>(null);
+  /** Compact Plan conversation history (last few user/assistant turns) — sent
+   *  with follow-ups so DeepSeek keeps context. */
+  const historyRef = useRef<Array<{ role: "user" | "assistant"; text: string }>>([]);
   const startedAtRef = useRef(0);
   const inFlightRef = useRef(false);
   const extractingRef = useRef(false);
@@ -178,6 +182,7 @@ export function useBuildModeSession({
     framesRef.current = [];
     assetsRef.current = new Map();
     userIntentRef.current = null;
+    historyRef.current = [];
     inFlightRef.current = false;
     extractingRef.current = false;
     go("idle");
@@ -221,6 +226,7 @@ export function useBuildModeSession({
     framesRef.current = [];
     assetsRef.current = new Map();
     userIntentRef.current = null;
+    historyRef.current = [];
     setLatestFrame(null);
     setBaseFrame(null);
     setPlacement(null);
@@ -455,6 +461,11 @@ export function useBuildModeSession({
     [],
   );
 
+  const pushHistory = (role: "user" | "assistant", text: string) => {
+    if (!text) return;
+    historyRef.current = [...historyRef.current, { role, text }].slice(-6);
+  };
+
   /**
    * Plan reasoning: take the worker's geometry frame as the visual base and ask
    * the DeepSeek-backed Supabase function (with a local rules fallback) for the
@@ -463,7 +474,7 @@ export function useBuildModeSession({
    * (first confirm); follow-ups reuse the existing base frame.
    */
   const runPlanReasoning = useCallback(
-    async (intent: BuildUserIntent, recapture: boolean) => {
+    async (intent: BuildUserIntent, recapture: boolean, followUpText?: string) => {
       const ph = phaseRef.current;
       if (ph !== "placing" && ph !== "pinned" && ph !== "review") return;
       setGeneratingPlan(true);
@@ -486,10 +497,19 @@ export function useBuildModeSession({
           selectedLabel: ctx?.selectedLabel ?? extractSourceRef.current?.label,
           detectedEntities: ctx?.detectedEntities,
           segments: ctx?.segments,
+          followUpText,
+          history: historyRef.current,
         });
         const resp = await requestPlanReasoning(payload);
         if (phaseRef.current === "idle" || phaseRef.current === "selecting") return; // reset mid-flight
         const merged = mergePlanReasoning(base, resp);
+        // Before worker depth exists, fall back to local contour pseudo-points
+        // (an honest 2.5D layer — depthSource "none", never claimed as 3D).
+        if ((merged.virtualBlueprintPoints?.length ?? 0) === 0) {
+          merged.virtualBlueprintPoints = pseudoPointsForFrame(base);
+          merged.depthSource = merged.depthSource ?? "none";
+        }
+        pushHistory("assistant", resp.nextAction || resp.detectedIntent);
         setBaseFrame(merged);
         setLatestFrame(merged);
         setReasoningStatus(resp.status === "ok" && resp.source === "deepseek" ? "ok" : "fallback");
@@ -512,6 +532,8 @@ export function useBuildModeSession({
       userIntentRef.current = intent;
       setUserIntent(intent);
       setReasoningStatus("idle");
+      historyRef.current = [];
+      pushHistory("user", text ?? taskType ?? "");
       await runPlanReasoning(intent, true);
     },
     [runPlanReasoning],
@@ -519,7 +541,7 @@ export function useBuildModeSession({
 
   /**
    * Plan mode follow-up question / new goal text — re-reason over the SAME
-   * extracted blueprint (no re-capture) and re-merge the guidance.
+   * extracted blueprint (no re-capture, history included) and re-merge.
    */
   const askFollowUp = useCallback(
     async (text: string) => {
@@ -529,7 +551,8 @@ export function useBuildModeSession({
       const intent: BuildUserIntent = { taskType: prev?.taskType, text: t, confirmed: true };
       userIntentRef.current = intent;
       setUserIntent(intent);
-      await runPlanReasoning(intent, false);
+      pushHistory("user", t);
+      await runPlanReasoning(intent, false, t);
     },
     [runPlanReasoning],
   );
@@ -538,6 +561,7 @@ export function useBuildModeSession({
    *  affordance). Guidance is withheld again until a new goal is picked. */
   const clearIntent = useCallback(() => {
     userIntentRef.current = null;
+    historyRef.current = [];
     setUserIntent(null);
     setGeneratingPlan(false);
     setReasoningStatus("idle");
@@ -576,6 +600,7 @@ export function useBuildModeSession({
       setExtractStatus("frame_received");
       setExtractSource({ source: "saved", label: saved.name });
       userIntentRef.current = null;
+      historyRef.current = [];
       setUserIntent(null);
       setGeneratingPlan(false);
       setReasoningStatus("idle");

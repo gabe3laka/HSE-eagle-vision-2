@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { advanceHold, INITIAL_HOLD_STATE, RECORD_HOLD_MS } from "../lib/holdToTrigger";
+import type { HoldState } from "../lib/holdToTrigger";
 import type { BuildHandLandmark, BuildPinchState } from "../types";
 
 // Hit target in visible-card coords (bottom-center, clear of the usual ghost).
@@ -7,9 +9,6 @@ const TARGET_Y = 0.84;
 const HIT_HALF_W = 0.1;
 const HIT_HALF_H = 0.09;
 
-// Deliberate activation: hold the fingertip on the target for the dwell (the
-// ring fills) — recording must never start the instant a finger passes by.
-const DWELL_MS = 700;
 const TICK_MS = 60;
 const POINTER_STALE_MS = 700;
 // Ignore hand input briefly after the target appears (it often mounts
@@ -23,7 +22,8 @@ const CIRCUMFERENCE = 2 * Math.PI * R;
 interface Props {
   /** Tracked fingertip/wrist pointer in card coords. */
   pointer?: BuildHandLandmark | null;
-  /** Live pinch state — pinching ON the target fires immediately (a "tap"). */
+  /** Live pinch state — a pinch HELD on the target for the full duration
+   *  triggers; an early release restarts the clock. */
   pinch?: BuildPinchState | null;
   onTrigger: () => void;
   /** "record" starts the procedure (red dot); "stop" ends it (red square). */
@@ -31,19 +31,21 @@ interface Props {
 }
 
 /**
- * In-camera "Record" target for the pinned phase: the user TAPS it with their
- * tracked finger on the live stream to start the procedure recording.
+ * In-camera "Record" target for the pinned phase: the user holds their tracked
+ * finger (or a pinch) ON the target to start/stop the procedure recording.
  *
- *  - Fingertip dwell: hold the index tip on the target ~700 ms — the red ring
- *    fills, then recording starts (no instant/accidental triggers).
- *  - Pinch on the target: counts as a tap and fires immediately.
+ *  - Fingertip dwell: hold the index tip on the target for the full hold
+ *    duration — the red ring fills, then it fires.
+ *  - Pinch-HOLD on the target: same full-duration hold; releasing the pinch
+ *    early restarts the clock and does NOT fire (no instant pinch taps).
  *  - Touch tap: plain fallback when no hand tracking is available.
  *
  * Detection is coordinate-based (card-space pointer), so it works regardless
- * of overlay stacking; only the touch fallback uses DOM hit-testing.
+ * of overlay stacking; only the touch fallback uses DOM hit-testing. The hold
+ * timing rules live in the pure `advanceHold` machine (unit-tested).
  */
 export function ARRecordButton({ pointer, pinch, onTrigger, variant = "record" }: Props) {
-  const [progress, setProgress] = useState(0); // 0..1 dwell fill
+  const [progress, setProgress] = useState(0); // 0..1 hold fill
   const [hovering, setHovering] = useState(false);
 
   const pointerRef = useRef<BuildHandLandmark | null>(pointer ?? null);
@@ -52,20 +54,17 @@ export function ARRecordButton({ pointer, pinch, onTrigger, variant = "record" }
   pinchRef.current = pinch ?? null;
   const onTriggerRef = useRef(onTrigger);
   onTriggerRef.current = onTrigger;
-  const hoverStartRef = useRef(0);
-  const firedRef = useRef(false);
+  const holdRef = useRef<HoldState>({ ...INITIAL_HOLD_STATE });
   // ARMING: the target appears mid-gesture (e.g. the instant a pinch-release
   // pins the ghost, often near this very spot). The finger must first be seen
-  // OUTSIDE the target — and the pinch RELEASED — before dwell/pinch can
-  // trigger, plus a short mount grace. Without this, recording could start
-  // without the user ever "pressing" Record. Touch taps stay unaffected.
+  // OUTSIDE the target — and the pinch RELEASED — before a hold can trigger,
+  // plus a short mount grace. Without this, recording could start without the
+  // user ever "pressing" Record. Touch taps stay unaffected.
   const armedRef = useRef(false);
   const pinchArmedRef = useRef(false);
   const mountedAtRef = useRef(Date.now());
 
   const fire = useCallback(() => {
-    if (firedRef.current) return;
-    firedRef.current = true;
     setProgress(0);
     setHovering(false);
     onTriggerRef.current();
@@ -79,36 +78,28 @@ export function ARRecordButton({ pointer, pinch, onTrigger, variant = "record" }
       const inside =
         fresh && Math.abs(p.x - TARGET_X) <= HIT_HALF_W && Math.abs(p.y - TARGET_Y) <= HIT_HALF_H;
 
-      // A released pinch arms the pinch-tap path (lingering pinch from the
-      // pin-release can't fire).
+      // A released pinch arms the pinch-hold path (lingering pinch from the
+      // pin-release can't trigger); leaving the target arms hand control.
       if (!pinchRef.current?.active) pinchArmedRef.current = true;
+      if (!inside) armedRef.current = true;
 
-      if (!inside) {
-        armedRef.current = true; // finger left the target → hand control armed
-        hoverStartRef.current = 0;
-        firedRef.current = false; // re-arm once the finger leaves
-        setHovering(false);
-        setProgress(0);
-        return;
-      }
-      // Inside but not yet armed (finger was already here when the target
-      // appeared, or we're inside the mount grace) → stay neutral.
-      if (!armedRef.current || now - mountedAtRef.current < MOUNT_GRACE_MS) {
-        hoverStartRef.current = 0;
-        setHovering(false);
-        setProgress(0);
-        return;
-      }
-      setHovering(true);
-      // Pinching on the target = a deliberate tap → fire now.
-      if (pinchRef.current?.active && pinchArmedRef.current) {
-        fire();
-        return;
-      }
-      if (hoverStartRef.current === 0) hoverStartRef.current = now;
-      const frac = Math.min(1, (now - hoverStartRef.current) / DWELL_MS);
-      setProgress(frac);
-      if (frac >= 1) fire();
+      const prevFired = holdRef.current.fired;
+      const next = advanceHold(
+        holdRef.current,
+        {
+          now,
+          inside,
+          pinchActive: !!pinchRef.current?.active,
+          armed: armedRef.current,
+          pinchArmed: pinchArmedRef.current,
+          inGrace: now - mountedAtRef.current < MOUNT_GRACE_MS,
+        },
+        RECORD_HOLD_MS,
+      );
+      holdRef.current = next;
+      setHovering(inside && armedRef.current && !next.fired);
+      setProgress(next.fired ? 0 : next.progress);
+      if (next.fired && !prevFired) fire();
     };
     const id = setInterval(tick, TICK_MS);
     tick();

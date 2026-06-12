@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { shouldShowBlueprintDebugLabels } from "../lib/debugLabels";
+import { selectVisiblePoints } from "../lib/virtualPoints";
 import type {
   BlueprintFrame,
   BlueprintNote,
@@ -62,6 +63,7 @@ export function BlueprintOverlay({
   sourceAsset,
   visualMode = "hybrid",
   showBlueprintDebugLabels = false,
+  showGuidanceMarkers = true,
 }: {
   frame: BlueprintFrame;
   /** v2 pixel store entry for `frame.sourceAssetId` (live crop or saved
@@ -71,6 +73,10 @@ export function BlueprintOverlay({
   /** Show mask-source/anchor debug text on the ghost (dev only). Default off —
    *  the holographic ghost stays clean. */
   showBlueprintDebugLabels?: boolean;
+  /** Show guidance markers (notes / steps / plan overlays / virtual points /
+   *  sparse points). Build placing turns this off for a clean minimal ghost:
+   *  crop + outline + tint + wireframe only. Default on. */
+  showGuidanceMarkers?: boolean;
 }) {
   const debugLabels = shouldShowBlueprintDebugLabels(showBlueprintDebugLabels);
   // useId can contain ":" which breaks SVG url(#…) references — strip it.
@@ -221,17 +227,18 @@ export function BlueprintOverlay({
         </text>
       )}
 
-      {/* 6: sparse points */}
-      {frame.sparsePoints?.map((p, i) => (
-        <circle
-          key={`sp-${i}`}
-          cx={p.x * 100}
-          cy={p.y * 100}
-          r={0.7}
-          fill={OUTLINE}
-          opacity={0.6}
-        />
-      ))}
+      {/* 6: sparse points — guidance-only (hidden on the minimal Build ghost) */}
+      {showGuidanceMarkers &&
+        frame.sparsePoints?.map((p, i) => (
+          <circle
+            key={`sp-${i}`}
+            cx={p.x * 100}
+            cy={p.y * 100}
+            r={0.7}
+            fill={OUTLINE}
+            opacity={0.6}
+          />
+        ))}
 
       {/* anchors */}
       {frame.anchors.map((a) => (
@@ -292,66 +299,71 @@ export function BlueprintOverlay({
         </g>
       ))}
 
-      {/* 7: numbered step markers */}
-      {frame.stepMarkers?.map((s) => (
-        <g key={s.id}>
-          <circle
-            cx={s.x * 100}
-            cy={s.y * 100}
-            r={3.2}
-            fill={STEP_BG}
-            stroke={OUTLINE}
-            strokeWidth={0.5}
-          />
-          <text
-            x={s.x * 100}
-            y={s.y * 100 + 1.4}
-            fontSize={3.6}
-            fontWeight={700}
-            textAnchor="middle"
-            fill="#e0f2fe"
-          >
-            {s.label}
-          </text>
-        </g>
-      ))}
+      {/* 7: numbered step markers — guidance-only */}
+      {showGuidanceMarkers &&
+        frame.stepMarkers?.map((s) => (
+          <g key={s.id}>
+            <circle
+              cx={s.x * 100}
+              cy={s.y * 100}
+              r={3.2}
+              fill={STEP_BG}
+              stroke={OUTLINE}
+              strokeWidth={0.5}
+            />
+            <text
+              x={s.x * 100}
+              y={s.y * 100 + 1.4}
+              fontSize={3.6}
+              fontWeight={700}
+              textAnchor="middle"
+              fill="#e0f2fe"
+            >
+              {s.label}
+            </text>
+          </g>
+        ))}
 
       {/* AI-note MARKERS only — the readable text lives in external callout
           cards (BlueprintCalloutLayer) connected here by leader lines. */}
-      {frame.aiNotes?.map((n) => (
-        <g key={n.id}>
-          <circle cx={n.x * 100} cy={n.y * 100} r={1.1} fill={NOTE_COLOR[n.type]} opacity={0.95} />
-          <circle
-            cx={n.x * 100}
-            cy={n.y * 100}
-            r={2}
-            fill="none"
-            stroke={NOTE_COLOR[n.type]}
-            strokeWidth={0.35}
-            opacity={0.7}
-          />
-        </g>
-      ))}
+      {showGuidanceMarkers &&
+        frame.aiNotes?.map((n) => (
+          <g key={n.id}>
+            <circle
+              cx={n.x * 100}
+              cy={n.y * 100}
+              r={1.1}
+              fill={NOTE_COLOR[n.type]}
+              opacity={0.95}
+            />
+            <circle
+              cx={n.x * 100}
+              cy={n.y * 100}
+              r={2}
+              fill="none"
+              stroke={NOTE_COLOR[n.type]}
+              strokeWidth={0.35}
+              opacity={0.7}
+            />
+          </g>
+        ))}
 
       {/* Plan visual overlays — arrows (movement), targets / ghost positions
           (where a part should go), highlights (inspect), warning zones. */}
-      {frame.planOverlays?.map((ov) => (
-        <PlanOverlayShape key={ov.id} overlay={ov} />
-      ))}
+      {showGuidanceMarkers &&
+        frame.planOverlays?.map((ov) => <PlanOverlayShape key={ov.id} overlay={ov} />)}
 
       {/* Jarvis-style virtual blueprint vector points (DeepSeek/rules). Points
-          linked to the active step stay bright; others fade so the ghost never
-          clutters. Labels are not drawn here — they live in the callout cards. */}
-      {frame.virtualBlueprintPoints?.map((p) => (
-        <VirtualPointShape
-          key={p.id}
-          point={p}
-          active={!activeStep || !p.linkedStepId || p.linkedStepId === activeStep.id}
-        />
-      ))}
+          linked to the active step come first and stay bright; others fade; at
+          most 6 are visible at once so the ghost never clutters. Labels are
+          not drawn here — they live in the callout cards. */}
+      {showGuidanceMarkers &&
+        selectVisiblePoints(frame.virtualBlueprintPoints, activeStep?.id).map(
+          ({ point, active }) => <VirtualPointShape key={point.id} point={point} active={active} />,
+        )}
 
       {/* active Plan step marker — the amber "work here" bubble */}
-      {activeStep && activeStep.x != null && activeStep.y != null && (
+      {showGuidanceMarkers && activeStep && activeStep.x != null && activeStep.y != null && (
         <g>
           <circle
             cx={activeStep.x * 100}
