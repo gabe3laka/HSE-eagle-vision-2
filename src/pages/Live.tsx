@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BellRing, Check, Hammer, Route, Shapes, Trash2 } from "lucide-react";
+import { BellRing, Bug, Check, Hammer, Route, Shapes, Trash2 } from "lucide-react";
 import { useCamera } from "@/hooks/useCamera";
 import { useAlertSettings } from "@/hooks/useAlertSettings";
 import { useDetectionSession } from "@/hooks/useDetectionSession";
@@ -9,6 +9,7 @@ import { useZones, useCreateZone, useDeleteZone } from "@/hooks/useZones";
 import { CameraView } from "@/components/live/CameraView";
 import { AlertFeed } from "@/components/live/AlertFeed";
 import { SessionControls } from "@/components/live/SessionControls";
+import { LiveModeHeader } from "@/components/live/LiveModeHeader";
 import { PoseDebugPanel } from "@/components/live/PoseDebugPanel";
 import type { BackendStatus } from "@/lib/detection/backendVisionDetector";
 import {
@@ -567,6 +568,8 @@ export default function Live() {
   const isBackendMode =
     isCloudflareHttp || isLegacyHttp || config.detectionMode === "backend-edgecrafter-stream";
   const showFrameTest = isCloudflareHttp || isLegacyHttp;
+  const liveBackendName = (backendStatus as BackendStatus | null)?.backend ?? null;
+  const fallbackActive = !!(backendStatus as BackendStatus | null)?.fallbackUsed;
 
   const handleStart = useCallback(async () => {
     if (!active) await startCamera();
@@ -620,400 +623,440 @@ export default function Live() {
 
   return (
     <div className="space-y-4 sm:space-y-5">
-      <header className="space-y-1">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">
-          Eagle Vision · Live
-        </p>
-        <h1 className="font-display text-xl font-bold sm:text-2xl">Live monitoring</h1>
-        <p className="hidden max-w-prose text-sm text-muted-foreground sm:block">
-          The phone is the camera. Hazards are detected on-device and surfaced instantly — nothing
-          is recorded unless an incident is saved.
-        </p>
-      </header>
+      <LiveModeHeader
+        mode={appMode}
+        running={running}
+        cameraActive={active}
+        backendName={liveBackendName}
+        fallbackActive={fallbackActive}
+        objectCount={appMode === "hse" ? hse.objectCount : candidates.length}
+        alertCount={alerts.length}
+        topRisk={appMode === "hse" ? (hse.topAlert?.title ?? null) : null}
+      />
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_390px] xl:gap-5">
         {/* min-w-0: this grid item defaults to min-width:auto, so any non-wrapping
             child (e.g. the debug panel's 1500-char `raw:` line) would blow the
             column out to ~10000px — pushing the centered camera card off-screen
             and making it "jump" as the text length changes each frame. */}
-        <div className="min-w-0 space-y-4">
-          <CameraView
-            videoRef={videoRef}
-            active={active}
-            starting={starting}
-            error={error}
-            boxes={liveBoxes}
-            running={running}
-            topAlert={topAlert}
-            language={config.language}
-            facing={facing}
-            onEnable={() => startCamera()}
-            onFlip={flip}
-            poseStatus={poseStatus}
-            debug={debug}
-            showSkeleton={import.meta.env.DEV}
-            backendEntities={backendEntities as BackendEntity[]}
-            backendPoses={backendPoses as BackendPose[]}
-            backendDryRun={isBackendMode}
-            zones={zones}
-            editingZones={editingZones}
-            onZoneCreate={(points) =>
-              createZone.mutate({
-                kind: "restricted",
-                label: `Zone ${zones.length + 1}`,
-                points,
-              })
-            }
-            buildOverlay={
-              buildModeOn ? (
-                <>
-                  {/* Detection boxes as the MAIN extraction source: cyan
+        <div className="min-w-0 space-y-3 sm:space-y-4 xl:contents">
+          <div className="console-panel overflow-hidden p-2 sm:p-3 xl:col-start-1 xl:row-start-1">
+            <CameraView
+              videoRef={videoRef}
+              active={active}
+              starting={starting}
+              error={error}
+              boxes={liveBoxes}
+              running={running}
+              topAlert={topAlert}
+              language={config.language}
+              facing={facing}
+              onEnable={() => startCamera()}
+              onFlip={flip}
+              poseStatus={poseStatus}
+              debug={debug}
+              showSkeleton={import.meta.env.DEV}
+              backendEntities={backendEntities as BackendEntity[]}
+              backendPoses={backendPoses as BackendPose[]}
+              backendDryRun={isBackendMode}
+              zones={zones}
+              editingZones={editingZones}
+              onZoneCreate={(points) =>
+                createZone.mutate({
+                  kind: "restricted",
+                  label: `Zone ${zones.length + 1}`,
+                  points,
+                })
+              }
+              buildOverlay={
+                buildModeOn ? (
+                  <>
+                    {/* Detection boxes as the MAIN extraction source: cyan
                       candidate outlines while choosing (idle). */}
-                  {build.phase === "idle" && (
-                    <ExtractableCandidateOverlay
-                      candidates={candidates}
-                      highlightId={hotCandidateId}
-                      mirrored={mirrored}
-                    />
-                  )}
-                  <SelectionOverlay
-                    active={build.phase === "selecting"}
-                    onSelect={(region) => void build.lockSelection(region)}
-                    mirrored={mirrored}
-                  />
-                  <HandPointerLayer
-                    landmarks={hand.handLandmarks}
-                    primaryId={hand.primaryPointer?.id}
-                    pinch={mp.pinch}
-                    hint={fingerHint}
-                    mirrored={mirrored}
-                  />
-                  {/* Mini countdown clock while a pinch is HELD on a detected
-                      box — extraction fires only when the ring completes. */}
-                  {extractHold && (
-                    <div
-                      className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-[130%]"
-                      style={{
-                        left: `${(mirrored ? 1 - extractHold.x : extractHold.x) * 100}%`,
-                        top: `${extractHold.y * 100}%`,
-                      }}
-                    >
-                      <PinchHoldRing progress={extractHold.progress} label="creating blueprint…" />
-                    </div>
-                  )}
-                  {/* Source marker stays on the real object once the ghost detaches. */}
-                  {build.region &&
-                    ["placing", "pinned", "recording", "review"].includes(build.phase) && (
-                      <SelectedRegionMarker region={build.region} mirrored={mirrored} />
-                    )}
-                  {/* In-camera Record/Stop targets: a full pinch-hold or dwell
-                      on the target triggers — never instant. */}
-                  {isRecordTargetPhase(build.phase) && (
-                    <ARRecordButton
-                      variant="record"
-                      pointer={hand.primaryPointer}
-                      pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
-                      onTrigger={build.startProcedureRecording}
-                    />
-                  )}
-                  {isStopTargetPhase(build.phase) && (
-                    <ARRecordButton
-                      variant="stop"
-                      pointer={hand.primaryPointer}
-                      pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
-                      onTrigger={() => void build.stopRecording()}
-                    />
-                  )}
-                  {/* The extraction box / detachable ghost, from "selected" onward. */}
-                  {build.region && build.phase !== "idle" && build.phase !== "selecting" && (
-                    <FloatingBlueprintLayer
-                      phase={build.phase}
-                      region={build.region}
-                      frame={ghostFrame}
-                      sourceAsset={ghostAsset}
-                      handPointer={hand.primaryPointer}
-                      pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
-                      onExtractRequest={() => void build.extractBlueprint()}
-                      onPinned={build.pinBlueprint}
-                      onDelete={build.reset}
-                      onHandInteraction={onHandInteraction}
-                      onBounds={setGhostBounds}
-                      // Build keeps a clean minimal ghost (crop + outline only)
-                      // until review; Plan shows the guidance markers.
-                      showGuidanceMarkers={appMode !== "build" || build.phase === "review"}
-                      mirrored={mirrored}
-                    />
-                  )}
-                  {/* Readable instruction text as external callout cards with
-                      leader lines back to the blueprint markers — never trapped
-                      inside the crop. */}
-                  {/* Callout cards: Plan shows them while guiding; Build stays
-                      clean and only shows notes in review. */}
-                  {build.region &&
-                    ["placing", "pinned", "recording", "review"].includes(build.phase) &&
-                    (appMode === "plan" || build.phase === "review") && (
-                      <BlueprintCalloutLayer
-                        frame={ghostFrame}
-                        bounds={ghostBounds}
-                        mode={appMode === "plan" ? "plan" : "build"}
-                        onReplyRequest={() => setPlanReplyOpen(true)}
+                    {build.phase === "idle" && (
+                      <ExtractableCandidateOverlay
+                        candidates={candidates}
+                        highlightId={hotCandidateId}
+                        mirrored={mirrored}
                       />
                     )}
-                </>
-              ) : null
-            }
-            hseOverlay={
-              hseActive ? (
-                <>
-                  <WearableAlertOverlay severity={hse.topAlert?.severity ?? null} />
-                  <EagleVisionHUD
-                    tracks={hse.tracks}
-                    poses={backendPoses as BackendPose[]}
-                    topAlert={hse.topAlert}
-                    status={hse.status}
-                    objectCount={hse.objectCount}
-                    stableCount={hse.stableCount}
-                    reasoningSource={hse.reasoningSource}
-                    mirrored={mirrored}
-                  />
-                  {focusArmed && (
-                    <button
-                      type="button"
-                      className="absolute inset-0 z-30 cursor-crosshair bg-cyan-400/5"
-                      aria-label="Tap an area to focus the scan"
-                      onClick={(e) => {
-                        const r = e.currentTarget.getBoundingClientRect();
-                        // visual tap → RAW frame space (the ROI the worker scans)
-                        const vx = (e.clientX - r.left) / r.width;
-                        hse.focusAt(mirrored ? 1 - vx : vx, (e.clientY - r.top) / r.height);
-                        setFocusArmed(false);
-                      }}
+                    <SelectionOverlay
+                      active={build.phase === "selecting"}
+                      onSelect={(region) => void build.lockSelection(region)}
+                      mirrored={mirrored}
                     />
-                  )}
-                </>
-              ) : null
-            }
-          />
-          <SessionControls
-            cameraActive={active}
-            running={running}
-            stats={stats}
-            onStart={handleStart}
-            onStop={stop}
-            buildToggle={
-              ENABLE_BUILD_MODE ? (
-                <>
-                  <Button
-                    size="lg"
-                    variant={appMode === "build" ? "default" : "secondary"}
-                    className="shrink-0 px-2.5"
-                    aria-pressed={appMode === "build"}
-                    title={
-                      appMode === "build"
-                        ? "Switch to HSE monitoring"
-                        : "Build Mode — record/document my work"
-                    }
-                    onClick={() => setAppMode((m) => (m === "build" ? "hse" : "build"))}
-                  >
-                    <Hammer className="mr-1.5 h-4 w-4" />
-                    Build
-                  </Button>
-                  <Button
-                    size="lg"
-                    variant={appMode === "plan" ? "default" : "secondary"}
-                    className="shrink-0 px-2.5"
-                    aria-pressed={appMode === "plan"}
-                    title={
-                      appMode === "plan"
-                        ? "Switch to HSE monitoring"
-                        : "Plan Mode — guide me through work"
-                    }
-                    onClick={() => setAppMode((m) => (m === "plan" ? "hse" : "plan"))}
-                  >
-                    <Route className="mr-1.5 h-4 w-4" />
-                    Plan
-                  </Button>
-                </>
-              ) : undefined
-            }
-          />
-
-          {appMode === "hse" && !running && (
-            <p className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs text-cyan-100/90">
-              Start Eagle Vision monitoring to detect people, vehicles, PPE, zones, and unsafe
-              proximity.
-            </p>
-          )}
-
-          {hseActive && (
-            <HseMonitoringPanel
-              hse={hse}
-              focusArmed={focusArmed}
-              onArmFocus={() => setFocusArmed(true)}
-            />
-          )}
-
-          {buildModeOn && (
-            <BuildModePanel
-              session={build}
-              replay={replay}
-              cameraActive={active}
-              monitoringRunning={running}
-              onStartDetection={() => void handleStart()}
-              candidateCount={candidates.length}
-              handStatus={handStatus}
-              debug={buildDebug}
-              workflowMode={workflowMode}
-              replyOpen={planReplyOpen}
-              onReplyOpenChange={setPlanReplyOpen}
-            />
-          )}
-
-          {/* Restricted-zone editor */}
-          <div className="rounded-xl border border-border bg-background/40 p-3">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-sm font-medium">
-                <Shapes className="h-4 w-4 text-primary" />
-                Hazard zones
-                <span className="text-xs text-muted-foreground">({zones.length})</span>
-              </span>
-              <Button
-                size="sm"
-                variant={editingZones ? "default" : "secondary"}
-                onClick={() => setEditingZones((v) => !v)}
-                disabled={!active}
-              >
-                {editingZones ? (
-                  <>
-                    <Check className="mr-1.5 h-4 w-4" /> Done
+                    <HandPointerLayer
+                      landmarks={hand.handLandmarks}
+                      primaryId={hand.primaryPointer?.id}
+                      pinch={mp.pinch}
+                      hint={fingerHint}
+                      mirrored={mirrored}
+                    />
+                    {/* Mini countdown clock while a pinch is HELD on a detected
+                      box — extraction fires only when the ring completes. */}
+                    {extractHold && (
+                      <div
+                        className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-[130%]"
+                        style={{
+                          left: `${(mirrored ? 1 - extractHold.x : extractHold.x) * 100}%`,
+                          top: `${extractHold.y * 100}%`,
+                        }}
+                      >
+                        <PinchHoldRing
+                          progress={extractHold.progress}
+                          label="creating blueprint…"
+                        />
+                      </div>
+                    )}
+                    {/* Source marker stays on the real object once the ghost detaches. */}
+                    {build.region &&
+                      ["placing", "pinned", "recording", "review"].includes(build.phase) && (
+                        <SelectedRegionMarker region={build.region} mirrored={mirrored} />
+                      )}
+                    {/* In-camera Record/Stop targets: a full pinch-hold or dwell
+                      on the target triggers — never instant. */}
+                    {isRecordTargetPhase(build.phase) && (
+                      <ARRecordButton
+                        variant="record"
+                        pointer={hand.primaryPointer}
+                        pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
+                        onTrigger={build.startProcedureRecording}
+                      />
+                    )}
+                    {isStopTargetPhase(build.phase) && (
+                      <ARRecordButton
+                        variant="stop"
+                        pointer={hand.primaryPointer}
+                        pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
+                        onTrigger={() => void build.stopRecording()}
+                      />
+                    )}
+                    {/* The extraction box / detachable ghost, from "selected" onward. */}
+                    {build.region && build.phase !== "idle" && build.phase !== "selecting" && (
+                      <FloatingBlueprintLayer
+                        phase={build.phase}
+                        region={build.region}
+                        frame={ghostFrame}
+                        sourceAsset={ghostAsset}
+                        handPointer={hand.primaryPointer}
+                        pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
+                        onExtractRequest={() => void build.extractBlueprint()}
+                        onPinned={build.pinBlueprint}
+                        onDelete={build.reset}
+                        onHandInteraction={onHandInteraction}
+                        onBounds={setGhostBounds}
+                        // Build keeps a clean minimal ghost (crop + outline only)
+                        // until review; Plan shows the guidance markers.
+                        showGuidanceMarkers={appMode !== "build" || build.phase === "review"}
+                        mirrored={mirrored}
+                      />
+                    )}
+                    {/* Readable instruction text as external callout cards with
+                      leader lines back to the blueprint markers — never trapped
+                      inside the crop. */}
+                    {/* Callout cards: Plan shows them while guiding; Build stays
+                      clean and only shows notes in review. */}
+                    {build.region &&
+                      ["placing", "pinned", "recording", "review"].includes(build.phase) &&
+                      (appMode === "plan" || build.phase === "review") && (
+                        <BlueprintCalloutLayer
+                          frame={ghostFrame}
+                          bounds={ghostBounds}
+                          mode={appMode === "plan" ? "plan" : "build"}
+                          onReplyRequest={() => setPlanReplyOpen(true)}
+                        />
+                      )}
                   </>
-                ) : (
-                  "Edit zones"
-                )}
-              </Button>
-            </div>
-            {editingZones && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Drag a box on the camera to mark an off-limits area. A stable person who steps
-                inside raises a restricted-zone alert (needs the “Restricted-zone entry” hazard
-                enabled, in Pose mode).
-              </p>
-            )}
-            {zones.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {zones.map((z) => (
-                  <li
-                    key={z.id}
-                    className="flex items-center justify-between rounded-lg bg-muted/40 px-2 py-1 text-xs"
-                  >
-                    <span className="truncate">{z.label ?? "Zone"}</span>
-                    <button
-                      type="button"
-                      className="text-muted-foreground transition-colors hover:text-destructive"
-                      onClick={() => deleteZone.mutate(z.id)}
-                      aria-label="Delete zone"
+                ) : null
+              }
+              hseOverlay={
+                hseActive ? (
+                  <>
+                    <WearableAlertOverlay severity={hse.topAlert?.severity ?? null} />
+                    <EagleVisionHUD
+                      tracks={hse.tracks}
+                      poses={backendPoses as BackendPose[]}
+                      topAlert={hse.topAlert}
+                      status={hse.status}
+                      objectCount={hse.objectCount}
+                      stableCount={hse.stableCount}
+                      reasoningSource={hse.reasoningSource}
+                      mirrored={mirrored}
+                    />
+                    {focusArmed && (
+                      <button
+                        type="button"
+                        className="absolute inset-0 z-30 cursor-crosshair bg-cyan-400/5"
+                        aria-label="Tap an area to focus the scan"
+                        onClick={(e) => {
+                          const r = e.currentTarget.getBoundingClientRect();
+                          // visual tap → RAW frame space (the ROI the worker scans)
+                          const vx = (e.clientX - r.left) / r.width;
+                          hse.focusAt(mirrored ? 1 - vx : vx, (e.clientY - r.top) / r.height);
+                          setFocusArmed(false);
+                        }}
+                      />
+                    )}
+                  </>
+                ) : null
+              }
+            />
+          </div>
+          <div className="xl:col-start-1 xl:row-start-2">
+            <SessionControls
+              cameraActive={active}
+              running={running}
+              stats={stats}
+              onStart={handleStart}
+              onStop={stop}
+              buildToggle={
+                ENABLE_BUILD_MODE ? (
+                  <>
+                    <Button
+                      size="lg"
+                      variant="secondary"
+                      className={`min-h-12 shrink-0 rounded-xl px-3 ${
+                        appMode === "build"
+                          ? "border-emerald-300/30 bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/15"
+                          : ""
+                      }`}
+                      aria-pressed={appMode === "build"}
+                      title={
+                        appMode === "build"
+                          ? "Switch to HSE monitoring"
+                          : "Build Mode — record/document my work"
+                      }
+                      onClick={() => setAppMode((m) => (m === "build" ? "hse" : "build"))}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                      <Hammer className="mr-1.5 h-4 w-4" />
+                      Build
+                    </Button>
+                    <Button
+                      size="lg"
+                      variant="secondary"
+                      className={`min-h-12 shrink-0 rounded-xl px-3 ${
+                        appMode === "plan"
+                          ? "border-violet-300/30 bg-violet-400/15 text-violet-100 ring-1 ring-violet-300/15"
+                          : ""
+                      }`}
+                      aria-pressed={appMode === "plan"}
+                      title={
+                        appMode === "plan"
+                          ? "Switch to HSE monitoring"
+                          : "Plan Mode — guide me through work"
+                      }
+                      onClick={() => setAppMode((m) => (m === "plan" ? "hse" : "plan"))}
+                    >
+                      <Route className="mr-1.5 h-4 w-4" />
+                      Plan
+                    </Button>
+                  </>
+                ) : undefined
+              }
+            />
+          </div>
+
+          <aside className="min-w-0 space-y-3 xl:sticky xl:top-7 xl:col-start-2 xl:row-span-2 xl:row-start-1 xl:max-h-[calc(100vh-3.5rem)] xl:overflow-y-auto xl:pr-1">
+            {appMode === "hse" && !running && (
+              <div className="console-panel p-4">
+                <p className="console-eyebrow">Eagle Vision</p>
+                <h2 className="mt-1 font-display text-base font-semibold">
+                  Ready for a safety scan
+                </h2>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Start monitoring to detect people, vehicles, PPE, restricted zones, and unsafe
+                  proximity.
+                </p>
+              </div>
             )}
-          </div>
 
-          {/* Mobile-only alerts trigger */}
-          <div className="lg:hidden">
-            <Sheet open={alertsOpen} onOpenChange={setAlertsOpen}>
-              <SheetTrigger asChild>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between rounded-xl border border-border bg-background/40 px-4 py-3 text-sm font-medium transition-colors hover:bg-accent"
+            {hseActive && (
+              <HseMonitoringPanel
+                hse={hse}
+                focusArmed={focusArmed}
+                onArmFocus={() => setFocusArmed(true)}
+              />
+            )}
+
+            {buildModeOn && (
+              <BuildModePanel
+                session={build}
+                replay={replay}
+                cameraActive={active}
+                monitoringRunning={running}
+                onStartDetection={() => void handleStart()}
+                candidateCount={candidates.length}
+                handStatus={handStatus}
+                debug={buildDebug}
+                workflowMode={workflowMode}
+                replyOpen={planReplyOpen}
+                onReplyOpenChange={setPlanReplyOpen}
+              />
+            )}
+
+            {/* Restricted-zone editor */}
+            <div className="console-panel p-4">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  <Shapes className="h-4 w-4 text-primary" />
+                  Hazard zones
+                  <span className="text-xs text-muted-foreground">({zones.length})</span>
+                </span>
+                <Button
+                  size="sm"
+                  variant={editingZones ? "default" : "secondary"}
+                  onClick={() => setEditingZones((v) => !v)}
+                  disabled={!active}
                 >
+                  {editingZones ? (
+                    <>
+                      <Check className="mr-1.5 h-4 w-4" /> Done
+                    </>
+                  ) : (
+                    "Edit zones"
+                  )}
+                </Button>
+              </div>
+              {editingZones && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Drag a box on the camera to mark an off-limits area. A stable person who steps
+                  inside raises a restricted-zone alert (needs the “Restricted-zone entry” hazard
+                  enabled, in Pose mode).
+                </p>
+              )}
+              {zones.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {zones.map((z) => (
+                    <li
+                      key={z.id}
+                      className="flex items-center justify-between rounded-lg bg-muted/40 px-2 py-1 text-xs"
+                    >
+                      <span className="truncate">{z.label ?? "Zone"}</span>
+                      <button
+                        type="button"
+                        className="text-muted-foreground transition-colors hover:text-destructive"
+                        onClick={() => deleteZone.mutate(z.id)}
+                        aria-label="Delete zone"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Mobile-only alerts trigger */}
+            <div className="xl:hidden">
+              <Sheet open={alertsOpen} onOpenChange={setAlertsOpen}>
+                <SheetTrigger asChild>
+                  <button
+                    type="button"
+                    className="console-panel flex w-full items-center justify-between px-4 py-3 text-sm font-medium transition-colors hover:border-cyan-300/20"
+                  >
+                    <span className="flex items-center gap-2">
+                      <BellRing className="h-4 w-4 text-primary" />
+                      Live alerts
+                    </span>
+                    <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">
+                      {alerts.length}
+                    </span>
+                  </button>
+                </SheetTrigger>
+                <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-4">
+                  <AlertFeed
+                    alerts={alerts}
+                    running={running}
+                    language={config.language}
+                    onDismiss={dismissAlert}
+                  />
+                </SheetContent>
+              </Sheet>
+            </div>
+
+            {((import.meta.env.DEV && !!debug) || isBackendMode) && (
+              <details className="console-panel group p-3">
+                <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between rounded-lg px-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
                   <span className="flex items-center gap-2">
-                    <BellRing className="h-4 w-4 text-primary" />
-                    Live alerts
+                    <Bug className="h-4 w-4 text-violet-300" />
+                    Diagnostics
                   </span>
-                  <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">
-                    {alerts.length}
+                  <span className="text-[10px] uppercase tracking-wider group-open:text-cyan-300">
+                    Expand
                   </span>
-                </button>
-              </SheetTrigger>
-              <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-4">
-                <AlertFeed
-                  alerts={alerts}
-                  running={running}
-                  language={config.language}
-                  onDismiss={dismissAlert}
-                />
-              </SheetContent>
-            </Sheet>
-          </div>
+                </summary>
+                <div className="mt-2 space-y-2">
+                  {import.meta.env.DEV && debug && <PoseDebugPanel debug={debug} perf={perf} />}
 
-          {import.meta.env.DEV && debug && <PoseDebugPanel debug={debug} perf={perf} />}
-
-          {/* EdgeCrafter dry-run debug — visible in either EdgeCrafter mode (HTTP
+                  {/* EdgeCrafter dry-run debug — visible in either EdgeCrafter mode (HTTP
               dry-run or WebSocket stream beta), not gated to dev builds so the
               pipeline is observable in the deployed app. Dry-run only: no alerts,
               no incidents. */}
-          {isBackendMode && (
-            <div className="space-y-2">
-              {backendStatus != null && (
-                <BackendDebugPanel
-                  status={backendStatus as BackendStatus}
-                  entities={backendEntities as BackendEntity[]}
-                  poses={backendPoses as BackendPose[]}
-                  perf={perf}
-                  stats={stats}
-                />
-              )}
-              {showFrameTest && (
-                <div className="rounded-xl border border-border bg-background/40 p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Vision dry-run · single-frame test</span>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={testBackendFrame}
-                      disabled={!active || backendTesting}
-                    >
-                      {backendTesting ? "Testing…" : "Test detect frame"}
-                    </Button>
-                  </div>
-                  {(backendTestImg || backendTest) && (
-                    <div className="mt-2 space-y-2">
-                      {backendTestImg && (
-                        <div>
-                          <div className="mb-1 text-[10px] text-muted-foreground">
-                            captured frame sent to /detect (check it isn't black/blank/rotated):
-                          </div>
-                          <img
-                            src={backendTestImg}
-                            alt="captured frame"
-                            className="max-h-40 rounded border border-border"
-                          />
-                        </div>
+                  {isBackendMode && (
+                    <div className="space-y-2">
+                      {backendStatus != null && (
+                        <BackendDebugPanel
+                          status={backendStatus as BackendStatus}
+                          entities={backendEntities as BackendEntity[]}
+                          poses={backendPoses as BackendPose[]}
+                          perf={perf}
+                          stats={stats}
+                        />
                       )}
-                      {backendTest && (
-                        <pre className="max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[10px] leading-snug">
-                          {backendTest}
-                        </pre>
+                      {showFrameTest && (
+                        <div className="rounded-xl border border-border bg-background/40 p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">
+                              Vision dry-run · single-frame test
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={testBackendFrame}
+                              disabled={!active || backendTesting}
+                            >
+                              {backendTesting ? "Testing…" : "Test detect frame"}
+                            </Button>
+                          </div>
+                          {(backendTestImg || backendTest) && (
+                            <div className="mt-2 space-y-2">
+                              {backendTestImg && (
+                                <div>
+                                  <div className="mb-1 text-[10px] text-muted-foreground">
+                                    captured frame sent to /detect (check it isn't
+                                    black/blank/rotated):
+                                  </div>
+                                  <img
+                                    src={backendTestImg}
+                                    alt="captured frame"
+                                    className="max-h-40 rounded border border-border"
+                                  />
+                                </div>
+                              )}
+                              {backendTest && (
+                                <pre className="max-h-48 overflow-auto rounded bg-muted/40 p-2 text-[10px] leading-snug">
+                                  {backendTest}
+                                </pre>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
                 </div>
-              )}
+              </details>
+            )}
+            <div className="console-panel hidden h-[360px] p-4 xl:block">
+              <AlertFeed
+                alerts={alerts}
+                running={running}
+                language={config.language}
+                onDismiss={dismissAlert}
+              />
             </div>
-          )}
+          </aside>
         </div>
-
-        <aside className="glass-panel hidden rounded-2xl border p-4 lg:sticky lg:top-6 lg:block lg:h-[calc(100vh-9rem)]">
-          <AlertFeed
-            alerts={alerts}
-            running={running}
-            language={config.language}
-            onDismiss={dismissAlert}
-          />
-        </aside>
       </div>
 
       <p className="pt-1 text-center text-[10px] text-muted-foreground/60">

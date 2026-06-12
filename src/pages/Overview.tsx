@@ -20,9 +20,9 @@ function StatCard({
   accent?: string;
 }) {
   return (
-    <div className="glass-panel rounded-2xl border p-4 transition-colors hover:border-primary/30">
+    <div className="metric-card transition-colors hover:border-cyan-300/20">
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/15">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] ring-1 ring-white/[0.06]">
           <Icon className={`h-4 w-4 ${accent ?? "text-primary"}`} />
         </span>
         {label}
@@ -57,17 +57,17 @@ export default function Overview() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+      <header className="page-hero flex flex-wrap items-end justify-between gap-5">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">
-            Safety dashboard
-          </p>
-          <h1 className="font-display text-2xl font-bold">Overview</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="console-eyebrow text-cyan-300/80">Safety dashboard</p>
+          <h1 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">
+            Safety intelligence
+          </h1>
+          <p className="mt-2 max-w-xl text-sm text-muted-foreground">
             Site safety at a glance — hazard activity, incidents and sessions.
           </p>
         </div>
-        <Button asChild>
+        <Button asChild size="lg" className="min-h-11 rounded-xl">
           <Link to="/">
             <Camera className="mr-2 h-4 w-4" /> Start monitoring
           </Link>
@@ -91,7 +91,7 @@ export default function Overview() {
         <StatCard icon={Video} label="Sessions" value={sessions?.length ?? 0} />
       </div>
 
-      <section className="glass-panel rounded-2xl border p-5">
+      <section className="console-panel p-5">
         <h2 className="mb-1 font-display text-sm font-semibold">Risk heatmap</h2>
         <p className="mb-4 text-xs text-muted-foreground">
           Where hazards are detected across the camera frame.
@@ -100,7 +100,7 @@ export default function Overview() {
       </section>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <section className="glass-panel rounded-2xl border p-5">
+        <section className="console-panel p-5">
           <h2 className="mb-4 font-display text-sm font-semibold">Incidents by hazard</h2>
           <div className="space-y-3">
             {ALL_HAZARDS.map((h) => {
@@ -125,7 +125,7 @@ export default function Overview() {
           </div>
         </section>
 
-        <section className="glass-panel rounded-2xl border p-5">
+        <section className="console-panel p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-display text-sm font-semibold">Recent incidents</h2>
             <Link to="/incidents" className="text-xs text-primary hover:underline">

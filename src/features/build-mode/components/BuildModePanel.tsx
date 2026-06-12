@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Check,
   CircleDot,
   FolderOpen,
   Hammer,
@@ -112,6 +113,30 @@ export function BuildModePanel({
   const { phase, frameCount, backendStatus, error } = session;
   const backend = BACKEND_STATUS[backendStatus];
   const isPlan = workflowMode === "plan";
+  const buildStep =
+    phase === "review"
+      ? 4
+      : phase === "recording" || phase === "pinned"
+        ? 3
+        : phase === "placing"
+          ? 2
+          : phase === "selected" || phase === "extracting"
+            ? 1
+            : 0;
+  const planStep =
+    session.planStage === "plan_review"
+      ? 3
+      : session.planStage === "plan_generating_steps" ||
+          session.planStage === "plan_guiding" ||
+          phase === "review"
+        ? 2
+        : session.planStage === "plan_waiting_for_intent"
+          ? 1
+          : 0;
+  const currentStep = isPlan ? planStep : buildStep;
+  const workflowSteps = isPlan
+    ? ["Capture item", "Set goal", "Follow guide", "Review"]
+    : ["Select", "Extract", "Place", "Record", "Replay"];
 
   // Saved blueprint procedures (owner-only via RLS) + save/load/delete.
   const { user } = useAuth();
@@ -225,24 +250,29 @@ export function BuildModePanel({
       (aiFrame.planSteps?.length ?? 0) > 0
     );
   return (
-    <div className="rounded-xl border border-cyan-500/30 bg-background/40 p-3">
+    <section
+      className={`console-panel overflow-hidden p-4 ${
+        isPlan ? "border-violet-300/15" : "border-emerald-300/15"
+      }`}
+    >
       <div className="flex items-center justify-between">
-        <span className="flex items-center gap-2 text-sm font-medium">
-          {isPlan ? (
-            <Route className="h-4 w-4 text-cyan-400" />
-          ) : (
-            <Hammer className="h-4 w-4 text-cyan-400" />
-          )}
-          {isPlan ? "Plan Mode" : "Build Mode"}
+        <div className="flex items-center gap-2.5">
           <span
-            title="Build backend"
-            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-              backend.live ? "bg-cyan-500/15 text-cyan-300" : "bg-muted/40 text-muted-foreground"
+            className={`flex h-9 w-9 items-center justify-center rounded-xl ring-1 ${
+              isPlan
+                ? "bg-violet-400/10 text-violet-200 ring-violet-300/10"
+                : "bg-emerald-400/10 text-emerald-200 ring-emerald-300/10"
             }`}
           >
-            {backend.label}
+            {isPlan ? <Route className="h-4 w-4" /> : <Hammer className="h-4 w-4" />}
           </span>
-        </span>
+          <div>
+            <p className="console-eyebrow">{isPlan ? "Guided workflow" : "Procedure studio"}</p>
+            <span className="text-sm font-semibold">
+              {isPlan ? "Plan Assistant" : "Build Studio"}
+            </span>
+          </div>
+        </div>
         {phase === "recording" && (
           <span className="flex items-center gap-1.5 text-xs font-medium text-cyan-300">
             <CircleDot className="h-3.5 w-3.5 animate-pulse text-red-400" />
@@ -255,6 +285,17 @@ export function BuildModePanel({
           ? "Capture an item or parts, tell me the goal, and I’ll generate guided steps."
           : "Create and arrange a clean virtual blueprint, then record the procedure."}
       </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span
+          title="Build backend"
+          className={`rounded-full px-2.5 py-1 text-[9px] font-semibold ${
+            backend.live ? "bg-cyan-500/10 text-cyan-200" : "bg-muted/40 text-muted-foreground"
+          }`}
+        >
+          {backend.label}
+        </span>
+      </div>
 
       {handStatus && (
         <div className="mt-1.5">
@@ -272,6 +313,36 @@ export function BuildModePanel({
           </span>
         </div>
       )}
+
+      <div
+        className={`mt-4 grid gap-1.5 ${
+          isPlan ? "grid-cols-4" : "grid-cols-5"
+        } rounded-xl bg-black/20 p-1.5`}
+      >
+        {workflowSteps.map((label, index) => {
+          const complete = index < currentStep;
+          const activeStep = index === currentStep;
+          return (
+            <div
+              key={label}
+              className={`flex min-h-12 flex-col items-center justify-center rounded-lg px-1 text-center transition-colors ${
+                activeStep
+                  ? isPlan
+                    ? "bg-violet-400/15 text-violet-100 ring-1 ring-violet-300/15"
+                    : "bg-emerald-400/15 text-emerald-100 ring-1 ring-emerald-300/15"
+                  : complete
+                    ? "text-emerald-300"
+                    : "text-muted-foreground/65"
+              }`}
+            >
+              <span className="mb-1 flex h-4 w-4 items-center justify-center rounded-full border border-current/30 text-[9px]">
+                {complete ? <Check className="h-2.5 w-2.5" /> : index + 1}
+              </span>
+              <span className="text-[8px] font-semibold uppercase tracking-wide">{label}</span>
+            </div>
+          );
+        })}
+      </div>
 
       {phase === "idle" && (
         <div className="mt-2 space-y-2">
@@ -549,19 +620,24 @@ export function BuildModePanel({
 
       {/* TEMP debug readout — makes extraction failures obvious on the phone. */}
       {debug && (
-        <div className="mt-2 rounded bg-black/40 px-2 py-1 font-mono text-[9px] leading-relaxed text-muted-foreground">
-          phase {debug.phase} · region {debug.hasRegion ? "yes" : "no"} · base{" "}
-          {debug.hasBaseFrame ? "yes" : "no"} · ghost {debug.hasGhostFrame ? "yes" : "no"}
-          <br />
-          extract: <span className="text-cyan-300">{debug.extractStatus}</span> · pinch{" "}
-          {debug.pinchActive ? "ON" : "off"} · inside{" "}
-          {debug.pointerInsideRegion ? <span className="text-cyan-300">yes</span> : "no"} · ptr{" "}
-          {debug.pointer ? `${debug.pointer.x.toFixed(2)},${debug.pointer.y.toFixed(2)}` : "—"}
-          <br />
-          candidates {debug.candidateCount} · under pinch{" "}
-          {debug.candidateUnderPinch ? <span className="text-cyan-300">yes</span> : "no"} · label{" "}
-          {debug.candidateLabel ?? "—"}
-        </div>
+        <details className="mt-3 rounded-xl border border-white/5 bg-black/20 p-2">
+          <summary className="cursor-pointer list-none text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Build diagnostics
+          </summary>
+          <div className="mt-2 font-mono text-[9px] leading-relaxed text-muted-foreground">
+            phase {debug.phase} · region {debug.hasRegion ? "yes" : "no"} · base{" "}
+            {debug.hasBaseFrame ? "yes" : "no"} · ghost {debug.hasGhostFrame ? "yes" : "no"}
+            <br />
+            extract: <span className="text-cyan-300">{debug.extractStatus}</span> · pinch{" "}
+            {debug.pinchActive ? "ON" : "off"} · inside{" "}
+            {debug.pointerInsideRegion ? <span className="text-cyan-300">yes</span> : "no"} · ptr{" "}
+            {debug.pointer ? `${debug.pointer.x.toFixed(2)},${debug.pointer.y.toFixed(2)}` : "—"}
+            <br />
+            candidates {debug.candidateCount} · under pinch{" "}
+            {debug.candidateUnderPinch ? <span className="text-cyan-300">yes</span> : "no"} · label{" "}
+            {debug.candidateLabel ?? "—"}
+          </div>
+        </details>
       )}
 
       {/* Fixed bottom goal/follow-up drawer — always on-screen when open. */}
@@ -576,6 +652,6 @@ export function BuildModePanel({
           onQuickGoal={handleQuickGoal}
         />
       )}
-    </div>
+    </section>
   );
 }

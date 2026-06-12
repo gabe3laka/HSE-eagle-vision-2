@@ -21,15 +21,34 @@ export function SessionControls({
   buildToggle,
 }: Props) {
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5 sm:gap-y-3">
-      {/* Start/Stop grows to fill; the Build toggle sits beside it (shorter). */}
-      <div className="flex items-center gap-2">
+    <section className="live-action-dock">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="console-eyebrow">Primary controls</p>
+          <p className="text-xs text-muted-foreground">
+            {running ? "Live analysis is active" : "Choose a workflow, then begin"}
+          </p>
+        </div>
+        <div className="hidden items-center gap-4 text-xs text-muted-foreground sm:flex">
+          <span className="flex items-center gap-1.5">
+            <Activity className="h-3.5 w-3.5 text-cyan-300" /> {stats.frames} frames
+          </span>
+          <span className="flex items-center gap-1.5">
+            <ShieldAlert className="h-3.5 w-3.5 text-amber-300" /> {stats.alerts} alerts
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Camera className="h-3.5 w-3.5 text-violet-300" /> {stats.incidents} incidents
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-stretch gap-2">
         {running ? (
           <Button
             onClick={onStop}
             variant="destructive"
             size="lg"
-            className="flex-1 sm:w-auto sm:min-w-[160px] sm:flex-none"
+            className="min-h-12 flex-1 rounded-xl sm:min-w-[190px] sm:flex-none"
           >
             <Square className="mr-2 h-4 w-4" /> Stop monitoring
           </Button>
@@ -38,26 +57,25 @@ export function SessionControls({
             onClick={onStart}
             size="lg"
             disabled={!cameraActive}
-            className="flex-1 sm:w-auto sm:min-w-[160px] sm:flex-none"
+            className="min-h-12 flex-1 rounded-xl sm:min-w-[190px] sm:flex-none"
           >
             <Play className="mr-2 h-4 w-4" /> Start monitoring
           </Button>
         )}
         {buildToggle}
       </div>
-      <div className="flex items-center justify-around gap-4 rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-sm text-muted-foreground sm:justify-start sm:border-0 sm:bg-transparent sm:p-0">
+
+      <div className="mt-3 flex items-center justify-around gap-4 border-t border-white/5 pt-3 text-xs text-muted-foreground sm:hidden">
         <span className="flex items-center gap-1.5">
           <Activity className="h-4 w-4" /> {stats.frames}
         </span>
         <span className="flex items-center gap-1.5">
-          <ShieldAlert className="h-4 w-4" /> {stats.alerts}
-          <span className="hidden sm:inline">alerts</span>
+          <ShieldAlert className="h-4 w-4" /> {stats.alerts} alerts
         </span>
         <span className="flex items-center gap-1.5">
-          <Camera className="h-4 w-4" /> {stats.incidents}
-          <span className="hidden sm:inline">incidents</span>
+          <Camera className="h-4 w-4" /> {stats.incidents} saved
         </span>
       </div>
-    </div>
+    </section>
   );
 }

@@ -21,9 +21,11 @@ export function AlertCard({
 
   return (
     <div
-      className={`relative flex gap-3 rounded-xl border ${sev.border} ${sev.bg} p-3 shadow-lg backdrop-blur animate-slide-in-right`}
+      className={`relative flex gap-3 rounded-xl border ${sev.border} ${sev.bg} p-3 shadow-[0_12px_36px_-24px_rgba(0,0,0,0.8)] backdrop-blur animate-slide-in-right`}
     >
-      <div className={`mt-0.5 shrink-0 rounded-lg bg-background/60 p-2 ${sev.text}`}>
+      <div
+        className={`mt-0.5 shrink-0 rounded-lg border border-white/[0.06] bg-black/20 p-2 ${sev.text}`}
+      >
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">

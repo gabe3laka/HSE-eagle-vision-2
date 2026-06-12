@@ -5,19 +5,22 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
-        destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
+        default:
+          "border border-cyan-300/20 bg-gradient-to-b from-cyan-300 to-cyan-400 text-slate-950 shadow-[0_8px_24px_-12px_rgba(34,211,238,0.9)] hover:brightness-110",
+        destructive:
+          "border border-red-300/15 bg-gradient-to-b from-red-500 to-red-600 text-white shadow-[0_8px_24px_-12px_rgba(239,68,68,0.9)] hover:brightness-110",
         outline:
           "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
+        secondary:
+          "border border-white/[0.07] bg-white/[0.055] text-secondary-foreground shadow-sm hover:border-white/[0.12] hover:bg-white/[0.09]",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
         gradient:
-          "bg-gradient-to-r from-primary to-cyan-400 text-primary-foreground shadow hover:from-primary/90 hover:to-cyan-400/90",
+          "border border-cyan-200/20 bg-gradient-to-r from-cyan-300 via-sky-400 to-violet-400 text-slate-950 shadow-[0_12px_30px_-14px_rgba(56,189,248,0.9)] hover:brightness-110",
         glass:
           "border border-white/15 bg-white/5 text-foreground backdrop-blur-md hover:bg-white/10",
       },

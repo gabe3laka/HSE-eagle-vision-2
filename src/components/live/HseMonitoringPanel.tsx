@@ -28,77 +28,108 @@ interface Props {
 
 export function HseMonitoringPanel({ hse, focusArmed, onArmFocus }: Props) {
   const lowObjects = hse.objectCount <= 1;
+  const unresolvedAlerts = hse.activeAlerts.filter((a) => a.state !== "resolved");
   return (
-    <div className="rounded-xl border border-cyan-500/30 bg-background/40 p-3">
+    <section className="console-panel overflow-hidden p-4">
       <div className="flex items-center justify-between">
-        <span className="flex items-center gap-2 text-sm font-medium">
-          <Radar className="h-4 w-4 text-cyan-400" />
-          Eagle Vision active
-          <span className="rounded-full bg-cyan-500/15 px-2 py-0.5 text-[10px] font-semibold text-cyan-300">
-            {hse.profileLabel}
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-400/10 text-cyan-200 ring-1 ring-cyan-300/10">
+            <Radar className="h-4 w-4" />
           </span>
-        </span>
+          <div>
+            <p className="console-eyebrow">Active mode</p>
+            <span className="text-sm font-semibold">Eagle Vision monitoring</span>
+          </div>
+        </div>
         {hse.reasoningSource && (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.04] px-2 py-1 text-[9px] font-medium text-muted-foreground">
             <Sparkles className="h-3 w-3" />
             {hse.reasoningSource === "deepseek" ? "AI reasoning" : "local risk engine"}
           </span>
         )}
       </div>
 
-      <p className="mt-1 text-xs text-muted-foreground">
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
         {hse.sceneCaption ||
           "Scanning for HSE risks — people, vehicles, PPE, zones, and proximity."}
       </p>
 
-      {/* Detection profile selector */}
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {PROFILE_ORDER.map((p) => (
-          <button
-            key={p}
-            type="button"
-            title={HSE_PROFILES[p].hint}
-            aria-pressed={hse.profile === p}
-            className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
-              hse.profile === p
-                ? "border-cyan-300/70 bg-cyan-500/20 text-cyan-100"
-                : "border-border/60 bg-black/20 text-muted-foreground hover:bg-cyan-500/10"
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="metric-card p-2.5">
+          <p className="console-eyebrow">Objects</p>
+          <p className="mt-1 font-display text-xl font-semibold text-cyan-100">{hse.objectCount}</p>
+        </div>
+        <div className="metric-card p-2.5">
+          <p className="console-eyebrow">Stable tracks</p>
+          <p className="mt-1 font-display text-xl font-semibold text-emerald-200">
+            {hse.stableCount}
+          </p>
+        </div>
+        <div className="metric-card p-2.5">
+          <p className="console-eyebrow">Open alerts</p>
+          <p
+            className={`mt-1 font-display text-xl font-semibold ${
+              unresolvedAlerts.length > 0 ? "text-amber-200" : "text-slate-200"
             }`}
-            onClick={() => hse.setProfile(p)}
           >
-            {HSE_PROFILES[p].label}
-          </button>
-        ))}
+            {unresolvedAlerts.length}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="console-eyebrow">Detection profile</p>
+          <span className="text-[10px] font-medium text-cyan-200">{hse.profileLabel}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-black/20 p-1.5">
+          {PROFILE_ORDER.map((p) => (
+            <button
+              key={p}
+              type="button"
+              title={HSE_PROFILES[p].hint}
+              aria-pressed={hse.profile === p}
+              className={`min-h-9 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                hse.profile === p
+                  ? "border-cyan-300/70 bg-cyan-500/20 text-cyan-100"
+                  : "border-border/60 bg-black/20 text-muted-foreground hover:bg-cyan-500/10"
+              }`}
+              onClick={() => hse.setProfile(p)}
+            >
+              {HSE_PROFILES[p].label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Far scan / focus / analyze */}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="secondary" className="h-7" onClick={hse.farScan}>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Button size="sm" variant="secondary" className="min-h-9" onClick={hse.farScan}>
           <Telescope className="mr-1.5 h-3.5 w-3.5" />
           Far Scan
         </Button>
         <Button
           size="sm"
           variant={focusArmed ? "default" : "secondary"}
-          className="h-7"
+          className="min-h-9"
           onClick={onArmFocus}
         >
           <Crosshair className="mr-1.5 h-3.5 w-3.5" />
           {focusArmed ? "Tap the camera…" : "Tap to focus"}
         </Button>
         {hse.roi && (
-          <Button size="sm" variant="secondary" className="h-7" onClick={hse.clearFocus}>
+          <Button size="sm" variant="secondary" className="min-h-9" onClick={hse.clearFocus}>
             Clear focus
           </Button>
         )}
-        <Button size="sm" variant="secondary" className="h-7" onClick={hse.analyzeScene}>
+        <Button size="sm" variant="secondary" className="min-h-9" onClick={hse.analyzeScene}>
           <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
           Analyze scene
         </Button>
       </div>
 
       {/* Detection status (non-intrusive) */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-white/5 pt-3 text-[10px] text-muted-foreground">
         <span className="flex items-center gap-1">
           <Eye className="h-3 w-3" />{" "}
           {hse.backendName === "yolo26" ? "YOLO26" : (hse.backendName ?? "vision")} detected{" "}
@@ -110,17 +141,19 @@ export function HseMonitoringPanel({ hse, focusArmed, onArmFocus }: Props) {
       </div>
 
       {/* Wearable alert feed (de-spammed, acknowledge-able) */}
-      {hse.activeAlerts.filter((a) => a.state !== "resolved").length > 0 && (
-        <ul className="mt-2 space-y-1.5">
-          {hse.activeAlerts
-            .filter((a) => a.state !== "resolved")
-            .slice(0, 4)
-            .map((a) => {
+      {unresolvedAlerts.length > 0 && (
+        <div className="mt-4">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="console-eyebrow">Priority alerts</p>
+            <span className="text-[10px] text-muted-foreground">Acknowledge when handled</span>
+          </div>
+          <ul className="space-y-2">
+            {unresolvedAlerts.slice(0, 4).map((a) => {
               const s = SEV_STYLE[a.severity];
               return (
                 <li
                   key={a.key}
-                  className="flex items-start gap-2 rounded-lg border border-border/50 bg-black/20 px-2.5 py-1.5"
+                  className="flex items-start gap-2 rounded-xl border border-white/[0.06] bg-black/20 px-3 py-2.5"
                 >
                   <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${s.dot}`} />
                   <div className="min-w-0 flex-1">
@@ -153,8 +186,9 @@ export function HseMonitoringPanel({ hse, focusArmed, onArmFocus }: Props) {
                 </li>
               );
             })}
-        </ul>
+          </ul>
+        </div>
       )}
-    </div>
+    </section>
   );
 }

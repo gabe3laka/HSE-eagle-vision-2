@@ -65,12 +65,17 @@ export function PlanInputDrawer({
   };
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 px-3 pb-3">
-      <div className="mx-auto max-w-md space-y-2 rounded-2xl border border-violet-400/40 bg-[rgba(16,8,38,0.96)] p-3 shadow-2xl backdrop-blur">
+    <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+72px)] z-50 px-3 lg:bottom-6">
+      <div className="mx-auto max-w-xl space-y-3 rounded-[22px] border border-violet-300/25 bg-[rgba(8,8,24,0.96)] p-4 shadow-[0_24px_90px_-24px_rgba(124,58,237,0.75)] ring-1 ring-white/5 backdrop-blur-2xl">
         <div className="flex items-center justify-between">
-          <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-violet-200">
-            <Sparkles className="h-3.5 w-3.5" /> Goal
-          </span>
+          <div>
+            <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-violet-200">
+              <Sparkles className="h-3.5 w-3.5" /> Plan command
+            </span>
+            <p className="mt-1 text-[10px] text-violet-200/55">
+              Describe the outcome. SafeLens will turn it into guided steps.
+            </p>
+          </div>
           <button
             type="button"
             aria-label="Close goal input"
@@ -80,7 +85,7 @@ export function PlanInputDrawer({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <p className="text-xs text-violet-100">
+        <p className="text-sm text-violet-50">
           {firstGoal
             ? "What are you trying to build, inspect, repair, troubleshoot, or understand?"
             : "Ask a follow-up or refine the goal."}
@@ -91,7 +96,7 @@ export function PlanInputDrawer({
             <button
               key={g.label}
               type="button"
-              className="rounded-full border border-violet-300/40 bg-black/30 px-2.5 py-1 text-[11px] text-violet-100 transition-colors hover:bg-violet-500/25"
+              className="min-h-8 rounded-full border border-violet-300/25 bg-violet-400/[0.07] px-3 py-1 text-[11px] text-violet-100 transition-colors hover:bg-violet-500/20"
               onClick={() => onQuickGoal(g.taskType, g.label)}
             >
               {g.label}
@@ -99,7 +104,7 @@ export function PlanInputDrawer({
           ))}
           <button
             type="button"
-            className="rounded-full border border-violet-300/40 bg-black/30 px-2.5 py-1 text-[11px] text-violet-100 transition-colors hover:bg-violet-500/25"
+            className="min-h-8 rounded-full border border-violet-300/25 bg-violet-400/[0.07] px-3 py-1 text-[11px] text-violet-100 transition-colors hover:bg-violet-500/20"
             onClick={() => inputRef.current?.focus()}
           >
             Custom
@@ -112,7 +117,7 @@ export function PlanInputDrawer({
               <button
                 key={`${g}-${i}`}
                 type="button"
-                className="rounded-full border border-cyan-300/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] text-cyan-100 transition-colors hover:bg-cyan-500/25"
+                className="min-h-8 rounded-full border border-cyan-300/20 bg-cyan-500/[0.08] px-3 py-1 text-[11px] text-cyan-100 transition-colors hover:bg-cyan-500/20"
                 onClick={() => onSubmitText(g)}
               >
                 {g}
@@ -121,7 +126,7 @@ export function PlanInputDrawer({
           </div>
         )}
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-stretch gap-2 rounded-xl border border-violet-300/15 bg-black/30 p-1.5 focus-within:border-violet-300/35">
           <input
             ref={inputRef}
             value={planDraft}
@@ -130,11 +135,11 @@ export function PlanInputDrawer({
               if (e.key === "Enter") submit();
             }}
             placeholder="e.g. “Help me assemble this PCB board with these cables”"
-            className="min-w-0 flex-1 rounded-md border border-violet-300/30 bg-black/40 px-2.5 py-1.5 text-xs text-violet-50 placeholder:text-violet-300/40 focus:border-violet-300/60 focus:outline-none"
+            className="min-h-11 min-w-0 flex-1 bg-transparent px-3 text-sm text-violet-50 placeholder:text-violet-300/35 focus:outline-none"
           />
           <Button
             size="sm"
-            className="shrink-0"
+            className="min-h-11 shrink-0 rounded-lg px-4"
             onClick={submit}
             disabled={!planDraft.trim() || thinking}
           >

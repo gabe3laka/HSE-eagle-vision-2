@@ -55,19 +55,20 @@ export default function Settings() {
   };
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <header>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">
-          Configuration
-        </p>
-        <h1 className="font-display text-2xl font-bold">Settings</h1>
-        <p className="text-sm text-muted-foreground">
+    <div className="max-w-4xl space-y-6">
+      <header className="page-hero">
+        <p className="console-eyebrow text-violet-300/80">Configuration</p>
+        <h1 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">
+          Monitoring settings
+        </h1>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Tune which hazards SafeLens watches for and how sensitive the alerts are.
         </p>
       </header>
 
       {/* Detection engine */}
-      <section className="glass-panel rounded-2xl border p-5">
+      <section className="console-panel p-5">
+        <p className="console-eyebrow mb-1">Vision source</p>
         <h2 className="font-display text-sm font-semibold">Detection engine</h2>
         <p className="mb-4 text-xs text-muted-foreground">
           Three modes: Simulated drives the demo. Pose (beta) uses your camera with MediaPipe to
@@ -107,7 +108,8 @@ export default function Settings() {
       </section>
 
       {/* Detections */}
-      <section className="glass-panel rounded-2xl border p-5">
+      <section className="console-panel p-5">
+        <p className="console-eyebrow mb-1">Hazard catalogue</p>
         <h2 className="font-display text-sm font-semibold">Detections</h2>
         <p className="mb-4 text-xs text-muted-foreground">
           Five precise detections beat fifty noisy ones. Turn off what doesn't apply to your site.
@@ -139,7 +141,8 @@ export default function Settings() {
       </section>
 
       {/* Sensitivity + language */}
-      <section className="glass-panel space-y-5 rounded-2xl border p-5">
+      <section className="console-panel space-y-5 p-5">
+        <p className="console-eyebrow">Alert delivery</p>
         <div>
           <div className="mb-2 flex items-center justify-between">
             <Label>Alert sensitivity</Label>
@@ -196,7 +199,8 @@ export default function Settings() {
       </section>
 
       {/* Consent & privacy */}
-      <section className="glass-panel rounded-2xl border p-5">
+      <section className="console-panel p-5">
+        <p className="console-eyebrow mb-1">Data handling</p>
         <h2 className="flex items-center gap-2 font-display text-sm font-semibold">
           <Lock className="h-4 w-4 text-primary" /> Consent &amp; privacy
         </h2>
@@ -219,8 +223,17 @@ export default function Settings() {
         </ul>
       </section>
 
-      <div className="flex justify-end">
-        <Button onClick={save} disabled={saving} size="lg" variant="gradient">
+      <div className="console-panel sticky bottom-[calc(env(safe-area-inset-bottom)+72px)] z-20 flex items-center justify-between gap-3 p-3 lg:bottom-5">
+        <p className="hidden text-xs text-muted-foreground sm:block">
+          Changes apply to the next monitoring session.
+        </p>
+        <Button
+          onClick={save}
+          disabled={saving}
+          size="lg"
+          variant="gradient"
+          className="ml-auto rounded-xl"
+        >
           <Save className="mr-2 h-4 w-4" />
           {saving ? "Saving…" : "Save changes"}
         </Button>

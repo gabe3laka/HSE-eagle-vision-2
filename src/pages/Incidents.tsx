@@ -44,20 +44,26 @@ export default function Incidents() {
 
   return (
     <div className="space-y-5">
-      <header>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">
-          Safety log
-        </p>
-        <h1 className="font-display text-2xl font-bold">Incidents</h1>
-        <p className="text-sm text-muted-foreground">
+      <header className="page-hero">
+        <p className="console-eyebrow text-amber-300/80">Safety log</p>
+        <h1 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">Incident review</h1>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           High and critical hazards are recorded here with the time and date for review.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="rounded-full bg-white/[0.04] px-3 py-1.5">
+            {incidents?.length ?? 0} total
+          </span>
+          <span className="rounded-full bg-amber-400/[0.08] px-3 py-1.5 text-amber-200">
+            {incidents?.filter((incident) => !incident.resolved).length ?? 0} open
+          </span>
+        </div>
       </header>
 
       {isLoading ? (
         <div className="space-y-3">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-28 animate-pulse rounded-xl bg-muted/40" />
+            <div key={i} className="console-panel h-28 animate-pulse" />
           ))}
         </div>
       ) : !incidents || incidents.length === 0 ? (
@@ -81,7 +87,7 @@ export default function Incidents() {
             return (
               <div
                 key={inc.id}
-                className={`flex items-center gap-4 rounded-xl border ${sev.border} bg-card/60 p-4 ${
+                className={`console-panel flex flex-col items-stretch gap-4 border ${sev.border} p-4 sm:flex-row sm:items-center ${
                   inc.resolved ? "opacity-60" : ""
                 }`}
               >
@@ -104,6 +110,7 @@ export default function Incidents() {
                 <Button
                   variant={inc.resolved ? "outline" : "secondary"}
                   size="sm"
+                  className="min-h-9 self-end rounded-lg sm:self-auto"
                   onClick={() => toggleResolved(inc)}
                 >
                   <CheckCircle2 className="mr-1.5 h-4 w-4" />

@@ -209,7 +209,7 @@ export function CameraView({
   // identical before/after Start. Desktop/tablet: sm:aspect-video full-width,
   // optionally overridden by the desktop-only shellStyle (viewport cap).
   const shellClass =
-    "relative mx-auto aspect-[3/4] w-[min(88vw,340px)] overflow-hidden border border-border bg-black sm:aspect-video sm:w-full sm:rounded-2xl";
+    "relative mx-auto aspect-[3/4] w-[min(88vw,340px)] overflow-hidden rounded-[26px] border border-cyan-200/15 bg-black shadow-[0_24px_80px_-30px_rgba(34,211,238,0.38)] ring-1 ring-white/5 sm:aspect-video sm:w-full sm:rounded-[26px]";
 
   // Video fit: cover-crop on mobile (fills shell, crops sides to match the
   // bytes we send to /detect); contain everywhere else.
@@ -239,6 +239,12 @@ export function CameraView({
   return (
     <div ref={containerRef} className={wrapperClass}>
       <div style={shellStyleFinal} className={shellClassFinal}>
+        {!fullscreenOn && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-2 z-30 rounded-[20px] border border-white/[0.035]"
+          />
+        )}
         {/* Orientation layer: covers the entire SHELL. The <video> uses
           object-cover on mobile portrait (visible crop = capture crop) and
           object-contain elsewhere. All overlays are absolute inset-0 inside
@@ -401,7 +407,7 @@ export function CameraView({
 
         {!active && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center">
-            <div className="rounded-2xl bg-primary/10 p-5">
+            <div className="rounded-2xl border border-cyan-300/15 bg-cyan-300/10 p-5 shadow-[0_0_40px_-18px_rgba(34,211,238,0.8)]">
               {error ? (
                 <CameraOff className="h-10 w-10 text-destructive" />
               ) : (
@@ -419,11 +425,10 @@ export function CameraView({
               <>
                 <div>
                   <p className="font-display text-lg font-semibold sm:text-xl">
-                    Use this phone as a safety camera
+                    Bring the work area into view
                   </p>
                   <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-                    Point the rear camera at the work area. SafeLens watches for hazards and alerts
-                    you the moment one appears.
+                    Enable the camera to monitor safety, capture procedures, or generate an AR plan.
                   </p>
                 </div>
                 <Button onClick={onEnable} disabled={starting} size="lg" className="min-w-[180px]">
