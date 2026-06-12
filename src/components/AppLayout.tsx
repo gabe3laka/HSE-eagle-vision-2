@@ -187,12 +187,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 key={item.path}
                 to={item.path}
                 className={`flex min-h-[64px] flex-col items-center justify-center gap-1 px-2 py-2 text-[10px] font-medium transition-colors ${
-                  isActive ? "text-cyan-200" : "text-muted-foreground hover:text-foreground"
+                  isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <span
-                  className={`flex h-7 w-12 items-center justify-center rounded-full transition-all ${
-                    isActive ? "bg-cyan-300/10 ring-1 ring-cyan-300/15" : ""
+                  className={`flex h-7 w-12 items-center justify-center rounded-md transition-colors ${
+                    isActive ? "bg-secondary text-primary" : ""
                   }`}
                 >
                   <item.icon className="h-5 w-5" />
