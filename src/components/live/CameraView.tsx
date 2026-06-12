@@ -226,6 +226,8 @@ export function CameraView({
     if (!active) setFullscreen(false);
   }, [active]);
   const fullscreenOn = fullscreen && isMobile;
+  // Front/selfie camera → mirror the video preview only (overlays stay readable).
+  const mirrored = facing === "user";
   const wrapperClass = fullscreenOn
     ? "fixed inset-0 z-50 flex items-center justify-center bg-black"
     : "flex w-full justify-center";
@@ -241,7 +243,10 @@ export function CameraView({
           object-cover on mobile portrait (visible crop = capture crop) and
           object-contain elsewhere. All overlays are absolute inset-0 inside
           this layer, so their normalized coords map to the visible video.
-          NOT mirrored, so real-world text / signs stay readable. */}
+          The FRONT (selfie) camera mirrors the <video> ONLY — a natural mirror
+          preview — while the overlays/labels stay un-mirrored so all app text
+          remains readable. CSS mirroring is visual-only; the frame captured for
+          /detect is unaffected. */}
         <div className="absolute inset-0">
           <video
             ref={videoRef}
@@ -254,7 +259,7 @@ export function CameraView({
                 setVideoSize({ w: v.videoWidth, h: v.videoHeight });
               }
             }}
-            className={`h-full w-full ${videoFitClass} transition-opacity ${active ? "opacity-100" : "opacity-0"}`}
+            className={`h-full w-full ${videoFitClass} ${mirrored ? "-scale-x-100" : ""} transition-opacity ${active ? "opacity-100" : "opacity-0"}`}
           />
 
           {active && (
@@ -367,7 +372,7 @@ export function CameraView({
               ? `sx${Math.round(debugCrop.sx)} sy${Math.round(debugCrop.sy)} sw${Math.round(debugCrop.sw)} sh${Math.round(debugCrop.sh)}`
               : "—"}
             <br />
-            running {String(running)} · mirror off · facing {facing}
+            running {String(running)} · mirror {mirrored ? "on (video)" : "off"} · facing {facing}
           </div>
         )}
 
