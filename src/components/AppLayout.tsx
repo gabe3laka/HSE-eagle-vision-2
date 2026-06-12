@@ -75,10 +75,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`sidebar-link flex min-h-[46px] items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-200 ${
+                className={`sidebar-link flex min-h-[42px] items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-150 ${
                   isActive
-                    ? "sidebar-link-active font-medium text-cyan-100"
-                    : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+                    ? "sidebar-link-active font-medium"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 }`}
                 title={collapsed ? item.label : undefined}
               >
