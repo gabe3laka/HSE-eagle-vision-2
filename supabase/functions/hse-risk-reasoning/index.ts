@@ -14,9 +14,14 @@
  * Env (Supabase function secrets):
  *   DEEPSEEK_API_KEY               required (else → fallback)
  *   DEEPSEEK_BASE_URL             default https://api.deepseek.com
- *   DEEPSEEK_MODEL                default deepseek-v4-pro
+ *   DEEPSEEK_MODEL                default deepseek-v4-flash (fast model)
+ *   DEEPSEEK_THINKING             default "disabled" — v4 models default to slow
+ *                                  chain-of-thought "thinking" mode, which blows
+ *                                  the latency budget and forces the rules
+ *                                  fallback. Disabled here for fast non-thinking
+ *                                  JSON; set "enabled" to opt back into reasoning.
  *   HSE_REASONING_BACKEND         default "deepseek" (else → fallback)
- *   HSE_REASONING_TIMEOUT_MS      default 11000
+ *   HSE_REASONING_TIMEOUT_MS      default 16000
  *   HSE_REASONING_MAX_TOKENS      default 1400
  *   HSE_REASONING_SEND_THUMBNAIL  default "false" (no images sent)
  */
@@ -168,10 +173,29 @@ Deno.serve(async (req: Request) => {
   if (!sendThumb && "thumbnail" in payload) delete payload.thumbnail;
 
   const baseUrl = (Deno.env.get("DEEPSEEK_BASE_URL") ?? "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = Deno.env.get("DEEPSEEK_MODEL") ?? "deepseek-v4-pro";
-  const timeoutMs = Number(Deno.env.get("HSE_REASONING_TIMEOUT_MS") ?? "11000") || 11000;
+  const model = Deno.env.get("DEEPSEEK_MODEL") ?? "deepseek-v4-flash";
+  const timeoutMs = Number(Deno.env.get("HSE_REASONING_TIMEOUT_MS") ?? "16000") || 16000;
   const maxTokens = Number(Deno.env.get("HSE_REASONING_MAX_TOKENS") ?? "1400") || 1400;
 
+  // v4 models default to slow chain-of-thought "thinking" mode; disable it for
+  // fast non-thinking JSON unless explicitly opted back in. Only v4 models
+  // accept the param, so guard it (legacy aliases would reject an unknown field).
+  const wantThinking = (Deno.env.get("DEEPSEEK_THINKING") ?? "disabled") === "enabled";
+  const reqBody: Dict = {
+    model,
+    max_tokens: maxTokens,
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: JSON.stringify(payload) },
+    ],
+  };
+  if (model.startsWith("deepseek-v4")) {
+    reqBody.thinking = { type: wantThinking ? "enabled" : "disabled" };
+  }
+
+  const startedAt = Date.now();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -179,32 +203,40 @@ Deno.serve(async (req: Request) => {
       method: "POST",
       signal: ctrl.signal,
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: JSON.stringify(payload) },
-        ],
-      }),
+      body: JSON.stringify(reqBody),
     });
-    if (!res.ok) return json(FALLBACK, 200);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.log("hse-risk-reasoning: deepseek non-ok", res.status, errText.slice(0, 300));
+      return json(FALLBACK, 200);
+    }
     const data = (await res.json()) as Dict;
     const message = (data?.choices as Dict[])?.[0]?.message as Dict | undefined;
     const text = str(message?.content);
-    if (!text) return json(FALLBACK, 200);
+    if (!text) {
+      console.log("hse-risk-reasoning: deepseek empty content");
+      return json(FALLBACK, 200);
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
+      console.log("hse-risk-reasoning: deepseek non-json content");
       return json(FALLBACK, 200);
     }
     const valid = validate(parsed);
-    if (!valid) return json(FALLBACK, 200);
+    if (!valid) {
+      console.log("hse-risk-reasoning: deepseek output failed validation");
+      return json(FALLBACK, 200);
+    }
+    console.log("hse-risk-reasoning: ok", JSON.stringify({ ms: Date.now() - startedAt, model }));
     return json({ status: "ok", source: "deepseek", ...valid }, 200);
-  } catch {
+  } catch (e) {
+    console.log(
+      "hse-risk-reasoning: exception",
+      (e as Error)?.name ?? "error",
+      `${Date.now() - startedAt}ms`,
+    );
     return json(FALLBACK, 200);
   } finally {
     clearTimeout(timer);

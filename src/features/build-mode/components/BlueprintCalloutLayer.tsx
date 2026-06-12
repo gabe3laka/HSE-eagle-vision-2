@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Eye, Info, Target } from "luci
 import {
   isReplyableCallout,
   layoutCallouts,
+  MAX_VISIBLE_CALLOUTS,
   prioritizeCallouts,
   type CardBounds,
   type PlacedCallout,
@@ -101,7 +102,7 @@ function cardStyle(c: PlacedCallout): React.CSSProperties {
     left: `${c.connect.x * 100}%`,
     top: "72%",
     transform: "translate(-50%, 0)",
-    maxWidth: "46%",
+    maxWidth: "42%",
   };
 }
 
@@ -118,7 +119,7 @@ function CalloutCard({
   const meta = META[callout.type];
   const Icon = meta.icon;
   const isSafety = callout.type === "safety";
-  const long = callout.text.length > 64;
+  const long = callout.text.length > 52;
   // In Plan mode, goal/intent/next-step callouts are conversational: tapping
   // opens the Plan input drawer to reply, instead of just expanding text.
   const replyable = !!onReplyRequest && isReplyableCallout(mode, callout.type);
@@ -130,7 +131,7 @@ function CalloutCard({
         if (replyable) onReplyRequest!();
         else if (long) setExpanded((v) => !v);
       }}
-      className={`pointer-events-auto absolute z-[1] rounded-lg border px-2 py-1 text-left shadow-lg backdrop-blur-sm ${
+      className={`pointer-events-auto absolute z-[1] max-w-[40%] rounded-md border px-1.5 py-1 text-left shadow-md backdrop-blur-sm ${
         isSafety ? "ring-1 ring-red-400/50" : ""
       } ${interactive ? "cursor-pointer" : "cursor-default"}`}
       style={{
@@ -140,25 +141,29 @@ function CalloutCard({
         borderWidth: isSafety ? 1.5 : 1,
       }}
     >
-      <span
-        className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide"
-        style={{ color: meta.color }}
-      >
-        <Icon className="h-3 w-3 shrink-0" />
-        {meta.label}
-      </span>
-      <span
-        className={`block text-[11px] leading-snug text-white/95 ${
-          expanded || !long ? "" : "line-clamp-2"
-        }`}
-      >
-        {callout.text}
+      {/* Compact: a small type-colored icon inline with the text — no separate
+          uppercase label row — so the card stays small over the video. */}
+      <span className="flex items-start gap-1">
+        <Icon
+          className="mt-px h-2.5 w-2.5 shrink-0"
+          style={{ color: meta.color }}
+          aria-label={meta.label}
+        />
+        <span
+          className={`block text-[10px] leading-tight text-white/95 ${
+            expanded || !long ? "" : "line-clamp-2"
+          }`}
+        >
+          {callout.text}
+        </span>
       </span>
       {replyable ? (
-        <span className="text-[9px] font-medium text-amber-200/80">tap to reply</span>
+        <span className="mt-0.5 block pl-3.5 text-[8px] font-medium text-amber-200/80">
+          tap to reply
+        </span>
       ) : long ? (
-        <span className="text-[9px] text-white/50">
-          {expanded ? "tap to collapse" : "tap to expand"}
+        <span className="mt-0.5 block pl-3.5 text-[8px] text-white/45">
+          {expanded ? "less" : "more"}
         </span>
       ) : null}
     </button>
@@ -192,10 +197,16 @@ export function BlueprintCalloutLayer({
       y: o.y as number,
       timestampMs: 0,
     }));
-  // Readability cap: at most MAX_VISIBLE_CALLOUTS cards, prioritized safety →
-  // next step → goal/intent → quality → instruction → observation. Everything
-  // below the cut lives in the bottom panel/drawer instead.
-  const notes = prioritizeCallouts([...(frame.aiNotes ?? []), ...overlayNotes]);
+  const isPlan = mode === "plan";
+  // The goal/intent Q&A already lives in the bottom input drawer, so in Plan
+  // mode we DON'T repeat it as a big card on the video — only actionable
+  // guidance (next-step, safety, quality…) stays on-camera. Readability cap:
+  // Plan keeps it tight (2), Build review allows the full set; everything below
+  // the cut lives in the bottom panel/drawer instead.
+  const merged = [...(frame.aiNotes ?? []), ...overlayNotes].filter(
+    (n) => !(isPlan && n.type === "intent"),
+  );
+  const notes = prioritizeCallouts(merged, isPlan ? 2 : MAX_VISIBLE_CALLOUTS);
   const callouts = layoutCallouts(bounds, notes);
   if (callouts.length === 0) return null;
   return (

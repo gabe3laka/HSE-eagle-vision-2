@@ -18,9 +18,14 @@
  * Env (Supabase function secrets):
  *   DEEPSEEK_API_KEY              required to call DeepSeek (else → fallback)
  *   DEEPSEEK_BASE_URL            default https://api.deepseek.com
- *   DEEPSEEK_MODEL               default deepseek-v4-pro
+ *   DEEPSEEK_MODEL               default deepseek-v4-flash (fast model)
+ *   DEEPSEEK_THINKING            default "disabled" — v4 models default to slow
+ *                                 chain-of-thought "thinking" mode, which blows
+ *                                 the latency budget and forces the rules
+ *                                 fallback. We disable it for fast non-thinking
+ *                                 JSON; set "enabled" to opt back into reasoning.
  *   PLAN_REASONING_BACKEND       default "deepseek" (anything else → fallback)
- *   PLAN_REASONING_TIMEOUT_MS    default 12000
+ *   PLAN_REASONING_TIMEOUT_MS    default 20000
  *   PLAN_REASONING_MAX_TOKENS    default 1800
  *   PLAN_SEND_IMAGE_TO_DEEPSEEK  default "false" (images are not sent yet)
  */
@@ -217,13 +222,32 @@ Deno.serve(async (req: Request) => {
     /\/+$/,
     "",
   );
-  const model = Deno.env.get("DEEPSEEK_MODEL") ?? "deepseek-v4-pro";
-  const timeoutMs = Number(Deno.env.get("PLAN_REASONING_TIMEOUT_MS") ?? "12000") || 12000;
+  const model = Deno.env.get("DEEPSEEK_MODEL") ?? "deepseek-v4-flash";
+  const timeoutMs = Number(Deno.env.get("PLAN_REASONING_TIMEOUT_MS") ?? "20000") || 20000;
   const maxTokens = Number(Deno.env.get("PLAN_REASONING_MAX_TOKENS") ?? "1800") || 1800;
   // Images are NOT sent in this first implementation (default false).
   const sendImage = (Deno.env.get("PLAN_SEND_IMAGE_TO_DEEPSEEK") ?? "false") === "true";
   if (!sendImage && "image_b64" in payload) delete payload.image_b64;
 
+  // v4 models default to slow chain-of-thought "thinking" mode; disable it for
+  // fast non-thinking JSON unless explicitly opted back in. Only v4 models
+  // accept the param, so guard it (legacy aliases would reject an unknown field).
+  const wantThinking = (Deno.env.get("DEEPSEEK_THINKING") ?? "disabled") === "enabled";
+  const reqBody: Dict = {
+    model,
+    max_tokens: maxTokens,
+    temperature: 0.3,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: JSON.stringify(payload) },
+    ],
+  };
+  if (model.startsWith("deepseek-v4")) {
+    reqBody.thinking = { type: wantThinking ? "enabled" : "disabled" };
+  }
+
+  const startedAt = Date.now();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -234,32 +258,40 @@ Deno.serve(async (req: Request) => {
         "content-type": "application/json",
         authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        temperature: 0.3,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: JSON.stringify(payload) },
-        ],
-      }),
+      body: JSON.stringify(reqBody),
     });
-    if (!res.ok) return json(FALLBACK, 200);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.log("plan-reasoning: deepseek non-ok", res.status, errText.slice(0, 300));
+      return json(FALLBACK, 200);
+    }
     const data = (await res.json()) as Dict;
     const content = (data?.choices as Dict[])?.[0]?.message as Dict | undefined;
     const text = str(content?.content);
-    if (!text) return json(FALLBACK, 200);
+    if (!text) {
+      console.log("plan-reasoning: deepseek empty content");
+      return json(FALLBACK, 200);
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
+      console.log("plan-reasoning: deepseek non-json content");
       return json(FALLBACK, 200);
     }
     const valid = validate(parsed);
-    if (!valid) return json(FALLBACK, 200);
+    if (!valid) {
+      console.log("plan-reasoning: deepseek output failed validation");
+      return json(FALLBACK, 200);
+    }
+    console.log("plan-reasoning: ok", JSON.stringify({ ms: Date.now() - startedAt, model }));
     return json({ status: "ok", source: "deepseek", ...valid }, 200);
-  } catch {
+  } catch (e) {
+    console.log(
+      "plan-reasoning: exception",
+      (e as Error)?.name ?? "error",
+      `${Date.now() - startedAt}ms`,
+    );
     return json(FALLBACK, 200); // timeout / network / abort → local rules
   } finally {
     clearTimeout(timer);
