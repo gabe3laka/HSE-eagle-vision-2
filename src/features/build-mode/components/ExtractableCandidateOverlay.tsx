@@ -1,3 +1,4 @@
+import { mirrorBox } from "@/lib/detection/mirror";
 import type { ExtractCandidate } from "../types";
 
 /**
@@ -6,20 +7,24 @@ import type { ExtractCandidate } from "../types";
  * colours), highlights the one under the finger/pinch, and labels it
  * "Pinch to blueprint". Rendered only while Build Mode is choosing a source
  * (idle phase) — once extraction starts, FloatingBlueprintLayer takes over
- * with "Extracting…" / "✓ Blueprint extracted".
+ * with "Extracting…" / "✓ Blueprint extracted". `mirrored` flips the box
+ * geometry on the selfie preview (labels travel, stay readable).
  */
 export function ExtractableCandidateOverlay({
   candidates,
   highlightId,
+  mirrored = false,
 }: {
   candidates: ExtractCandidate[];
   highlightId?: string | null;
+  mirrored?: boolean;
 }) {
   if (candidates.length === 0) return null;
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
       {candidates.map((c) => {
         const hot = c.id === highlightId;
+        const box = mirrorBox(c.bbox, mirrored);
         return (
           <div
             key={c.id}
@@ -29,10 +34,10 @@ export function ExtractableCandidateOverlay({
                 : "border-cyan-400/55 bg-cyan-400/5"
             }`}
             style={{
-              left: `${c.bbox.x * 100}%`,
-              top: `${c.bbox.y * 100}%`,
-              width: `${c.bbox.w * 100}%`,
-              height: `${c.bbox.h * 100}%`,
+              left: `${box.x * 100}%`,
+              top: `${box.y * 100}%`,
+              width: `${box.w * 100}%`,
+              height: `${box.h * 100}%`,
             }}
           >
             <span

@@ -1,5 +1,6 @@
 import type { BackendEntity, BackendPose } from "@/lib/detection/types";
 import { isPersonLabel, poseCoversBox } from "@/lib/detection/hseEntityMapper";
+import { mirrorBox } from "@/lib/detection/mirror";
 
 // Teal — deliberately distinct from the red/amber severity hazard boxes so the
 // dry-run entities can't be mistaken for real safety detections.
@@ -23,11 +24,14 @@ export function BackendEntityOverlay({
   entities,
   poses,
   debug = false,
+  mirrored = false,
 }: {
   entities: BackendEntity[];
   poses?: BackendPose[];
   /** Show person boxes even when a pose is available (dev/debug only). */
   debug?: boolean;
+  /** Front camera: flip box geometry to match the mirrored video (labels stay readable). */
+  mirrored?: boolean;
   videoWidth?: number;
   videoHeight?: number;
 }) {
@@ -39,7 +43,7 @@ export function BackendEntityOverlay({
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
       {visible.map((e, i) => {
-        const b = e?.bbox;
+        const b = e?.bbox ? mirrorBox(e.bbox, mirrored) : undefined;
         if (!b) return null;
         return (
           <div

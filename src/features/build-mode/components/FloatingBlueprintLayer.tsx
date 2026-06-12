@@ -58,6 +58,10 @@ interface Props {
   /** Show guidance markers (notes/steps/overlays/points). Build placing turns
    *  this off so the ghost is a clean crop + outline. Default on. */
   showGuidanceMarkers?: boolean;
+  /** Front camera: all coords stay RAW internally; only the rendered host
+   *  position flips so the ghost appears over the mirrored object, and touch
+   *  drags invert their x-delta. Hand/pinch math is raw-vs-raw and unchanged. */
+  mirrored?: boolean;
 }
 
 /**
@@ -92,6 +96,7 @@ export function FloatingBlueprintLayer({
   onBounds,
   showBlueprintDebugLabels = false,
   showGuidanceMarkers = true,
+  mirrored = false,
 }: Props) {
   const [t, setT] = useState<BlueprintTransform>({ x: 0, y: 0, scale: 1 });
   const [handMode, setHandMode] = useState<HandMode>("idle");
@@ -135,18 +140,21 @@ export function FloatingBlueprintLayer({
     setT({ x: 0, y: 0, scale: 1 });
   }, [region]);
 
-  // Report live card-space bounds up so the external callout layer can attach
-  // leader lines to the (draggable, scalable) ghost.
+  // Report live VISUAL card-space bounds up so the external callout layer can
+  // attach leader lines where the ghost actually appears (flipped horizontally
+  // on the mirrored selfie preview).
   const onBoundsRef = useRef(onBounds);
   onBoundsRef.current = onBounds;
   useEffect(() => {
+    const w = region.w * t.scale;
+    const rawX = region.x + t.x;
     onBoundsRef.current?.({
-      x: region.x + t.x,
+      x: mirrored ? 1 - rawX - w : rawX,
       y: region.y + t.y,
-      w: region.w * t.scale,
+      w,
       h: region.h * t.scale,
     });
-  }, [region, t]);
+  }, [region, t, mirrored]);
 
   // Make the extraction moment unmistakable: flash a badge when the ghost is
   // born (phase enters "placing").
@@ -364,18 +372,24 @@ export function FloatingBlueprintLayer({
     [t.x, t.y, setModeBoth],
   );
 
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    const d = dragRef.current;
-    const host = hostRef.current?.parentElement;
-    if (!d || d.pointerId !== e.pointerId || !host) return;
-    const r = host.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0) return;
-    setT((prev) => ({
-      ...prev,
-      x: d.baseX + (e.clientX - d.startX) / r.width,
-      y: d.baseY + (e.clientY - d.startY) / r.height,
-    }));
-  }, []);
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const d = dragRef.current;
+      const host = hostRef.current?.parentElement;
+      if (!d || d.pointerId !== e.pointerId || !host) return;
+      const r = host.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return;
+      // Transform is RAW-space; on the mirrored preview a finger moving visually
+      // right must DECREASE raw x so the flipped render follows the finger.
+      const sign = mirrored ? -1 : 1;
+      setT((prev) => ({
+        ...prev,
+        x: d.baseX + (sign * (e.clientX - d.startX)) / r.width,
+        y: d.baseY + (e.clientY - d.startY) / r.height,
+      }));
+    },
+    [mirrored],
+  );
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
@@ -410,6 +424,12 @@ export function FloatingBlueprintLayer({
         ? "rgba(125,211,252,0.95)"
         : "rgba(56,189,248,0.65)";
 
+  // VISUAL position: raw transform, flipped horizontally on the mirrored selfie
+  // so the ghost sits over (and hand-drags follow) the mirrored object.
+  const hostW = region.w * t.scale;
+  const rawLeft = region.x + t.x;
+  const visualLeft = mirrored ? 1 - rawLeft - hostW : rawLeft;
+
   return (
     <div
       ref={hostRef}
@@ -417,9 +437,9 @@ export function FloatingBlueprintLayer({
       // State is conveyed by the subtle glow/border only.
       className="absolute z-30 touch-none select-none rounded-md"
       style={{
-        left: `${(region.x + t.x) * 100}%`,
+        left: `${visualLeft * 100}%`,
         top: `${(region.y + t.y) * 100}%`,
-        width: `${region.w * t.scale * 100}%`,
+        width: `${hostW * 100}%`,
         height: `${region.h * t.scale * 100}%`,
         boxShadow:
           handEngaged || isPlacing

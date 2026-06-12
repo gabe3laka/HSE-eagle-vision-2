@@ -1,26 +1,37 @@
 import { useRef, useState } from "react";
+import { mirrorBox, mirrorPointX } from "@/lib/detection/mirror";
 import { BUILD_MIN_SELECTION } from "../config";
 import type { SelectedRegion } from "../types";
 
 interface Props {
   active: boolean;
   onSelect: (region: SelectedRegion) => void;
+  /** Front camera: input converts to RAW space; render flips back to visual. */
+  mirrored?: boolean;
 }
 
 /**
  * Faint dashed marker over the ORIGINAL selected region — shown once the ghost
  * has been pulled away so the user still sees which real-world area the
- * procedure keyframes are captured from. Purely visual.
+ * procedure keyframes are captured from. Purely visual. The region is RAW
+ * (capture) space; `mirrored` flips it to the visual position on the selfie.
  */
-export function SelectedRegionMarker({ region }: { region: SelectedRegion }) {
+export function SelectedRegionMarker({
+  region,
+  mirrored = false,
+}: {
+  region: SelectedRegion;
+  mirrored?: boolean;
+}) {
+  const box = mirrorBox(region, mirrored);
   return (
     <div
       className="pointer-events-none absolute z-10 rounded-sm border border-dashed border-cyan-400/50"
       style={{
-        left: `${region.x * 100}%`,
-        top: `${region.y * 100}%`,
-        width: `${region.w * 100}%`,
-        height: `${region.h * 100}%`,
+        left: `${box.x * 100}%`,
+        top: `${box.y * 100}%`,
+        width: `${box.w * 100}%`,
+        height: `${box.h * 100}%`,
       }}
     >
       <span className="absolute -top-4 left-0 rounded bg-black/55 px-1 text-[8px] text-cyan-300/90">
@@ -36,20 +47,24 @@ export function SelectedRegionMarker({ region }: { region: SelectedRegion }) {
  * ZoneOverlay/DetectionOverlay, so the selection matches the visible crop the
  * capture pipeline uses. Pointer events only while `active`.
  */
-export function SelectionOverlay({ active, onSelect }: Props) {
+export function SelectionOverlay({ active, onSelect, mirrored = false }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
 
   if (!active) return null;
 
+  // Pointer → RAW space (flips x on the mirrored selfie) so the selected
+  // region matches the unmirrored capture pipeline.
   const norm = (e: React.PointerEvent) => {
     const r = ref.current!.getBoundingClientRect();
+    const vx = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
     return {
-      x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+      x: mirrorPointX(vx, mirrored),
       y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)),
     };
   };
 
+  // RAW-space rect (what onSelect receives / the capture uses).
   const rect = drag
     ? {
         x: Math.min(drag.x1, drag.x2),
@@ -58,6 +73,8 @@ export function SelectionOverlay({ active, onSelect }: Props) {
         h: Math.abs(drag.y2 - drag.y1),
       }
     : null;
+  // Visual-space rect for display (flipped back on the mirrored preview).
+  const viewRect = rect ? mirrorBox(rect, mirrored) : null;
 
   return (
     <div
@@ -96,14 +113,14 @@ export function SelectionOverlay({ active, onSelect }: Props) {
           </span>
         </div>
       )}
-      {rect && (
+      {viewRect && (
         <div
           className="pointer-events-none absolute border-2 border-dashed border-cyan-300 bg-cyan-400/10 shadow-[0_0_18px_rgba(34,211,238,0.45)]"
           style={{
-            left: `${rect.x * 100}%`,
-            top: `${rect.y * 100}%`,
-            width: `${rect.w * 100}%`,
-            height: `${rect.h * 100}%`,
+            left: `${viewRect.x * 100}%`,
+            top: `${viewRect.y * 100}%`,
+            width: `${viewRect.w * 100}%`,
+            height: `${viewRect.h * 100}%`,
           }}
         />
       )}
