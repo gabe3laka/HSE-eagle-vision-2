@@ -1,4 +1,5 @@
-import type { BackendEntity } from "@/lib/detection/types";
+import type { BackendEntity, BackendPose } from "@/lib/detection/types";
+import { isPersonLabel, poseCoversBox } from "@/lib/detection/hseEntityMapper";
 
 // Teal — deliberately distinct from the red/amber severity hazard boxes so the
 // dry-run entities can't be mistaken for real safety detections.
@@ -6,24 +7,38 @@ const BOX_COLOR = "rgba(20,184,166,0.95)";
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 /**
- * Overlay for the DEIMv2 backend dry-run: teal boxes + label/confidence drawn
- * over the live video. The parent decides when to show it (dry-run mode) — it is
- * NOT gated to dev builds. Purely informational; never enters the risk engine.
+ * Overlay for the backend dry-run: teal boxes + label/confidence drawn over the
+ * live video. The parent decides when to show it (dry-run mode) — it is NOT
+ * gated to dev builds. Purely informational; never enters the risk engine.
+ *
+ * People are shown as a pose/skeleton (BackendPoseOverlay), so a person's box +
+ * "person 0.82" label is HIDDEN whenever a skeleton is available for them — the
+ * box only appears in debug mode or when no pose covers that person. The
+ * detection itself is still used internally by the HSE risk engine.
  *
  * Boxes use normalized 0..1 bbox coords rendered as percentages (clamped), so no
  * video pixel dimensions are required.
  */
 export function BackendEntityOverlay({
   entities,
+  poses,
+  debug = false,
 }: {
   entities: BackendEntity[];
+  poses?: BackendPose[];
+  /** Show person boxes even when a pose is available (dev/debug only). */
+  debug?: boolean;
   videoWidth?: number;
   videoHeight?: number;
 }) {
   if (!entities || entities.length === 0) return null;
+  const visible = entities.filter(
+    (e) => debug || !e?.bbox || !isPersonLabel(e.label) || !poseCoversBox(e.bbox, poses),
+  );
+  if (visible.length === 0) return null;
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
-      {entities.map((e, i) => {
+      {visible.map((e, i) => {
         const b = e?.bbox;
         if (!b) return null;
         return (

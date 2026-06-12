@@ -287,6 +287,10 @@ function contourBounds(contour: { x: number; y: number }[]): SelectedRegion | nu
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
+/** Person/worker labels — excluded from Build/Plan extraction by default
+ *  (people are shown as a skeleton and aren't blueprint subjects). */
+const PERSON_LABEL = /worker|person|people|pedestrian|human/i;
+
 /**
  * Normalize the LIVE detection streams into Build extraction candidates. The
  * default vision backend is YOLO26 (EdgeCrafter is the fallback, DEIMv2 legacy)
@@ -295,13 +299,18 @@ function contourBounds(contour: { x: number; y: number }[]): SelectedRegion | nu
  * become candidates via the contour's bounding box. Any `maskContour` is
  * preserved on the candidate as optional metadata; bbox extraction works with
  * or without it. Invalid/degenerate boxes are dropped.
+ *
+ * People are EXCLUDED by default (`includePersons: false`) — you blueprint
+ * objects/work areas, not workers; pass `includePersons: true` to override.
  */
 export function buildExtractCandidates(
   entities: CandidateEntity[],
   liveBoxes: Array<{ hazardType: string; confidence: number; bbox: SelectedRegion }>,
-  opts?: { backend?: string | null; segments?: CandidateSegment[] },
+  opts?: { backend?: string | null; segments?: CandidateSegment[]; includePersons?: boolean },
 ): ExtractCandidate[] {
   const out: ExtractCandidate[] = [];
+  const includePersons = opts?.includePersons ?? false;
+  const isPerson = (label: string) => !includePersons && PERSON_LABEL.test(label ?? "");
   const valid = (b: SelectedRegion) =>
     Number.isFinite(b.x) &&
     Number.isFinite(b.y) &&
@@ -315,7 +324,7 @@ export function buildExtractCandidates(
     b.y + b.h <= 1.001;
   const src = entitySource(opts?.backend);
   entities.forEach((e, i) => {
-    if (!e?.bbox || !valid(e.bbox)) return;
+    if (!e?.bbox || !valid(e.bbox) || isPerson(e.label)) return;
     out.push({
       id: `ent-${i}-${e.label}`,
       label: e.label,
@@ -327,6 +336,7 @@ export function buildExtractCandidates(
     });
   });
   (opts?.segments ?? []).forEach((s, i) => {
+    if (isPerson(s.label)) return;
     const bbox = contourBounds(s.maskContour);
     if (!bbox || !valid(bbox)) return;
     out.push({

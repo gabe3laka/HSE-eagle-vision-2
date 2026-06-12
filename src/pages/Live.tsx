@@ -750,6 +750,7 @@ export default function Live() {
                   <WearableAlertOverlay severity={hse.topAlert?.severity ?? null} />
                   <EagleVisionHUD
                     tracks={hse.tracks}
+                    poses={backendPoses as BackendPose[]}
                     topAlert={hse.topAlert}
                     status={hse.status}
                     objectCount={hse.objectCount}

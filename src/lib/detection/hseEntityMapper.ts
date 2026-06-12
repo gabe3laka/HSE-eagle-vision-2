@@ -71,6 +71,52 @@ export function normalizeHseLabel(label: string): {
   return { category: "unknown", normalizedLabel: l ? l.toLowerCase() : "unknown" };
 }
 
+const PERSON_LABEL = /worker|person|people|pedestrian|human/i;
+
+/** Whether a raw detector label denotes a person/worker. */
+export function isPersonLabel(label: string): boolean {
+  return PERSON_LABEL.test(label ?? "");
+}
+
+/** Bounding box enclosing a backend pose's confident keypoints (normalized
+ *  0..1), or undefined when there aren't enough. Used to hide a person's box
+ *  when a skeleton is available for them. */
+export function poseBoundingBox(
+  pose: { keypoints?: { x: number; y: number; score: number }[] },
+  minScore = 0.1,
+  pad = 0.03,
+): { x: number; y: number; w: number; h: number } | undefined {
+  const kpts = pose.keypoints?.filter((k) => k.score > minScore) ?? [];
+  if (kpts.length < 2) return undefined;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const k of kpts) {
+    minX = Math.min(minX, k.x);
+    minY = Math.min(minY, k.y);
+    maxX = Math.max(maxX, k.x);
+    maxY = Math.max(maxY, k.y);
+  }
+  const x = Math.max(0, minX - pad);
+  const y = Math.max(0, minY - pad);
+  return { x, y, w: Math.min(1, maxX + pad) - x, h: Math.min(1, maxY + pad) - y };
+}
+
+/** Does any pose overlap this box enough to be "the same person"? */
+export function poseCoversBox(
+  bbox: { x: number; y: number; w: number; h: number },
+  poses: { keypoints?: { x: number; y: number; score: number }[] }[] | undefined,
+  minIou = 0.15,
+): boolean {
+  if (!poses || poses.length === 0) return false;
+  for (const p of poses) {
+    const pb = poseBoundingBox(p);
+    if (pb && iou(bbox, pb) >= minIou) return true;
+  }
+  return false;
+}
+
 /** Map the worker `source` string to the observation source bucket. */
 function obsSource(source?: string): HSEObservation["source"] {
   if (!source) return "yolo26";

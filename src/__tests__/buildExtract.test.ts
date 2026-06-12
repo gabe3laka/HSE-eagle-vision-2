@@ -101,13 +101,34 @@ describe("Build extraction — HSE detection boxes as candidates", () => {
   it("normalizes entities + liveBoxes into labeled candidates", async () => {
     const { buildExtractCandidates } = await import("../features/build-mode/lib/handTracking");
     const out = buildExtractCandidates(
-      [ent("person", { x: 0.1, y: 0.1, w: 0.3, h: 0.5 })],
+      [ent("pallet", { x: 0.1, y: 0.1, w: 0.3, h: 0.5 })],
       [live("unsafe_lift", { x: 0.5, y: 0.5, w: 0.2, h: 0.2 })],
     );
     expect(out).toHaveLength(2);
-    expect(out[0]).toMatchObject({ label: "person", source: "edgecrafter-entity" });
+    expect(out[0]).toMatchObject({ label: "pallet", source: "edgecrafter-entity" });
     expect(out[1]).toMatchObject({ label: "unsafe_lift", source: "hse-livebox" });
     expect(out.every((c) => c.id.length > 0)).toBe(true);
+  });
+
+  it("excludes person/worker entities from candidates by default (override opt-in)", async () => {
+    const { buildExtractCandidates } = await import("../features/build-mode/lib/handTracking");
+    const out = buildExtractCandidates(
+      [
+        ent("person", { x: 0.1, y: 0.1, w: 0.3, h: 0.5 }),
+        ent("worker", { x: 0.4, y: 0.1, w: 0.2, h: 0.5 }),
+        ent("forklift", { x: 0.7, y: 0.1, w: 0.2, h: 0.3 }),
+      ],
+      [],
+    );
+    // only the non-person object survives by default
+    expect(out.map((c) => c.label)).toEqual(["forklift"]);
+    // opt-in still allows people when explicitly requested
+    const withPeople = buildExtractCandidates(
+      [ent("person", { x: 0.1, y: 0.1, w: 0.3, h: 0.5 })],
+      [],
+      { includePersons: true },
+    );
+    expect(withPeople.map((c) => c.label)).toEqual(["person"]);
   });
 
   it("drops invalid/degenerate boxes (too small, out of range, NaN)", async () => {
