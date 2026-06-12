@@ -1,3 +1,4 @@
+import { mirrorPointX } from "@/lib/detection/mirror";
 import type { BuildHandLandmark, BuildPinchState } from "../types";
 
 /**
@@ -6,13 +7,16 @@ import type { BuildHandLandmark, BuildPinchState } from "../types";
  * MediaPipe finger mode: the INDEX fingertip is the pointer (crosshair dot,
  * ring + glow while pinching), the thumb tip renders smaller, wrists faint.
  * Wrist-fallback mode: the existing wrist dots (primary ringed + labeled).
- * Purely visual — interaction runs in FloatingBlueprintLayer.
+ * Purely visual — interaction runs in FloatingBlueprintLayer (raw coords).
+ * `mirrored` flips the dot POSITIONS on the selfie preview so they land on the
+ * user's visible hand; the hint text stays readable.
  */
 export function HandPointerLayer({
   landmarks,
   primaryId,
   pinch,
   hint,
+  mirrored = false,
 }: {
   landmarks: BuildHandLandmark[];
   primaryId?: string | null;
@@ -20,6 +24,7 @@ export function HandPointerLayer({
   /** Phase-appropriate fingertip hint (e.g. "pinch a detected box") — replaces
    *  the generic "pinch to grab" so the label never misleads. */
   hint?: string | null;
+  mirrored?: boolean;
 }) {
   if (landmarks.length === 0) return null;
   return (
@@ -28,13 +33,14 @@ export function HandPointerLayer({
         const primary = lm.id === primaryId;
         const finger = lm.source === "mediapipe-hand";
         const pinching = primary && finger && !!pinch?.active;
+        const vx = mirrorPointX(lm.x, mirrored);
 
         if (finger && lm.role === "index-tip") {
           return (
             <div
               key={lm.id}
               className="absolute -translate-x-1/2 -translate-y-1/2"
-              style={{ left: `${lm.x * 100}%`, top: `${lm.y * 100}%` }}
+              style={{ left: `${vx * 100}%`, top: `${lm.y * 100}%` }}
             >
               <div
                 className={
@@ -61,7 +67,7 @@ export function HandPointerLayer({
             <div
               key={lm.id}
               className="absolute -translate-x-1/2 -translate-y-1/2"
-              style={{ left: `${lm.x * 100}%`, top: `${lm.y * 100}%` }}
+              style={{ left: `${vx * 100}%`, top: `${lm.y * 100}%` }}
             >
               <div
                 className={
@@ -79,7 +85,7 @@ export function HandPointerLayer({
           <div
             key={lm.id}
             className="absolute -translate-x-1/2 -translate-y-1/2"
-            style={{ left: `${lm.x * 100}%`, top: `${lm.y * 100}%` }}
+            style={{ left: `${vx * 100}%`, top: `${lm.y * 100}%` }}
           >
             <div
               className={

@@ -243,10 +243,11 @@ export function CameraView({
           object-cover on mobile portrait (visible crop = capture crop) and
           object-contain elsewhere. All overlays are absolute inset-0 inside
           this layer, so their normalized coords map to the visible video.
-          The FRONT (selfie) camera mirrors the <video> ONLY — a natural mirror
-          preview — while the overlays/labels stay un-mirrored so all app text
-          remains readable. CSS mirroring is visual-only; the frame captured for
-          /detect is unaffected. */}
+          FRONT (selfie) camera: the <video> mirrors like a natural mirror and
+          every overlay flips its GEOMETRY to match (boxes/skeletons/zones land
+          on the mirrored image) while labels are only re-positioned — never
+          CSS-flipped — so all app text stays readable. Mirroring is visual
+          only; the raw frame captured for /detect is unaffected. */}
         <div className="absolute inset-0">
           <video
             ref={videoRef}
@@ -267,10 +268,11 @@ export function CameraView({
               zones={zones ?? []}
               editing={!!editingZones}
               onCreate={onZoneCreate ?? (() => undefined)}
+              mirrored={mirrored}
             />
           )}
 
-          {active && running && <DetectionOverlay boxes={boxes} />}
+          {active && running && <DetectionOverlay boxes={boxes} mirrored={mirrored} />}
 
           {active && running && backendDryRun && (
             <>
@@ -278,12 +280,15 @@ export function CameraView({
                 entities={backendEntities ?? []}
                 poses={backendPoses ?? []}
                 debug={showSkeleton}
+                mirrored={mirrored}
               />
-              <BackendPoseOverlay poses={backendPoses ?? []} />
+              <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
             </>
           )}
 
-          {active && running && showSkeleton && debug && <SkeletonOverlay debug={debug} />}
+          {active && running && showSkeleton && debug && (
+            <SkeletonOverlay debug={debug} mirrored={mirrored} />
+          )}
 
           {active && running && (
             <div className="pointer-events-none absolute inset-x-0 top-0 h-1 animate-scan bg-gradient-to-r from-transparent via-primary to-transparent" />

@@ -1,5 +1,6 @@
 import { AlertTriangle, HardHat, ScanLine, ShieldCheck, Truck } from "lucide-react";
 import { poseCoversBox } from "@/lib/detection/hseEntityMapper";
+import { mirrorBox } from "@/lib/detection/mirror";
 import type { BackendPose } from "@/lib/detection/types";
 import type { HSEActiveAlert, HSESeverity, HSETrack } from "@/lib/detection/hseTypes";
 
@@ -55,6 +56,9 @@ interface Props {
   objectCount: number;
   stableCount: number;
   reasoningSource: "deepseek" | "rules" | null;
+  /** Front camera: flip box/ring/arrow geometry to match the mirrored video
+   *  (text chips and the action line are never flipped). */
+  mirrored?: boolean;
 }
 
 export function EagleVisionHUD({
@@ -65,9 +69,17 @@ export function EagleVisionHUD({
   objectCount,
   stableCount,
   reasoningSource,
+  mirrored = false,
 }: Props) {
   const sm = STATUS_META[status];
-  const focus = topAlert?.bbox ?? topAlert?.overlay;
+  const rawFocus = topAlert?.bbox ?? topAlert?.overlay;
+  // Geometry in VISUAL space: flipped on the mirrored selfie preview.
+  const focus = rawFocus
+    ? mirrorBox(
+        { x: rawFocus.x ?? 0, y: rawFocus.y ?? 0, w: rawFocus.w ?? 0.1, h: rawFocus.h ?? 0.1 },
+        mirrored,
+      )
+    : undefined;
   const focusColor = topAlert ? severityColor(topAlert.severity) : "rgba(34,211,238,1)";
   // Direction arrow when the hazard centre is outside the central focus band.
   const cx = focus ? (focus.x ?? 0) + (focus.w ?? 0) / 2 : 0.5;
@@ -97,20 +109,23 @@ export function EagleVisionHUD({
           // People are drawn as a skeleton — hide their box when a pose covers
           // them (the track stays for proximity/zone/PPE logic).
           .filter((t) => t.category !== "person" || !poseCoversBox(t.bbox, poses))
-          .map((t) => (
-            <rect
-              key={t.id}
-              x={t.bbox.x * 100}
-              y={t.bbox.y * 100}
-              width={t.bbox.w * 100}
-              height={t.bbox.h * 100}
-              rx={1}
-              fill="none"
-              stroke={trackTint(t.category)}
-              strokeWidth={0.5}
-              opacity={0.8}
-            />
-          ))}
+          .map((t) => {
+            const b = mirrorBox(t.bbox, mirrored);
+            return (
+              <rect
+                key={t.id}
+                x={b.x * 100}
+                y={b.y * 100}
+                width={b.w * 100}
+                height={b.h * 100}
+                rx={1}
+                fill="none"
+                stroke={trackTint(t.category)}
+                strokeWidth={0.5}
+                opacity={0.8}
+              />
+            );
+          })}
         {/* focus ring on the highest-risk hazard */}
         {focus && (
           <g className={status === "critical" ? "animate-pulse" : ""}>

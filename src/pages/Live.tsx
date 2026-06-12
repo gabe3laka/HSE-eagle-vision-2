@@ -262,6 +262,10 @@ export default function Live() {
   const [appMode, setAppMode] = useState<AppMode>("hse");
   const buildModeOn = ENABLE_BUILD_MODE && (appMode === "build" || appMode === "plan");
   const workflowMode: BlueprintWorkflowMode = appMode === "plan" ? "plan" : "build";
+  // Selfie mirror: the front camera mirrors the VIDEO (CameraView); overlays
+  // keep RAW coordinates internally and flip their GEOMETRY at draw time so
+  // boxes/dots/ghosts land on the mirrored image (text always stays readable).
+  const mirrored = facing === "user";
 
   const onIncidentSaved = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
@@ -666,17 +670,20 @@ export default function Live() {
                     <ExtractableCandidateOverlay
                       candidates={candidates}
                       highlightId={hotCandidateId}
+                      mirrored={mirrored}
                     />
                   )}
                   <SelectionOverlay
                     active={build.phase === "selecting"}
                     onSelect={(region) => void build.lockSelection(region)}
+                    mirrored={mirrored}
                   />
                   <HandPointerLayer
                     landmarks={hand.handLandmarks}
                     primaryId={hand.primaryPointer?.id}
                     pinch={mp.pinch}
                     hint={fingerHint}
+                    mirrored={mirrored}
                   />
                   {/* Mini countdown clock while a pinch is HELD on a detected
                       box — extraction fires only when the ring completes. */}
@@ -684,7 +691,7 @@ export default function Live() {
                     <div
                       className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-[130%]"
                       style={{
-                        left: `${extractHold.x * 100}%`,
+                        left: `${(mirrored ? 1 - extractHold.x : extractHold.x) * 100}%`,
                         top: `${extractHold.y * 100}%`,
                       }}
                     >
@@ -694,7 +701,7 @@ export default function Live() {
                   {/* Source marker stays on the real object once the ghost detaches. */}
                   {build.region &&
                     ["placing", "pinned", "recording", "review"].includes(build.phase) && (
-                      <SelectedRegionMarker region={build.region} />
+                      <SelectedRegionMarker region={build.region} mirrored={mirrored} />
                     )}
                   {/* In-camera Record/Stop targets: a full pinch-hold or dwell
                       on the target triggers — never instant. */}
@@ -731,6 +738,7 @@ export default function Live() {
                       // Build keeps a clean minimal ghost (crop + outline only)
                       // until review; Plan shows the guidance markers.
                       showGuidanceMarkers={appMode !== "build" || build.phase === "review"}
+                      mirrored={mirrored}
                     />
                   )}
                   {/* Readable instruction text as external callout cards with
@@ -763,6 +771,7 @@ export default function Live() {
                     objectCount={hse.objectCount}
                     stableCount={hse.stableCount}
                     reasoningSource={hse.reasoningSource}
+                    mirrored={mirrored}
                   />
                   {focusArmed && (
                     <button
@@ -771,7 +780,9 @@ export default function Live() {
                       aria-label="Tap an area to focus the scan"
                       onClick={(e) => {
                         const r = e.currentTarget.getBoundingClientRect();
-                        hse.focusAt((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+                        // visual tap → RAW frame space (the ROI the worker scans)
+                        const vx = (e.clientX - r.left) / r.width;
+                        hse.focusAt(mirrored ? 1 - vx : vx, (e.clientY - r.top) / r.height);
                         setFocusArmed(false);
                       }}
                     />
