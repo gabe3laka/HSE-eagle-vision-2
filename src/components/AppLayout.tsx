@@ -38,14 +38,23 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <div className="flex h-14 items-center justify-between border-b border-border px-4">
           {!collapsed && (
-            <Link to="/" className="flex items-center gap-2 font-display text-lg font-bold">
-              <ShieldCheck className="h-5 w-5 text-primary" />
-              Safe<span className="text-primary">Lens</span>
+            <Link
+              to="/"
+              className="flex items-center gap-2 font-display text-lg font-bold"
+              aria-label="SafeLens home"
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-cyan-400 shadow-[0_0_16px_-2px_hsl(212_92%_56%/0.65)]">
+                <ShieldCheck className="h-4 w-4 text-white" />
+              </span>
+              <span>
+                Safe<span className="text-gradient-blue">Lens</span>
+              </span>
             </Link>
           )}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className={`rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground ${collapsed ? "mx-auto" : ""}`}
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>
@@ -117,9 +126,17 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         className="glass-panel fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b px-4 lg:hidden"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
-        <Link to="/" className="flex items-center gap-2 font-display text-base font-bold">
-          <ShieldCheck className="h-5 w-5 text-primary" />
-          Safe<span className="text-primary">Lens</span>
+        <Link
+          to="/"
+          className="flex items-center gap-2 font-display text-base font-bold"
+          aria-label="SafeLens home"
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-cyan-400 shadow-[0_0_16px_-2px_hsl(212_92%_56%/0.65)]">
+            <ShieldCheck className="h-4 w-4 text-white" />
+          </span>
+          <span>
+            Safe<span className="text-gradient-blue">Lens</span>
+          </span>
         </Link>
         <Button
           variant="ghost"
