@@ -91,7 +91,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="space-y-1 border-t border-white/5 p-3">
+        <div className="space-y-1 border-t border-border p-3">
           {!collapsed && <p className="nav-section-label">System</p>}
           {bottomNav.map((item) => {
             const isActive = location.pathname === item.path;
@@ -99,10 +99,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`sidebar-link flex min-h-[46px] items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 ${
+                className={`sidebar-link flex min-h-[42px] items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-150 ${
                   isActive
-                    ? "sidebar-link-active font-medium text-cyan-100"
-                    : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+                    ? "sidebar-link-active font-medium"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 }`}
                 title={collapsed ? item.label : undefined}
               >
@@ -115,11 +115,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           })}
         </div>
 
-        <div className="border-t border-white/5 p-3">
+        <div className="border-t border-border p-3">
           {!collapsed && profile && (
-            <div className="mb-2 flex items-center gap-3 rounded-xl bg-white/[0.03] p-2.5">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-300/20 to-violet-400/20 text-cyan-100">
-                <Sparkles className="h-4 w-4" />
+            <div className="mb-2 flex items-center gap-3 rounded-md border border-border bg-secondary/40 p-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground">
+                <Sparkles className="h-3.5 w-3.5" />
               </span>
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{profile.full_name || profile.email}</p>
@@ -132,7 +132,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <Button
             variant="ghost"
             size="sm"
-            className="min-h-10 w-full justify-start rounded-xl text-muted-foreground hover:bg-red-500/10 hover:text-red-300"
+            className="min-h-10 w-full justify-start rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             onClick={signOut}
           >
             <LogOut className="h-4 w-4" />
