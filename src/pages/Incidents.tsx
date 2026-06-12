@@ -45,6 +45,9 @@ export default function Incidents() {
   return (
     <div className="space-y-5">
       <header>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">
+          Safety log
+        </p>
         <h1 className="font-display text-2xl font-bold">Incidents</h1>
         <p className="text-sm text-muted-foreground">
           High and critical hazards are recorded here with the time and date for review.

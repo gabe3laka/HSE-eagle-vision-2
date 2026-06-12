@@ -20,9 +20,11 @@ function StatCard({
   accent?: string;
 }) {
   return (
-    <div className="glass-panel rounded-xl border p-4">
+    <div className="glass-panel rounded-2xl border p-4 transition-colors hover:border-primary/30">
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <Icon className={`h-4 w-4 ${accent ?? "text-primary"}`} />
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/15">
+          <Icon className={`h-4 w-4 ${accent ?? "text-primary"}`} />
+        </span>
         {label}
       </div>
       <p className="mt-2 font-display text-2xl font-bold">{value}</p>
@@ -57,6 +59,9 @@ export default function Overview() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">
+            Safety dashboard
+          </p>
           <h1 className="font-display text-2xl font-bold">Overview</h1>
           <p className="text-sm text-muted-foreground">
             Site safety at a glance — hazard activity, incidents and sessions.

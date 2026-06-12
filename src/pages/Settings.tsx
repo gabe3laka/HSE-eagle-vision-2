@@ -57,6 +57,9 @@ export default function Settings() {
   return (
     <div className="max-w-2xl space-y-6">
       <header>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">
+          Configuration
+        </p>
         <h1 className="font-display text-2xl font-bold">Settings</h1>
         <p className="text-sm text-muted-foreground">
           Tune which hazards SafeLens watches for and how sensitive the alerts are.
@@ -115,7 +118,13 @@ export default function Settings() {
             const enabled = draft.enabledHazards.includes(h);
             return (
               <div key={h} className="flex items-center gap-3 py-3">
-                <span className="rounded-lg bg-muted/60 p-2 text-muted-foreground">
+                <span
+                  className={`rounded-lg p-2 transition-colors ${
+                    enabled
+                      ? "bg-primary/15 text-primary ring-1 ring-primary/20"
+                      : "bg-muted/60 text-muted-foreground"
+                  }`}
+                >
                   <Icon className="h-4 w-4" />
                 </span>
                 <div className="flex-1">
@@ -211,7 +220,7 @@ export default function Settings() {
       </section>
 
       <div className="flex justify-end">
-        <Button onClick={save} disabled={saving} size="lg">
+        <Button onClick={save} disabled={saving} size="lg" variant="gradient">
           <Save className="mr-2 h-4 w-4" />
           {saving ? "Saving…" : "Save changes"}
         </Button>

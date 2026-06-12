@@ -620,9 +620,12 @@ export default function Live() {
 
   return (
     <div className="space-y-4 sm:space-y-5">
-      <header>
+      <header className="space-y-1">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/80">
+          Eagle Vision · Live
+        </p>
         <h1 className="font-display text-xl font-bold sm:text-2xl">Live monitoring</h1>
-        <p className="hidden text-sm text-muted-foreground sm:block">
+        <p className="hidden max-w-prose text-sm text-muted-foreground sm:block">
           The phone is the camera. Hazards are detected on-device and surfaced instantly — nothing
           is recorded unless an incident is saved.
         </p>
