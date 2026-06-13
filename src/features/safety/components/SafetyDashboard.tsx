@@ -1,11 +1,20 @@
 import { Link } from "@/lib/router-shim";
-import { AlertOctagon, Camera, Layers, ShieldAlert, ShieldCheck } from "lucide-react";
+import {
+  AlertOctagon,
+  Camera,
+  CheckCircle2,
+  Clock,
+  Layers,
+  ShieldAlert,
+  ShieldCheck,
+} from "lucide-react";
 import { RiskHeatmap } from "@/components/RiskHeatmap";
 import { HAZARD_ICONS } from "@/components/live/hazardIcons";
 import { HAZARDS, SEVERITY_META } from "@/lib/detection/hazardCatalog";
-import { Button } from "@/components/ui/button";
 import type { Detection, Incident, MonitoringSession } from "@/hooks/useIncidents";
-import { RISK_LEVEL_META, type DerivedRisk } from "../lib/riskModel";
+import type { HazardType } from "@/lib/detection/types";
+import { RISK_LEVEL_META, type DerivedRisk, type RiskLevel } from "../lib/riskModel";
+import { initialOf, isOverdue, type RiskActionRow, type RiskRow } from "../lib/safetyTypes";
 
 function Metric({
   icon: Icon,
@@ -31,31 +40,85 @@ function Metric({
   );
 }
 
+interface TopHazard {
+  key: string;
+  label: string;
+  hazardType: HazardType | null;
+  score: number;
+  level: RiskLevel;
+  sub: string;
+}
+
 export function SafetyDashboard({
   incidents,
   sessions,
   detections,
-  risks,
+  derivedRisks,
+  registerRisks,
+  actions,
 }: {
   incidents: Incident[];
   sessions: MonitoringSession[];
   detections: Detection[];
-  risks: DerivedRisk[];
+  derivedRisks: DerivedRisk[];
+  registerRisks: RiskRow[];
+  actions: RiskActionRow[];
 }) {
   const total = incidents.length;
-  const unresolved = incidents.filter((i) => !i.resolved).length;
   const critical = incidents.filter((i) => i.severity === "critical").length;
-  const highRisk = risks.filter((r) => r.level === "high" || r.level === "critical").length;
-  const topHazards = risks.slice(0, 5);
+  const openIncidents = incidents.filter((i) => !i.resolved).length;
+
+  const usingRegister = registerRisks.length > 0;
+  const highRisk = usingRegister
+    ? registerRisks.filter((r) => ["high", "critical"].includes(initialOf(r).level)).length
+    : derivedRisks.filter((r) => r.level === "high" || r.level === "critical").length;
+  const overdue = actions.filter((a) => isOverdue(a)).length;
+  const pendingVerification = actions.filter((a) => a.status === "pending_verification").length;
+
+  const topHazards: TopHazard[] = usingRegister
+    ? [...registerRisks]
+        .map((r) => {
+          const init = initialOf(r);
+          return {
+            key: r.id,
+            label: r.title,
+            hazardType: r.hazard_type,
+            score: init.score,
+            level: init.level,
+            sub: r.owner_name ?? r.status,
+          };
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5)
+    : derivedRisks.slice(0, 5).map((r) => ({
+        key: r.id,
+        label: r.label,
+        hazardType: r.hazardType,
+        score: r.score,
+        level: r.level,
+        sub: `${r.count} in 90d`,
+      }));
   const recent = incidents.slice(0, 6);
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Metric icon={ShieldAlert} label="Total incidents" value={total} />
         <Metric icon={AlertOctagon} label="Critical" value={critical} accent="text-red-500" />
-        <Metric icon={ShieldCheck} label="Open" value={unresolved} accent="text-orange-500" />
-        <Metric icon={Layers} label="High-risk hazards" value={highRisk} accent="text-amber-400" />
+        <Metric
+          icon={ShieldCheck}
+          label="Open incidents"
+          value={openIncidents}
+          accent="text-orange-500"
+        />
+        <Metric icon={Layers} label="High-risk" value={highRisk} accent="text-amber-400" />
+        <Metric icon={Clock} label="Overdue actions" value={overdue} accent="text-red-400" />
+        <Metric
+          icon={CheckCircle2}
+          label="Pending verify"
+          value={pendingVerification}
+          accent="text-violet-300"
+        />
       </div>
 
       <section className="console-panel p-5">
@@ -70,7 +133,7 @@ export function SafetyDashboard({
         <section className="console-panel p-5">
           <h2 className="mb-1 font-display text-sm font-semibold">Top hazards by risk</h2>
           <p className="mb-4 text-xs text-muted-foreground">
-            Ranked by likelihood × severity from recent incident activity.
+            {usingRegister ? "From the risk register." : "Derived from recent incident activity."}
           </p>
           {topHazards.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
@@ -79,13 +142,13 @@ export function SafetyDashboard({
           ) : (
             <ul className="space-y-2.5">
               {topHazards.map((r) => {
-                const Icon = HAZARD_ICONS[r.hazardType];
+                const Icon = r.hazardType ? HAZARD_ICONS[r.hazardType] : ShieldAlert;
                 const meta = RISK_LEVEL_META[r.level];
                 return (
-                  <li key={r.id} className="flex items-center gap-3">
+                  <li key={r.key} className="flex items-center gap-3">
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="flex-1 truncate text-sm">{r.label}</span>
-                    <span className="text-xs text-muted-foreground">{r.count} in 90d</span>
+                    <span className="text-xs text-muted-foreground">{r.sub}</span>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.bg} ${meta.text}`}
                     >
@@ -133,8 +196,7 @@ export function SafetyDashboard({
       </div>
 
       <p className="text-center text-[11px] text-muted-foreground/70">
-        {sessions.length} monitoring session{sessions.length === 1 ? "" : "s"} on record · risk
-        scores derived live from incident history
+        {sessions.length} monitoring session{sessions.length === 1 ? "" : "s"} on record
       </p>
     </div>
   );
