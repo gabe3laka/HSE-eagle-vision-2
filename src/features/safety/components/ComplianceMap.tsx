@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Check } from "lucide-react";
 import {
   COMPLIANCE_STATUS_META,
@@ -6,21 +5,22 @@ import {
   ISO45001_ITEMS,
   type ComplianceStatus,
 } from "../lib/iso45001";
+import { useComplianceItems, useUpsertCompliance } from "../hooks/useSafety";
 
 /**
- * ISO 45001 compliance map (clauses 4–10). Status is session-local in Phase 0
- * (a readiness worksheet); persistence + evidence uploads arrive with the
- * compliance table. Organises evidence — does not assert certification.
+ * ISO 45001 compliance map (clauses 4–10). Status persists per owner. Organises
+ * evidence against the OH&S management-system clauses — it does not certify.
  */
 export function ComplianceMap() {
-  const [statuses, setStatuses] = useState<Record<string, ComplianceStatus>>({});
-  const keyOf = (i: number) => `${ISO45001_ITEMS[i].clause}-${i}`;
-  const statusOf = (i: number): ComplianceStatus => statuses[keyOf(i)] ?? "not_started";
+  const { data: rows = [] } = useComplianceItems();
+  const upsert = useUpsertCompliance();
 
-  const met = ISO45001_ITEMS.filter((_, i) => statusOf(i) === "met").length;
+  const statusOf = (clause: string, title: string): ComplianceStatus =>
+    rows.find((r) => r.clause === clause && r.title === title)?.status ?? "not_started";
+
+  const met = ISO45001_ITEMS.filter((it) => statusOf(it.clause, it.title) === "met").length;
   const pct = Math.round((met / ISO45001_ITEMS.length) * 100);
 
-  // Group by area, preserving first-seen order.
   const areas: string[] = [];
   for (const it of ISO45001_ITEMS) if (!areas.includes(it.area)) areas.push(it.area);
 
@@ -54,10 +54,11 @@ export function ComplianceMap() {
         <section key={area} className="console-panel p-5">
           <h3 className="mb-3 font-display text-sm font-semibold">{area}</h3>
           <ul className="space-y-2.5">
-            {ISO45001_ITEMS.map((item, i) =>
-              item.area !== area ? null : (
+            {ISO45001_ITEMS.filter((it) => it.area === area).map((item) => {
+              const current = statusOf(item.clause, item.title);
+              return (
                 <li
-                  key={keyOf(i)}
+                  key={`${item.clause}-${item.title}`}
                   className="flex flex-col gap-2 border-b border-border/40 pb-2.5 last:border-0 last:pb-0 sm:flex-row sm:items-center"
                 >
                   <div className="min-w-0 flex-1">
@@ -79,13 +80,20 @@ export function ComplianceMap() {
                   <div className="flex shrink-0 flex-wrap gap-1">
                     {COMPLIANCE_STATUS_ORDER.map((st) => {
                       const meta = COMPLIANCE_STATUS_META[st];
-                      const active = statusOf(i) === st;
+                      const active = current === st;
                       return (
                         <button
                           key={st}
                           type="button"
                           aria-pressed={active}
-                          onClick={() => setStatuses((s) => ({ ...s, [keyOf(i)]: st }))}
+                          onClick={() =>
+                            upsert.mutate({
+                              clause: item.clause,
+                              title: item.title,
+                              status: st,
+                              reviewed_at: new Date().toISOString(),
+                            })
+                          }
                           className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${
                             active
                               ? `${meta.bg} ${meta.text} ring-1 ring-current`
@@ -98,8 +106,8 @@ export function ComplianceMap() {
                     })}
                   </div>
                 </li>
-              ),
-            )}
+              );
+            })}
           </ul>
         </section>
       ))}

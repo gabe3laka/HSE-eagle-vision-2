@@ -1,6 +1,5 @@
 import { HAZARD_ICONS } from "@/components/live/hazardIcons";
-import { EmptyState } from "@/components/EmptyState";
-import { ShieldCheck } from "lucide-react";
+import type { HazardType } from "@/lib/detection/types";
 import {
   LIKELIHOOD_LABELS,
   RISK_LEVEL_META,
@@ -8,29 +7,62 @@ import {
   riskLevel,
   type DerivedRisk,
 } from "../lib/riskModel";
+import { type RiskRow } from "../lib/safetyTypes";
+import { RiskRegisterPanel } from "./RiskRegisterPanel";
+
+interface PlotItem {
+  id: string;
+  label: string;
+  hazardType: HazardType | null;
+  likelihood: number;
+  severity: number;
+}
 
 /**
- * Risk Assessment tab — a 5×5 likelihood × severity matrix (HSE workflow) with
- * each derived hazard plotted in its cell, plus the read-only risk register
- * beneath it. Phase 0: everything is computed from incident history.
+ * Risk Assessment tab — a 5×5 likelihood × severity matrix (HSE workflow) that
+ * plots the persisted risk register (or the incident-derived suggestions while
+ * the register is still empty), with the editable register beneath it.
  */
-export function RiskAssessment({ risks }: { risks: DerivedRisk[] }) {
-  // Severity rows are listed 5 (top) → 1 (bottom); likelihood columns 1 → 5.
+export function RiskAssessment({ risks, derived }: { risks: RiskRow[]; derived: DerivedRisk[] }) {
+  const usingRegister = risks.length > 0;
+  const plotted: PlotItem[] = usingRegister
+    ? risks.map((r) => ({
+        id: r.id,
+        label: r.title,
+        hazardType: r.hazard_type,
+        likelihood: r.likelihood,
+        severity: r.severity,
+      }))
+    : derived.map((d) => ({
+        id: d.id,
+        label: d.label,
+        hazardType: d.hazardType,
+        likelihood: d.likelihood,
+        severity: d.severity,
+      }));
+
   const severities = [5, 4, 3, 2, 1];
   const likelihoods = [1, 2, 3, 4, 5];
-  const byCell = new Map<string, DerivedRisk[]>();
-  for (const r of risks) {
-    const key = `${r.likelihood}-${r.severity}`;
-    byCell.set(key, [...(byCell.get(key) ?? []), r]);
+  const byCell = new Map<string, PlotItem[]>();
+  for (const p of plotted) {
+    const key = `${p.likelihood}-${p.severity}`;
+    byCell.set(key, [...(byCell.get(key) ?? []), p]);
   }
 
   return (
     <div className="space-y-5">
       <section className="console-panel p-5">
-        <h2 className="mb-1 font-display text-sm font-semibold">Risk matrix</h2>
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-display text-sm font-semibold">Risk matrix</h2>
+          <span className="text-[11px] text-muted-foreground">
+            {usingRegister
+              ? "Plotting risk register"
+              : "Preview from incidents — add risks to pin them"}
+          </span>
+        </div>
         <p className="mb-4 text-xs text-muted-foreground">
-          Likelihood × severity. Each hazard is plotted from its recent incident frequency and worst
-          observed severity — score = likelihood × severity.
+          Likelihood × severity — score = likelihood × severity. Initial (inherent) risk is shown;
+          add controls in the register to drive residual risk down.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[440px] border-separate border-spacing-1">
@@ -59,22 +91,26 @@ export function RiskAssessment({ risks }: { risks: DerivedRisk[] }) {
                     return (
                       <td
                         key={l}
-                        className={`h-14 rounded-md align-top ${meta.cell} relative p-1`}
+                        className={`relative h-14 rounded-md p-1 align-top ${meta.cell}`}
                         title={`Score ${score} — ${meta.label}`}
                       >
                         <span className="absolute right-1 top-0.5 text-[9px] font-bold opacity-70">
                           {score}
                         </span>
                         <div className="flex flex-wrap gap-0.5 pt-2">
-                          {here.map((r) => {
-                            const Icon = HAZARD_ICONS[r.hazardType];
+                          {here.map((p) => {
+                            const Icon = p.hazardType ? HAZARD_ICONS[p.hazardType] : null;
                             return (
                               <span
-                                key={r.id}
-                                title={r.label}
+                                key={p.id}
+                                title={p.label}
                                 className="flex h-5 w-5 items-center justify-center rounded bg-black/30"
                               >
-                                <Icon className="h-3 w-3" />
+                                {Icon ? (
+                                  <Icon className="h-3 w-3" />
+                                ) : (
+                                  <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
+                                )}
                               </span>
                             );
                           })}
@@ -97,66 +133,7 @@ export function RiskAssessment({ risks }: { risks: DerivedRisk[] }) {
         </div>
       </section>
 
-      <section className="console-panel p-5">
-        <h2 className="mb-1 font-display text-sm font-semibold">Risk register</h2>
-        <p className="mb-4 text-xs text-muted-foreground">
-          One record per recurring hazard, derived from incidents. Persistent, editable records
-          (owner, due date, residual risk) arrive when the register is connected to the database.
-        </p>
-        {risks.length === 0 ? (
-          <EmptyState
-            icon={ShieldCheck}
-            title="No risks to assess yet"
-            description="Once monitoring records hazards, each recurring hazard becomes a scored risk record here."
-          />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-xs">
-              <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                <tr className="border-b border-border/60">
-                  <th className="py-2 pr-3 font-medium">Hazard</th>
-                  <th className="py-2 pr-3 font-medium">Zones</th>
-                  <th className="py-2 pr-3 text-center font-medium">L</th>
-                  <th className="py-2 pr-3 text-center font-medium">S</th>
-                  <th className="py-2 pr-3 text-center font-medium">Score</th>
-                  <th className="py-2 pr-3 font-medium">Last seen</th>
-                </tr>
-              </thead>
-              <tbody>
-                {risks.map((r) => {
-                  const Icon = HAZARD_ICONS[r.hazardType];
-                  const meta = RISK_LEVEL_META[r.level];
-                  return (
-                    <tr key={r.id} className="border-b border-border/40 last:border-0">
-                      <td className="py-2.5 pr-3">
-                        <span className="flex items-center gap-2">
-                          <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="font-medium text-foreground">{r.label}</span>
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3 text-muted-foreground">
-                        {r.zones.length ? r.zones.join(", ") : "—"}
-                      </td>
-                      <td className="py-2.5 pr-3 text-center">{r.likelihood}</td>
-                      <td className="py-2.5 pr-3 text-center">{r.severity}</td>
-                      <td className="py-2.5 pr-3 text-center">
-                        <span
-                          className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.bg} ${meta.text}`}
-                        >
-                          {r.score} {meta.label}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3 text-muted-foreground">
-                        {r.lastSeen ? new Date(r.lastSeen).toLocaleDateString() : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      <RiskRegisterPanel risks={risks} derived={derived} />
     </div>
   );
 }

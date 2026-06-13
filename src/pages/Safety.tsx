@@ -5,11 +5,13 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useIncidents, useSessions, useDetections } from "@/hooks/useIncidents";
 import { deriveRisksFromIncidents } from "@/features/safety/lib/riskModel";
+import { useRisks, useRiskActions } from "@/features/safety/hooks/useSafety";
 import { SafetyDashboard } from "@/features/safety/components/SafetyDashboard";
 import { RiskAssessment } from "@/features/safety/components/RiskAssessment";
 import { CapaBoard } from "@/features/safety/components/CapaBoard";
 import { ControlsPanel } from "@/features/safety/components/ControlsPanel";
 import { ComplianceMap } from "@/features/safety/components/ComplianceMap";
+import { Reports } from "@/features/safety/components/Reports";
 
 const TABS = [
   { value: "dashboard", label: "Dashboard" },
@@ -17,21 +19,27 @@ const TABS = [
   { value: "actions", label: "Actions" },
   { value: "controls", label: "Controls" },
   { value: "compliance", label: "Compliance" },
+  { value: "reports", label: "Reports" },
 ];
 
 /**
- * Safety Management — the management-system layer above the incident log.
- * Phase 0: risk matrix, register, CAPA board, hierarchy-of-controls library and
- * ISO 45001 readiness, all derived from the data the app already collects.
- * Renders at /overview (the nav label is "Safety").
+ * Safety Management — the management-system layer above the incident log:
+ * risk matrix + register, CAPA actions, hierarchy-of-controls library, ISO
+ * 45001 readiness and reports. Renders at /overview (nav label "Safety").
+ * Risk scores are derived from incidents; risks/actions/compliance persist in
+ * owner-scoped Supabase tables.
  */
 export default function Safety() {
   const { data: incidents } = useIncidents();
   const { data: sessions } = useSessions();
   const { data: detections } = useDetections();
+  const { data: registerRisks } = useRisks();
+  const { data: actions } = useRiskActions();
 
   const inc = incidents ?? [];
-  const risks = useMemo(() => deriveRisksFromIncidents(incidents ?? []), [incidents]);
+  const derivedRisks = useMemo(() => deriveRisksFromIncidents(incidents ?? []), [incidents]);
+  const risks = registerRisks ?? [];
+  const acts = actions ?? [];
 
   return (
     <div className="space-y-6">
@@ -71,20 +79,25 @@ export default function Safety() {
             incidents={inc}
             sessions={sessions ?? []}
             detections={detections ?? []}
-            risks={risks}
+            derivedRisks={derivedRisks}
+            registerRisks={risks}
+            actions={acts}
           />
         </TabsContent>
         <TabsContent value="risk" className="mt-4">
-          <RiskAssessment risks={risks} />
+          <RiskAssessment risks={risks} derived={derivedRisks} />
         </TabsContent>
         <TabsContent value="actions" className="mt-4">
-          <CapaBoard risks={risks} />
+          <CapaBoard actions={acts} risks={risks} />
         </TabsContent>
         <TabsContent value="controls" className="mt-4">
-          <ControlsPanel risks={risks} />
+          <ControlsPanel risks={derivedRisks} />
         </TabsContent>
         <TabsContent value="compliance" className="mt-4">
           <ComplianceMap />
+        </TabsContent>
+        <TabsContent value="reports" className="mt-4">
+          <Reports risks={risks} actions={acts} incidents={inc} />
         </TabsContent>
       </Tabs>
     </div>
