@@ -1,13 +1,6 @@
 import { Link } from "@/lib/router-shim";
 import { Button } from "@/components/ui/button";
-import {
-  ArrowRight,
-  Camera,
-  EyeOff,
-  Languages,
-  ShieldCheck,
-  Zap,
-} from "lucide-react";
+import { ArrowRight, Camera, EyeOff, Languages, ShieldCheck, Zap } from "lucide-react";
 
 const detections = [
   "Unsafe Lifting",

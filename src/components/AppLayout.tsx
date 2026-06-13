@@ -2,7 +2,6 @@ import { Link, useLocation } from "@/lib/router-shim";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Camera,
-  LayoutDashboard,
   ShieldAlert,
   ShieldCheck,
   Settings,
@@ -17,7 +16,7 @@ import { useState } from "react";
 
 const mainNav = [
   { path: "/", label: "Live", icon: Camera },
-  { path: "/overview", label: "Overview", icon: LayoutDashboard },
+  { path: "/overview", label: "Safety", icon: ShieldCheck },
   { path: "/incidents", label: "Incidents", icon: ShieldAlert },
 ];
 
@@ -64,8 +63,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>
         </div>
-
-
 
         <nav className="flex-1 space-y-1 p-3">
           {!collapsed && <p className="nav-section-label">Workspace</p>}
