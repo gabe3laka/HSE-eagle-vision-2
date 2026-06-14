@@ -4,8 +4,11 @@ import {
   buildAssemblyStepsAndTimeline,
   buildPlanSceneBlueprint,
   candidateToSceneObject,
+  estimatePlanConfidence,
   inferPlanObjectRole,
+  planRoleDisplayLabel,
 } from "../features/build-mode/lib/sceneBlueprint";
+import type { PlanObjectRole } from "../features/build-mode/types";
 import {
   buildPlanReasoningPayload,
   resolveAssemblyPlan,
@@ -121,6 +124,78 @@ describe("Holographic scene — inferPlanObjectRole", () => {
   it("is case-insensitive and lets cable win over connector words", () => {
     expect(inferPlanObjectRole("USB CONNECTOR CABLE")).toBe("cable");
     expect(inferPlanObjectRole("Pcb Board")).toBe("primary-part");
+  });
+});
+
+describe("Holographic scene — planRoleDisplayLabel (Detected Objects subtitles)", () => {
+  it.each([
+    ["primary-part", "PRIMARY PART"],
+    ["tool", "TOOL"],
+    ["connector", "CONNECTOR"],
+    ["cable", "CABLE"],
+    ["fastener", "FASTENER"],
+    ["support", "SUPPORT"],
+    ["hazard", "HAZARD"],
+    ["unknown", "OBJECT"],
+  ] as const)("maps role %s → %s", (role, label) => {
+    expect(planRoleDisplayLabel(role)).toBe(label);
+  });
+
+  it("covers every PlanObjectRole with a non-empty UPPERCASE label", () => {
+    const roles: PlanObjectRole[] = [
+      "primary-part",
+      "tool",
+      "connector",
+      "cable",
+      "fastener",
+      "support",
+      "hazard",
+      "unknown",
+    ];
+    for (const r of roles) {
+      const label = planRoleDisplayLabel(r);
+      expect(label.length).toBeGreaterThan(0);
+      expect(label).toBe(label.toUpperCase());
+    }
+  });
+});
+
+describe("Holographic scene — estimatePlanConfidence (heuristic %)", () => {
+  it("rates DeepSeek (ok) reasoning higher than the rules fallback", () => {
+    const ok = estimatePlanConfidence({ reasoningStatus: "ok", objects: [] });
+    const fallback = estimatePlanConfidence({ reasoningStatus: "fallback", objects: [] });
+    expect(ok).toBeGreaterThan(fallback);
+    expect(ok).toBeCloseTo(0.9, 5);
+    expect(fallback).toBeCloseTo(0.6, 5);
+  });
+
+  it("defaults to a neutral mid value when idle / no reasoning yet", () => {
+    expect(estimatePlanConfidence({})).toBeCloseTo(0.5, 5);
+    expect(estimatePlanConfidence({ reasoningStatus: "idle", objects: [] })).toBeCloseTo(0.5, 5);
+  });
+
+  it("nudges up for confident detections and down for weak ones (bounded ±0.06)", () => {
+    const strong = estimatePlanConfidence({
+      reasoningStatus: "ok",
+      objects: [{ confidence: 1 }, { confidence: 1 }],
+    });
+    const weak = estimatePlanConfidence({
+      reasoningStatus: "ok",
+      objects: [{ confidence: 0.1 }, { confidence: 0.1 }],
+    });
+    expect(strong).toBeGreaterThan(0.9);
+    expect(strong).toBeLessThanOrEqual(0.96);
+    expect(weak).toBeLessThan(0.9);
+    expect(weak).toBeGreaterThanOrEqual(0.84);
+  });
+
+  it("ignores non-finite confidences and always clamps to 0..1", () => {
+    const v = estimatePlanConfidence({
+      reasoningStatus: "ok",
+      objects: [{ confidence: NaN }, { confidence: undefined }, { confidence: 0.9 }],
+    });
+    expect(v).toBeGreaterThanOrEqual(0);
+    expect(v).toBeLessThanOrEqual(1);
   });
 });
 

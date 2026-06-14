@@ -91,6 +91,10 @@ interface Props {
   /** Controlled "reply" drawer (so a Plan callout tap can open the goal input). */
   replyOpen?: boolean;
   onReplyOpenChange?: (open: boolean) => void;
+  /** When the Plan holographic console is showing, IT owns the multi-object
+   *  step navigator — suppress the panel's duplicate so the step UI isn't shown
+   *  twice. The single-object guided-steps list is unaffected. */
+  hideSceneNavigator?: boolean;
 }
 
 /**
@@ -111,6 +115,7 @@ export function BuildModePanel({
   workflowMode = "build",
   replyOpen,
   onReplyOpenChange,
+  hideSceneNavigator = false,
 }: Props) {
   const { phase, frameCount, backendStatus, error } = session;
   const backend = BACKEND_STATUS[backendStatus];
@@ -583,8 +588,9 @@ export function BuildModePanel({
 
       {/* Holographic Scene Canvas: user-gated Previous/Next step navigation for
           the multi-object plan (only when a scene was built; the single-object
-          plan keeps its guided-steps list below). */}
-      {isPlan && planGuiding && session.sceneBlueprint && (
+          plan keeps its guided-steps list below). Suppressed when the Plan
+          console is showing — IT renders the navigator (no duplicate). */}
+      {isPlan && planGuiding && session.sceneBlueprint && !hideSceneNavigator && (
         <PlanStepNavigator
           scene={session.sceneBlueprint}
           onPrevious={session.goToPreviousPlanStep}

@@ -71,6 +71,62 @@ function bboxCenter(bbox: SelectedRegion): { x: number; y: number } {
   return { x: clamp01(bbox.x + bbox.w / 2), y: clamp01(bbox.y + bbox.h / 2) };
 }
 
+/**
+ * UPPERCASE display label for a scene object's functional role — used by the
+ * Plan console's "Detected objects" list (mockup subtitles: PRIMARY PART /
+ * CABLE / TOOL …). Pure, total over PlanObjectRole.
+ */
+const ROLE_DISPLAY_LABEL: Record<PlanObjectRole, string> = {
+  "primary-part": "PRIMARY PART",
+  tool: "TOOL",
+  connector: "CONNECTOR",
+  cable: "CABLE",
+  fastener: "FASTENER",
+  support: "SUPPORT",
+  hazard: "HAZARD",
+  unknown: "OBJECT",
+};
+
+/** Map a PlanObjectRole to its UPPERCASE display label (unknown → "OBJECT"). */
+export function planRoleDisplayLabel(role: PlanObjectRole): string {
+  return ROLE_DISPLAY_LABEL[role] ?? "OBJECT";
+}
+
+/**
+ * Heuristic plan-confidence (0..1) for the "Plan Confidence: NN%" readout. This
+ * is a PRESENTATIONAL estimate — there is NO backend confidence field. It blends
+ * the reasoning source with the average detection confidence of the scene's
+ * objects:
+ *   - DeepSeek reasoning ("ok") → a high base (~0.9), nudged ±0.06 by how
+ *     confident the detections were.
+ *   - rules fallback → a modest base (~0.6), nudged the same way.
+ *   - idle / no reasoning yet → ~0.5.
+ * Always clamped to 0..1. Pure + deterministic (node-testable).
+ */
+export function estimatePlanConfidence(args: {
+  reasoningStatus?: "idle" | "thinking" | "ok" | "fallback";
+  objects?: Array<{ confidence?: number }>;
+}): number {
+  const objs = args.objects ?? [];
+  const known = objs
+    .map((o) => o.confidence)
+    .filter((c): c is number => typeof c === "number" && Number.isFinite(c));
+  // Average detection confidence (default 0.7 when nothing carried one).
+  const avg = known.length > 0 ? known.reduce((a, b) => a + b, 0) / known.length : 0.7;
+  // Centre the detection signal at 0.7 so a strong scene lifts and a weak one
+  // dips the base by a small, bounded amount (±0.06).
+  const detectionNudge = Math.max(-0.06, Math.min(0.06, (avg - 0.7) * 0.2));
+  const base =
+    args.reasoningStatus === "ok"
+      ? 0.9
+      : args.reasoningStatus === "fallback"
+        ? 0.6
+        : args.reasoningStatus === "thinking"
+          ? 0.55
+          : 0.5;
+  return clamp01(base + detectionNudge);
+}
+
 /** One detected candidate → one idle PlanSceneObject (coords clamped 0..1). */
 export function candidateToSceneObject(
   candidate: ExtractCandidate,
