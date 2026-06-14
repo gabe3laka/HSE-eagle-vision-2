@@ -185,10 +185,112 @@ export interface VirtualBlueprintPoint {
 }
 
 /**
+ * ── Holographic Scene Canvas (Plan Mode multi-object planning) ──────────────
+ *
+ * A clean 2D/2.5D layer that holds ALL detected objects on a table and lets the
+ * Plan reasoner arrange them step-by-step. NOT real 3D, NO point clouds, NO
+ * generated video. Coordinates are region-local normalized 0..1, clamped — the
+ * same convention as every other BlueprintFrame field.
+ */
+
+/** Functional role of a scene object — inferred from its label, refined by AI. */
+export type PlanObjectRole =
+  | "primary-part"
+  | "tool"
+  | "connector"
+  | "cable"
+  | "fastener"
+  | "support"
+  | "hazard"
+  | "unknown";
+
+/** One detected object on the holographic scene canvas (region-local 0..1). */
+export interface PlanSceneObject {
+  id: string;
+  label: string;
+  role: PlanObjectRole;
+  confidence?: number;
+  bbox: { x: number; y: number; w: number; h: number };
+  center: { x: number; y: number };
+  outline?: { x: number; y: number }[];
+  maskContour?: { x: number; y: number }[];
+  current: { x: number; y: number; scale?: number; rotation?: number };
+  target?: { x: number; y: number; scale?: number; rotation?: number };
+  state: "idle" | "highlighted" | "moving" | "placed" | "warning";
+}
+
+/** One ordered step of the holographic assembly plan (region-local 0..1). */
+export interface PlanAssemblyStep {
+  id: string;
+  index: number;
+  title: string;
+  instruction: string;
+  objectId?: string;
+  from?: { x: number; y: number };
+  to?: { x: number; y: number };
+  x?: number;
+  y?: number;
+  status: "pending" | "active" | "completed";
+  safetyNote?: string;
+  qualityCheck?: string;
+}
+
+/** One animation keyframe of the holographic timeline (no video — pure vectors). */
+export interface PlanAnimationKeyframe {
+  id: string;
+  stepId: string;
+  type:
+    | "scan-reveal"
+    | "highlight-object"
+    | "move-object"
+    | "show-arrow"
+    | "show-target"
+    | "show-callout"
+    | "warning-pulse"
+    | "complete-step";
+  timeMs: number;
+  objectId?: string;
+  from?: { x: number; y: number };
+  to?: { x: number; y: number };
+  label?: string;
+}
+
+/**
+ * The full holographic scene blueprint: the region it covers, every detected
+ * object, the ordered assembly plan, and an animation timeline. Stored on
+ * `BlueprintFrame.sceneBlueprint` and persisted inside the blueprint JSON.
+ */
+export interface PlanSceneBlueprint {
+  version: "plan-scene-v1";
+  region: SelectedRegion;
+  sourceAssetId?: string;
+  objects: PlanSceneObject[];
+  assemblySteps: PlanAssemblyStep[];
+  animationTimeline: PlanAnimationKeyframe[];
+  currentStepIndex: number;
+}
+
+/**
  * Structured plan-reasoning result. Produced by the Supabase `plan-reasoning`
  * Edge Function (DeepSeek) and re-validated app-side; a local rules fallback
  * fills the same shape when DeepSeek is unavailable. All x/y are 0..1.
  */
+/**
+ * One item of the optional multi-object `assemblyPlan` the Plan reasoner MAY
+ * return for the holographic scene canvas. `objectId` references an object the
+ * reasoner was given (never invented); from/to are region-local 0..1. Optional
+ * + additive — existing PlanReasoningResponse consumers ignore it.
+ */
+export interface PlanAssemblyPlanItem {
+  objectId?: string;
+  title: string;
+  instruction: string;
+  from?: { x: number; y: number };
+  to?: { x: number; y: number };
+  safetyNote?: string;
+  qualityCheck?: string;
+}
+
 export interface PlanReasoningResponse {
   status: "ok" | "fallback";
   source: "deepseek" | "rules";
@@ -201,6 +303,10 @@ export interface PlanReasoningResponse {
   planSteps: PlanStep[];
   planOverlays: BlueprintPlanOverlay[];
   virtualBlueprintPoints: VirtualBlueprintPoint[];
+  /** Optional ordered multi-object plan for the holographic scene canvas. When
+   *  present it drives PlanSceneObject targets + PlanAssemblyStep[]; absent →
+   *  the single-object planSteps path is used. */
+  assemblyPlan?: PlanAssemblyPlanItem[];
 }
 
 /** Compact, image-free context sent to the Supabase plan-reasoning function. */
@@ -216,6 +322,17 @@ export interface PlanReasoningPayload {
     bbox?: SelectedRegion;
     source?: string;
   }>;
+  /** Compact list of the holographic scene objects (Plan multi-object canvas)
+   *  so the reasoner can arrange them by id. Region-local 0..1, capped. */
+  objects?: Array<{
+    id: string;
+    label: string;
+    role: PlanObjectRole;
+    bbox: { x: number; y: number; w: number; h: number };
+    center: { x: number; y: number };
+  }>;
+  /** Describes the holographic canvas the reasoner is arranging objects on. */
+  scene?: { mode: "table-layout"; coordinateSystem: "normalized 0..1 crop-local" };
   segments?: Array<{
     label: string;
     confidence?: number;
@@ -323,6 +440,9 @@ export interface BlueprintFrame {
   /** Where depth came from — "none" when only 2D contour pseudo-points exist. */
   depthSource?: string;
   depthConfidence?: number;
+  /** Holographic multi-object scene (Plan Mode). Optional + additive — existing
+   *  saved single-object blueprints load without it and render the old way. */
+  sceneBlueprint?: PlanSceneBlueprint;
 }
 
 /** Where the floating blueprint currently sits relative to its origin region. */

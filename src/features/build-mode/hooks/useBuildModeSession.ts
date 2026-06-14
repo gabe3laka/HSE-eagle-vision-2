@@ -9,9 +9,15 @@ import {
 import { requestPlanReasoning } from "../api/planReasoningClient";
 import { BUILD_CAPTURE_INTERVAL_MS, BUILD_MAX_FRAMES, resolveBuildModeApiUrl } from "../config";
 import { derivePlanStage } from "../lib/blueprint";
-import { buildPlanReasoningPayload, mergePlanReasoning } from "../lib/planReasoning";
+import {
+  buildPlanReasoningPayload,
+  mergePlanReasoning,
+  resolveAssemblyPlan,
+} from "../lib/planReasoning";
 import { pseudoPointsForFrame } from "../lib/pseudoPointCloud";
 import { captureRegionBase64 } from "../lib/regionCapture";
+import { applyAssemblyPlanToScene, buildPlanSceneBlueprint } from "../lib/sceneBlueprint";
+import { completeStep, nextStep, previousStep, resetSteps } from "../lib/planStepNav";
 import { buildSourceAsset, rehydrateSavedBlueprint, toV2Frame } from "../lib/sourceAssets";
 import type {
   BlueprintFrame,
@@ -26,7 +32,9 @@ import type {
   BuildPhase,
   BuildSessionInfo,
   BuildUserIntent,
+  ExtractCandidate,
   PlanReasoningPayload,
+  PlanSceneBlueprint,
   PlanTaskType,
   SavedBlueprint,
   SelectedRegion,
@@ -53,6 +61,71 @@ interface Options {
         selectedLabel?: string;
       }
     | undefined;
+  /** Plan mode: the LIVE extraction candidates on screen at extraction time —
+   *  used to build the holographic multi-object scene. Additive; Build ignores
+   *  it. Returns the candidates in visible-card coords (the scene builder maps
+   *  them region-local). */
+  getPlanCandidates?: () => ExtractCandidate[] | undefined;
+}
+
+/**
+ * Map a card-space extraction candidate into REGION-LOCAL 0..1 (the coordinate
+ * system every BlueprintFrame field uses): translate by the region origin and
+ * scale by its size. Pure; the scene builder clamps the result.
+ */
+function candidateToRegionLocal(
+  candidate: ExtractCandidate,
+  region: SelectedRegion,
+): ExtractCandidate {
+  if (region.w <= 0 || region.h <= 0) return candidate;
+  const toLocal = (p: { x: number; y: number }) => ({
+    x: (p.x - region.x) / region.w,
+    y: (p.y - region.y) / region.h,
+  });
+  const tl = toLocal({ x: candidate.bbox.x, y: candidate.bbox.y });
+  return {
+    ...candidate,
+    bbox: { x: tl.x, y: tl.y, w: candidate.bbox.w / region.w, h: candidate.bbox.h / region.h },
+    ...(candidate.maskContour ? { maskContour: candidate.maskContour.map(toLocal) } : {}),
+  };
+}
+
+/** True when a card-space candidate's CENTER falls inside the region (with a
+ *  small tolerance) — keeps the scene to the objects in the selected area. */
+function candidateInRegion(candidate: ExtractCandidate, region: SelectedRegion): boolean {
+  const cx = candidate.bbox.x + candidate.bbox.w / 2;
+  const cy = candidate.bbox.y + candidate.bbox.h / 2;
+  const tol = 0.05;
+  return (
+    cx >= region.x - tol &&
+    cx <= region.x + region.w + tol &&
+    cy >= region.y - tol &&
+    cy <= region.y + region.h + tol
+  );
+}
+
+/**
+ * Build a holographic scene blueprint from the live candidates (card coords)
+ * and attach it to a base frame. Only candidates whose center sits inside the
+ * selected region are included (so a manual single-object selection doesn't pull
+ * in unrelated table objects clamped to the edge). When nothing qualifies the
+ * frame is returned unchanged → the single-object Plan path still works. Pure.
+ */
+function attachSceneToFrame(
+  frame: BlueprintFrame,
+  region: SelectedRegion | null,
+  candidates: ExtractCandidate[] | undefined,
+): BlueprintFrame {
+  if (!region || !candidates?.length) return frame;
+  const inRegion = candidates.filter((c) => candidateInRegion(c, region));
+  if (inRegion.length === 0) return frame;
+  const local = inRegion.map((c) => candidateToRegionLocal(c, region));
+  const sceneBlueprint = buildPlanSceneBlueprint({
+    region,
+    candidates: local,
+    sourceAssetId: frame.sourceAssetId,
+  });
+  return { ...frame, sceneBlueprint };
 }
 
 /**
@@ -78,6 +151,7 @@ export function useBuildModeSession({
   getGesture,
   workflowMode = "build",
   getPlanContext,
+  getPlanCandidates,
 }: Options) {
   const [phase, setPhase] = useState<BuildPhase>("idle");
   const [region, setRegion] = useState<SelectedRegion | null>(null);
@@ -106,6 +180,10 @@ export function useBuildModeSession({
   const [reasoningStatus, setReasoningStatus] = useState<"idle" | "thinking" | "ok" | "fallback">(
     "idle",
   );
+  /** User-gated holographic scene step pointer (Plan multi-object canvas). The
+   *  scene itself rides on baseFrame.sceneBlueprint; this mirrors its active
+   *  step so the panel/navigator can read it without digging into the frame. */
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
 
   // Resolve the Build Mode API base when Build Mode turns on, so the panel can
   // show the backend status before the first selection.
@@ -162,6 +240,8 @@ export function useBuildModeSession({
   workflowModeRef.current = workflowMode;
   const getPlanContextRef = useRef(getPlanContext);
   getPlanContextRef.current = getPlanContext;
+  const getPlanCandidatesRef = useRef(getPlanCandidates);
+  getPlanCandidatesRef.current = getPlanCandidates;
   const baseFrameRef = useRef<BlueprintFrame | null>(null);
   baseFrameRef.current = baseFrame;
   const extractSourceRef = useRef<{ source: string; label: string } | null>(null);
@@ -198,6 +278,7 @@ export function useBuildModeSession({
     setUserIntent(null);
     setGeneratingPlan(false);
     setReasoningStatus("idle");
+    setCurrentStepIndex(0);
   }, [clearTimer, go]);
 
   // Leaving Build Mode (or unmount) tears the session down.
@@ -236,6 +317,7 @@ export function useBuildModeSession({
     setUserIntent(null);
     setGeneratingPlan(false);
     setReasoningStatus("idle");
+    setCurrentStepIndex(0);
   }, [enabled, clearTimer, go]);
 
   const cancelSelection = useCallback(() => {
@@ -359,11 +441,20 @@ export function useBuildModeSession({
         return null;
       }
       setExtractStatus("frame_received");
-      setBaseFrame(frame);
-      setLatestFrame(frame);
+      // Plan mode: build the holographic multi-object scene from the live
+      // candidates on screen and attach it to the base frame (additive — Build
+      // and the single-object Plan path are untouched). Coordinates are mapped
+      // region-local 0..1 and clamped by the pure builder.
+      const withScene =
+        workflowModeRef.current === "plan"
+          ? attachSceneToFrame(frame, regionRef.current, getPlanCandidatesRef.current?.())
+          : frame;
+      setCurrentStepIndex(0);
+      setBaseFrame(withScene);
+      setLatestFrame(withScene);
       go("placing");
       setExtractStatus("placing_started");
-      return frame;
+      return withScene;
     } finally {
       extractingRef.current = false;
     }
@@ -479,9 +570,17 @@ export function useBuildModeSession({
       if (ph !== "placing" && ph !== "pinned" && ph !== "review") return;
       setGeneratingPlan(true);
       try {
-        const base = recapture ? await captureKeyframe(0, 0) : baseFrameRef.current;
+        let base = recapture ? await captureKeyframe(0, 0) : baseFrameRef.current;
         if (!base) return;
         if (recapture) {
+          // Carry the just-built holographic scene onto the fresh crop (or
+          // rebuild it from the current candidates) so multi-object planning
+          // survives the confirm-intent recapture.
+          if (workflowModeRef.current === "plan") {
+            base = baseFrameRef.current?.sceneBlueprint
+              ? { ...base, sceneBlueprint: baseFrameRef.current.sceneBlueprint }
+              : attachSceneToFrame(base, regionRef.current, getPlanCandidatesRef.current?.());
+          }
           setBaseFrame(base);
           setLatestFrame(base);
         }
@@ -497,6 +596,7 @@ export function useBuildModeSession({
           selectedLabel: ctx?.selectedLabel ?? extractSourceRef.current?.label,
           detectedEntities: ctx?.detectedEntities,
           segments: ctx?.segments,
+          sceneObjects: base.sceneBlueprint?.objects,
           followUpText,
           history: historyRef.current,
         });
@@ -508,6 +608,14 @@ export function useBuildModeSession({
         if ((merged.virtualBlueprintPoints?.length ?? 0) === 0) {
           merged.virtualBlueprintPoints = pseudoPointsForFrame(base);
           merged.depthSource = merged.depthSource ?? "none";
+        }
+        // Holographic scene canvas: re-derive the ordered assembly steps + each
+        // object's target from the reasoner's plan (or the single-object steps
+        // mapped into a plan). Resets the scene to step 1 (no auto-advance).
+        if (merged.sceneBlueprint) {
+          const plan = resolveAssemblyPlan(resp);
+          merged.sceneBlueprint = applyAssemblyPlanToScene(merged.sceneBlueprint, plan);
+          setCurrentStepIndex(merged.sceneBlueprint.currentStepIndex);
         }
         pushHistory("assistant", resp.nextAction || resp.detectedIntent);
         setBaseFrame(merged);
@@ -568,6 +676,38 @@ export function useBuildModeSession({
   }, []);
 
   /**
+   * Apply a pure transform to the holographic scene blueprint on the current
+   * base frame (and the latest frame when it shares the same scene), then mirror
+   * the new active step index into local state. The single mutation point for
+   * user-gated step navigation — there is NO timer/auto-advance in Plan.
+   */
+  const applyToScene = useCallback(
+    (transform: (scene: PlanSceneBlueprint) => PlanSceneBlueprint) => {
+      const current = baseFrameRef.current?.sceneBlueprint;
+      if (!current) return;
+      const nextScene = transform(current);
+      setCurrentStepIndex(nextScene.currentStepIndex);
+      setBaseFrame((prev) =>
+        prev && prev.sceneBlueprint === current ? { ...prev, sceneBlueprint: nextScene } : prev,
+      );
+      setLatestFrame((prev) =>
+        prev && prev.sceneBlueprint === current ? { ...prev, sceneBlueprint: nextScene } : prev,
+      );
+    },
+    [],
+  );
+
+  /** Plan multi-object canvas: advance to the next step (clamps on the last;
+   *  marks the previous step completed). User-gated — no auto-advance. */
+  const goToNextPlanStep = useCallback(() => applyToScene(nextStep), [applyToScene]);
+  /** Plan multi-object canvas: step back to the previous step (clamps on first). */
+  const goToPreviousPlanStep = useCallback(() => applyToScene(previousStep), [applyToScene]);
+  /** Plan multi-object canvas: mark the current step done and advance. */
+  const completeCurrentStep = useCallback(() => applyToScene(completeStep), [applyToScene]);
+  /** Plan multi-object canvas: reset back to the first step. */
+  const resetPlanSteps = useCallback(() => applyToScene(resetSteps), [applyToScene]);
+
+  /**
    * Load a SAVED blueprint into the live session: region + ghost + replay
    * keyframes restored locally (no backend round-trip), the saved thumbnail
    * asset standing in for every frame's pixels. Lands in "review" when the
@@ -604,6 +744,9 @@ export function useBuildModeSession({
       setUserIntent(null);
       setGeneratingPlan(false);
       setReasoningStatus("idle");
+      // Restore the holographic scene's active step (saved blueprints without a
+      // sceneBlueprint load the old single-object way → index 0).
+      setCurrentStepIndex(loadedBase.sceneBlueprint?.currentStepIndex ?? 0);
       go(loadedFrames.length > 0 ? "review" : "pinned");
     },
     [enabled, clearTimer, go],
@@ -616,6 +759,12 @@ export function useBuildModeSession({
     intentConfirmed: !!userIntent?.confirmed,
     generating: generatingPlan,
   });
+
+  // The holographic multi-object scene rides on the base frame; expose it (and
+  // its active step) directly so the panel/navigator/overlay don't dig into the
+  // frame. Null whenever no multi-object scene was built (single-object Plan or
+  // Build) — those paths render the old way.
+  const sceneBlueprint = baseFrame?.sceneBlueprint ?? null;
 
   return {
     phase,
@@ -634,6 +783,8 @@ export function useBuildModeSession({
     generatingPlan,
     planStage,
     reasoningStatus,
+    sceneBlueprint,
+    currentStepIndex,
     frameCount: frames.length,
     beginSelection,
     cancelSelection,
@@ -647,6 +798,10 @@ export function useBuildModeSession({
     confirmIntent,
     askFollowUp,
     clearIntent,
+    goToNextPlanStep,
+    goToPreviousPlanStep,
+    completeCurrentStep,
+    resetPlanSteps,
     loadSavedBlueprint,
     reset,
   };

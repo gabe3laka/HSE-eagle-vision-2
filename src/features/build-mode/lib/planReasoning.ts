@@ -3,8 +3,10 @@ import type {
   BlueprintNote,
   BlueprintPlanOverlay,
   BuildUserIntent,
+  PlanAssemblyPlanItem,
   PlanReasoningPayload,
   PlanReasoningResponse,
+  PlanSceneBlueprint,
   PlanStep,
   SelectedRegion,
   VirtualBlueprintPoint,
@@ -65,6 +67,36 @@ function clampPoint(p: unknown): { x: number; y: number } | undefined {
   const o = p as Record<string, unknown>;
   if (typeof o.x !== "number" || typeof o.y !== "number") return undefined;
   return { x: clamp01(o.x), y: clamp01(o.y) };
+}
+
+/**
+ * Parse + clamp the optional multi-object `assemblyPlan` the Plan reasoner MAY
+ * return for the holographic scene canvas. Each item needs an instruction (or a
+ * title); from/to are clamped 0..1; objectId is kept as-is here (the scene
+ * builder ignores ids it doesn't recognize). Capped so a runaway model can't
+ * produce an endless plan. Returns undefined when there's nothing usable so the
+ * caller can fall back to the single-object planSteps path.
+ */
+export function validateAssemblyPlan(raw: unknown): PlanAssemblyPlanItem[] | undefined {
+  const items: PlanAssemblyPlanItem[] = arr(raw).flatMap((s, i) => {
+    if (!s || typeof s !== "object") return [];
+    const o = s as Record<string, unknown>;
+    const instruction = str(o.instruction).trim();
+    const title = str(o.title).trim();
+    if (!instruction && !title) return [];
+    return [
+      {
+        objectId: str(o.objectId) || undefined,
+        title: title || `Step ${i + 1}`,
+        instruction: instruction || title,
+        from: clampPoint(o.from),
+        to: clampPoint(o.to),
+        safetyNote: str(o.safetyNote) || undefined,
+        qualityCheck: str(o.qualityCheck) || undefined,
+      },
+    ];
+  });
+  return items.length ? items.slice(0, 16) : undefined;
 }
 
 /**
@@ -177,6 +209,11 @@ export function validatePlanReasoning(raw: unknown): PlanReasoningResponse | nul
     planSteps: planSteps.slice(0, 8),
     planOverlays: planOverlays.slice(0, 12),
     virtualBlueprintPoints: virtualBlueprintPoints.slice(0, 20),
+    // Optional multi-object plan for the holographic scene canvas (additive —
+    // existing single-object consumers ignore it).
+    ...(validateAssemblyPlan(r.assemblyPlan)
+      ? { assemblyPlan: validateAssemblyPlan(r.assemblyPlan) }
+      : {}),
   };
 }
 
@@ -283,6 +320,9 @@ export function buildPlanReasoningPayload(opts: {
   selectedLabel?: string;
   detectedEntities?: PlanReasoningPayload["detectedEntities"];
   segments?: PlanReasoningPayload["segments"];
+  /** Holographic scene objects (Plan multi-object canvas) so the reasoner can
+   *  arrange them by id. Region-local 0..1; capped ~16. */
+  sceneObjects?: PlanSceneBlueprint["objects"];
   /** The latest follow-up text (when refining an existing plan). */
   followUpText?: string;
   /** Compact recent conversation (last few user/assistant turns). */
@@ -290,6 +330,13 @@ export function buildPlanReasoningPayload(opts: {
 }): PlanReasoningPayload {
   const { frame } = opts;
   const depthPoints = frame.depthPoints?.slice(0, 24);
+  const objects = opts.sceneObjects?.slice(0, 16).map((o) => ({
+    id: o.id,
+    label: o.label,
+    role: o.role,
+    bbox: o.bbox,
+    center: o.center,
+  }));
   return {
     sessionId: opts.sessionId,
     workflowMode: "plan",
@@ -303,6 +350,12 @@ export function buildPlanReasoningPayload(opts: {
       maskContour: frame.maskContour,
       maskSource: frame.maskSource,
     },
+    ...(objects?.length
+      ? {
+          objects,
+          scene: { mode: "table-layout", coordinateSystem: "normalized 0..1 crop-local" },
+        }
+      : {}),
     ...(depthPoints?.length ? { depthPoints } : {}),
     ...(opts.followUpText ? { followUpText: opts.followUpText } : {}),
     ...(opts.history?.length ? { history: opts.history.slice(-6) } : {}),
@@ -348,4 +401,42 @@ export function mergePlanReasoning(
     reasoningSource: resp.source,
     importance: resp.safetyWarning ? "high" : frame.importance,
   };
+}
+
+/**
+ * Map a plan-reasoning result to an ordered `PlanAssemblyPlanItem[]` for the
+ * holographic scene canvas. If the reasoner returned a dedicated `assemblyPlan`
+ * it wins (it carries object ids + from/to). Otherwise the existing single-
+ * object `planSteps` are mapped 1:1, pulling a step's `to` from the matching
+ * arrow/target overlay (by stepId) when one exists. PURE — never throws; an
+ * empty plan returns []. This is what bridges the (unchanged) single-object
+ * reasoning shape into the multi-object scene without breaking either path.
+ */
+export function resolveAssemblyPlan(resp: PlanReasoningResponse): PlanAssemblyPlanItem[] {
+  if (resp.assemblyPlan?.length) return resp.assemblyPlan;
+  const overlays = resp.planOverlays ?? [];
+  return (resp.planSteps ?? []).map((step) => {
+    // Movement hints from an arrow overlay linked to this step (from/to), or a
+    // target/ghost-position overlay (to only).
+    const arrow = overlays.find(
+      (o) => o.stepId === step.id && o.type === "arrow" && o.from && o.to,
+    );
+    const target = overlays.find(
+      (o) =>
+        o.stepId === step.id &&
+        (o.type === "target" || o.type === "ghost-position") &&
+        o.x != null &&
+        o.y != null,
+    );
+    const to = arrow?.to ?? (target ? { x: target.x as number, y: target.y as number } : undefined);
+    const from = arrow?.from;
+    return {
+      title: step.title,
+      instruction: step.instruction,
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+      safetyNote: step.safetyNote,
+      qualityCheck: step.qualityCheck,
+    };
+  });
 }

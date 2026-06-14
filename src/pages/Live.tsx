@@ -40,6 +40,7 @@ import {
 } from "@/features/build-mode/components/SelectionOverlay";
 import { FloatingBlueprintLayer } from "@/features/build-mode/components/FloatingBlueprintLayer";
 import { BlueprintCalloutLayer } from "@/features/build-mode/components/BlueprintCalloutLayer";
+import { PlanHologramRenderer } from "@/features/build-mode/components/PlanHologramRenderer";
 import { useHseMonitoring } from "@/features/hse-monitoring/hooks/useHseMonitoring";
 import { EagleVisionHUD } from "@/components/live/EagleVisionHUD";
 import { WearableAlertOverlay } from "@/components/live/WearableAlertOverlay";
@@ -364,6 +365,12 @@ export default function Live() {
     return { detectedEntities: ents, segments: segs };
   }, []);
 
+  // Plan multi-object scene: the live extraction candidates at capture time feed
+  // the holographic scene builder. Filled below once `candidates` exists; the
+  // getter is stable so the session callback never churns. Build ignores it.
+  const planCandidatesRef = useRef<ExtractCandidate[]>([]);
+  const getPlanCandidates = useCallback(() => planCandidatesRef.current, []);
+
   const build = useBuildModeSession({
     videoRef,
     enabled: buildModeOn,
@@ -372,6 +379,7 @@ export default function Live() {
     getGesture,
     workflowMode,
     getPlanContext,
+    getPlanCandidates,
   });
   // Plan "reply" drawer open-state — lifted so a Plan callout tap can open the
   // goal input in the panel below.
@@ -389,6 +397,14 @@ export default function Live() {
   // v2: the ghost's pixels live in the session's transient asset store; the
   // frame only references them.
   const ghostAsset = build.getAsset(ghostFrame?.sourceAssetId);
+  // Holographic Scene Canvas: a Plan frame carrying a multi-object scene renders
+  // the PlanHologramRenderer instead of the single-object guidance overlay. Any
+  // other frame (Build, single-object Plan, saved blueprints without a scene)
+  // renders the EXISTING path unchanged.
+  const planScene =
+    ghostFrame?.workflowMode === "plan" && ghostFrame.sceneBlueprint?.version === "plan-scene-v1"
+      ? ghostFrame.sceneBlueprint
+      : null;
   // Live ghost bounds (card space) reported by the floating layer — the
   // external callout cards attach their leader lines to it.
   const [ghostBounds, setGhostBounds] = useState<{
@@ -445,6 +461,9 @@ export default function Live() {
   const handLandmarksRef2 = handLandmarksRef; // thumb tip lives in the same list
   const candidatesRef = useRef<ExtractCandidate[]>(candidates);
   candidatesRef.current = candidates;
+  // Feed the same live candidates to the Plan scene builder (region-local
+  // mapping + clamping happens inside the session).
+  planCandidatesRef.current = candidates;
   const extractFromRegionRef = useRef(build.extractFromRegion);
   extractFromRegionRef.current = build.extractFromRegion;
 
@@ -746,8 +765,22 @@ export default function Live() {
                         onHandInteraction={onHandInteraction}
                         onBounds={setGhostBounds}
                         // Build keeps a clean minimal ghost (crop + outline only)
-                        // until review; Plan shows the guidance markers.
-                        showGuidanceMarkers={appMode !== "build" || build.phase === "review"}
+                        // until review; Plan shows the guidance markers — but a
+                        // multi-object scene draws its own holographic guidance,
+                        // so the single-object markers are suppressed then.
+                        showGuidanceMarkers={
+                          !planScene && (appMode !== "build" || build.phase === "review")
+                        }
+                        mirrored={mirrored}
+                      />
+                    )}
+                    {/* Holographic Scene Canvas — ALL detected objects, one
+                      animating per step. Replaces the single-object guidance
+                      overlay/callouts whenever a plan-scene-v1 frame is present. */}
+                    {planScene && build.region && (
+                      <PlanHologramRenderer
+                        scene={planScene}
+                        region={build.region}
                         mirrored={mirrored}
                       />
                     )}
@@ -755,8 +788,10 @@ export default function Live() {
                       leader lines back to the blueprint markers — never trapped
                       inside the crop. */}
                     {/* Callout cards: Plan shows them while guiding; Build stays
-                      clean and only shows notes in review. */}
-                    {build.region &&
+                      clean and only shows notes in review. Suppressed when the
+                      holographic scene canvas is showing (it has its own card). */}
+                    {!planScene &&
+                      build.region &&
                       ["placing", "pinned", "recording", "review"].includes(build.phase) &&
                       (appMode === "plan" || build.phase === "review") && (
                         <BlueprintCalloutLayer
