@@ -41,6 +41,7 @@ import {
 import { FloatingBlueprintLayer } from "@/features/build-mode/components/FloatingBlueprintLayer";
 import { BlueprintCalloutLayer } from "@/features/build-mode/components/BlueprintCalloutLayer";
 import { PlanHologramRenderer } from "@/features/build-mode/components/PlanHologramRenderer";
+import { PlanConsole } from "@/features/build-mode/components/PlanConsole";
 import { useHseMonitoring } from "@/features/hse-monitoring/hooks/useHseMonitoring";
 import { EagleVisionHUD } from "@/components/live/EagleVisionHUD";
 import { WearableAlertOverlay } from "@/components/live/WearableAlertOverlay";
@@ -640,6 +641,197 @@ export default function Live() {
     }
   }, [videoRef, isCloudflareHttp]);
 
+  // Plan Mode shows the holographic planning console (the two mockups): the
+  // chrome panels arrange AROUND the unchanged camera card. We extract the
+  // camera card node and either render it bare (HSE/Build) or hand it to
+  // PlanConsole as its center slot — the card's sizing/coordinate system is
+  // never wrapped or altered.
+  const planConsoleActive = appMode === "plan";
+  const cameraCard = (
+    <div className="console-panel overflow-hidden p-2 sm:p-3 xl:col-start-1 xl:row-start-1">
+      <CameraView
+        videoRef={videoRef}
+        active={active}
+        starting={starting}
+        error={error}
+        boxes={liveBoxes}
+        running={running}
+        topAlert={topAlert}
+        language={config.language}
+        facing={facing}
+        onEnable={() => startCamera()}
+        onFlip={flip}
+        poseStatus={poseStatus}
+        debug={debug}
+        showSkeleton={import.meta.env.DEV}
+        backendEntities={backendEntities as BackendEntity[]}
+        backendPoses={backendPoses as BackendPose[]}
+        backendDryRun={isBackendMode}
+        zones={zones}
+        editingZones={editingZones}
+        onZoneCreate={(points) =>
+          createZone.mutate({
+            kind: "restricted",
+            label: `Zone ${zones.length + 1}`,
+            points,
+          })
+        }
+        buildOverlay={
+          buildModeOn ? (
+            <>
+              {/* Detection boxes as the MAIN extraction source: cyan
+                      candidate outlines while choosing (idle). */}
+              {build.phase === "idle" && (
+                <ExtractableCandidateOverlay
+                  candidates={candidates}
+                  highlightId={hotCandidateId}
+                  mirrored={mirrored}
+                />
+              )}
+              <SelectionOverlay
+                active={build.phase === "selecting"}
+                onSelect={(region) => void build.lockSelection(region)}
+                mirrored={mirrored}
+              />
+              <HandPointerLayer
+                landmarks={hand.handLandmarks}
+                primaryId={hand.primaryPointer?.id}
+                pinch={mp.pinch}
+                hint={fingerHint}
+                mirrored={mirrored}
+              />
+              {/* Mini countdown clock while a pinch is HELD on a detected
+                      box — extraction fires only when the ring completes. */}
+              {extractHold && (
+                <div
+                  className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-[130%]"
+                  style={{
+                    left: `${(mirrored ? 1 - extractHold.x : extractHold.x) * 100}%`,
+                    top: `${extractHold.y * 100}%`,
+                  }}
+                >
+                  <PinchHoldRing progress={extractHold.progress} label="creating blueprint…" />
+                </div>
+              )}
+              {/* Source marker stays on the real object once the ghost detaches. */}
+              {build.region &&
+                ["placing", "pinned", "recording", "review"].includes(build.phase) && (
+                  <SelectedRegionMarker region={build.region} mirrored={mirrored} />
+                )}
+              {/* In-camera Record/Stop targets: a full pinch-hold or dwell
+                      on the target triggers — never instant. */}
+              {isRecordTargetPhase(build.phase) && (
+                <ARRecordButton
+                  variant="record"
+                  pointer={hand.primaryPointer}
+                  pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
+                  onTrigger={build.startProcedureRecording}
+                />
+              )}
+              {isStopTargetPhase(build.phase) && (
+                <ARRecordButton
+                  variant="stop"
+                  pointer={hand.primaryPointer}
+                  pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
+                  onTrigger={() => void build.stopRecording()}
+                />
+              )}
+              {/* The extraction box / detachable ghost, from "selected" onward. */}
+              {build.region && build.phase !== "idle" && build.phase !== "selecting" && (
+                <FloatingBlueprintLayer
+                  phase={build.phase}
+                  region={build.region}
+                  frame={ghostFrame}
+                  sourceAsset={ghostAsset}
+                  handPointer={hand.primaryPointer}
+                  pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
+                  onExtractRequest={() => void build.extractBlueprint()}
+                  onPinned={build.pinBlueprint}
+                  onDelete={build.reset}
+                  onHandInteraction={onHandInteraction}
+                  onBounds={setGhostBounds}
+                  // Build keeps a clean minimal ghost (crop + outline only)
+                  // until review; Plan shows the guidance markers — but a
+                  // multi-object scene draws its own holographic guidance,
+                  // so the single-object markers are suppressed then.
+                  showGuidanceMarkers={
+                    !planScene && (appMode !== "build" || build.phase === "review")
+                  }
+                  mirrored={mirrored}
+                />
+              )}
+              {/* Holographic Scene Canvas — ALL detected objects, one
+                      animating per step. Replaces the single-object guidance
+                      overlay/callouts whenever a plan-scene-v1 frame is present. */}
+              {planScene && build.region && (
+                <PlanHologramRenderer
+                  scene={planScene}
+                  region={build.region}
+                  mirrored={mirrored}
+                  assetImage={
+                    ghostAsset?.imageB64
+                      ? `data:image/jpeg;base64,${ghostAsset.imageB64}`
+                      : ghostAsset?.thumbnailB64
+                        ? `data:image/jpeg;base64,${ghostAsset.thumbnailB64}`
+                        : undefined
+                  }
+                />
+              )}
+              {/* Readable instruction text as external callout cards with
+                      leader lines back to the blueprint markers — never trapped
+                      inside the crop. */}
+              {/* Callout cards: Plan shows them while guiding; Build stays
+                      clean and only shows notes in review. Suppressed when the
+                      holographic scene canvas is showing (it has its own card). */}
+              {!planScene &&
+                build.region &&
+                ["placing", "pinned", "recording", "review"].includes(build.phase) &&
+                (appMode === "plan" || build.phase === "review") && (
+                  <BlueprintCalloutLayer
+                    frame={ghostFrame}
+                    bounds={ghostBounds}
+                    mode={appMode === "plan" ? "plan" : "build"}
+                    onReplyRequest={() => setPlanReplyOpen(true)}
+                  />
+                )}
+            </>
+          ) : null
+        }
+        hseOverlay={
+          hseActive ? (
+            <>
+              <WearableAlertOverlay severity={hse.topAlert?.severity ?? null} />
+              <EagleVisionHUD
+                tracks={hse.tracks}
+                poses={backendPoses as BackendPose[]}
+                topAlert={hse.topAlert}
+                status={hse.status}
+                objectCount={hse.objectCount}
+                stableCount={hse.stableCount}
+                reasoningSource={hse.reasoningSource}
+                mirrored={mirrored}
+              />
+              {focusArmed && (
+                <button
+                  type="button"
+                  className="absolute inset-0 z-30 cursor-crosshair bg-cyan-400/5"
+                  aria-label="Tap an area to focus the scan"
+                  onClick={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    // visual tap → RAW frame space (the ROI the worker scans)
+                    const vx = (e.clientX - r.left) / r.width;
+                    hse.focusAt(mirrored ? 1 - vx : vx, (e.clientY - r.top) / r.height);
+                    setFocusArmed(false);
+                  }}
+                />
+              )}
+            </>
+          ) : null
+        }
+      />
+    </div>
+  );
+
   return (
     <div className="space-y-4 sm:space-y-5">
       <LiveModeHeader
@@ -653,191 +845,38 @@ export default function Live() {
         topRisk={appMode === "hse" ? (hse.topAlert?.title ?? null) : null}
       />
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_390px] xl:gap-5">
+      <div
+        className={
+          planConsoleActive
+            ? "space-y-4"
+            : "grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_390px] xl:gap-5"
+        }
+      >
         {/* min-w-0: this grid item defaults to min-width:auto, so any non-wrapping
             child (e.g. the debug panel's 1500-char `raw:` line) would blow the
             column out to ~10000px — pushing the centered camera card off-screen
-            and making it "jump" as the text length changes each frame. */}
-        <div className="min-w-0 space-y-3 sm:space-y-4 xl:contents">
-          <div className="console-panel overflow-hidden p-2 sm:p-3 xl:col-start-1 xl:row-start-1">
-            <CameraView
-              videoRef={videoRef}
-              active={active}
-              starting={starting}
-              error={error}
-              boxes={liveBoxes}
-              running={running}
-              topAlert={topAlert}
-              language={config.language}
-              facing={facing}
-              onEnable={() => startCamera()}
-              onFlip={flip}
-              poseStatus={poseStatus}
-              debug={debug}
-              showSkeleton={import.meta.env.DEV}
-              backendEntities={backendEntities as BackendEntity[]}
-              backendPoses={backendPoses as BackendPose[]}
-              backendDryRun={isBackendMode}
-              zones={zones}
-              editingZones={editingZones}
-              onZoneCreate={(points) =>
-                createZone.mutate({
-                  kind: "restricted",
-                  label: `Zone ${zones.length + 1}`,
-                  points,
-                })
-              }
-              buildOverlay={
-                buildModeOn ? (
-                  <>
-                    {/* Detection boxes as the MAIN extraction source: cyan
-                      candidate outlines while choosing (idle). */}
-                    {build.phase === "idle" && (
-                      <ExtractableCandidateOverlay
-                        candidates={candidates}
-                        highlightId={hotCandidateId}
-                        mirrored={mirrored}
-                      />
-                    )}
-                    <SelectionOverlay
-                      active={build.phase === "selecting"}
-                      onSelect={(region) => void build.lockSelection(region)}
-                      mirrored={mirrored}
-                    />
-                    <HandPointerLayer
-                      landmarks={hand.handLandmarks}
-                      primaryId={hand.primaryPointer?.id}
-                      pinch={mp.pinch}
-                      hint={fingerHint}
-                      mirrored={mirrored}
-                    />
-                    {/* Mini countdown clock while a pinch is HELD on a detected
-                      box — extraction fires only when the ring completes. */}
-                    {extractHold && (
-                      <div
-                        className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-[130%]"
-                        style={{
-                          left: `${(mirrored ? 1 - extractHold.x : extractHold.x) * 100}%`,
-                          top: `${extractHold.y * 100}%`,
-                        }}
-                      >
-                        <PinchHoldRing
-                          progress={extractHold.progress}
-                          label="creating blueprint…"
-                        />
-                      </div>
-                    )}
-                    {/* Source marker stays on the real object once the ghost detaches. */}
-                    {build.region &&
-                      ["placing", "pinned", "recording", "review"].includes(build.phase) && (
-                        <SelectedRegionMarker region={build.region} mirrored={mirrored} />
-                      )}
-                    {/* In-camera Record/Stop targets: a full pinch-hold or dwell
-                      on the target triggers — never instant. */}
-                    {isRecordTargetPhase(build.phase) && (
-                      <ARRecordButton
-                        variant="record"
-                        pointer={hand.primaryPointer}
-                        pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
-                        onTrigger={build.startProcedureRecording}
-                      />
-                    )}
-                    {isStopTargetPhase(build.phase) && (
-                      <ARRecordButton
-                        variant="stop"
-                        pointer={hand.primaryPointer}
-                        pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
-                        onTrigger={() => void build.stopRecording()}
-                      />
-                    )}
-                    {/* The extraction box / detachable ghost, from "selected" onward. */}
-                    {build.region && build.phase !== "idle" && build.phase !== "selecting" && (
-                      <FloatingBlueprintLayer
-                        phase={build.phase}
-                        region={build.region}
-                        frame={ghostFrame}
-                        sourceAsset={ghostAsset}
-                        handPointer={hand.primaryPointer}
-                        pinch={hand.sourceMode === "mediapipe" ? mp.pinch : null}
-                        onExtractRequest={() => void build.extractBlueprint()}
-                        onPinned={build.pinBlueprint}
-                        onDelete={build.reset}
-                        onHandInteraction={onHandInteraction}
-                        onBounds={setGhostBounds}
-                        // Build keeps a clean minimal ghost (crop + outline only)
-                        // until review; Plan shows the guidance markers — but a
-                        // multi-object scene draws its own holographic guidance,
-                        // so the single-object markers are suppressed then.
-                        showGuidanceMarkers={
-                          !planScene && (appMode !== "build" || build.phase === "review")
-                        }
-                        mirrored={mirrored}
-                      />
-                    )}
-                    {/* Holographic Scene Canvas — ALL detected objects, one
-                      animating per step. Replaces the single-object guidance
-                      overlay/callouts whenever a plan-scene-v1 frame is present. */}
-                    {planScene && build.region && (
-                      <PlanHologramRenderer
-                        scene={planScene}
-                        region={build.region}
-                        mirrored={mirrored}
-                      />
-                    )}
-                    {/* Readable instruction text as external callout cards with
-                      leader lines back to the blueprint markers — never trapped
-                      inside the crop. */}
-                    {/* Callout cards: Plan shows them while guiding; Build stays
-                      clean and only shows notes in review. Suppressed when the
-                      holographic scene canvas is showing (it has its own card). */}
-                    {!planScene &&
-                      build.region &&
-                      ["placing", "pinned", "recording", "review"].includes(build.phase) &&
-                      (appMode === "plan" || build.phase === "review") && (
-                        <BlueprintCalloutLayer
-                          frame={ghostFrame}
-                          bounds={ghostBounds}
-                          mode={appMode === "plan" ? "plan" : "build"}
-                          onReplyRequest={() => setPlanReplyOpen(true)}
-                        />
-                      )}
-                  </>
-                ) : null
-              }
-              hseOverlay={
-                hseActive ? (
-                  <>
-                    <WearableAlertOverlay severity={hse.topAlert?.severity ?? null} />
-                    <EagleVisionHUD
-                      tracks={hse.tracks}
-                      poses={backendPoses as BackendPose[]}
-                      topAlert={hse.topAlert}
-                      status={hse.status}
-                      objectCount={hse.objectCount}
-                      stableCount={hse.stableCount}
-                      reasoningSource={hse.reasoningSource}
-                      mirrored={mirrored}
-                    />
-                    {focusArmed && (
-                      <button
-                        type="button"
-                        className="absolute inset-0 z-30 cursor-crosshair bg-cyan-400/5"
-                        aria-label="Tap an area to focus the scan"
-                        onClick={(e) => {
-                          const r = e.currentTarget.getBoundingClientRect();
-                          // visual tap → RAW frame space (the ROI the worker scans)
-                          const vx = (e.clientX - r.left) / r.width;
-                          hse.focusAt(mirrored ? 1 - vx : vx, (e.clientY - r.top) / r.height);
-                          setFocusArmed(false);
-                        }}
-                      />
-                    )}
-                  </>
-                ) : null
-              }
+            and making it "jump" as the text length changes each frame. In Plan
+            mode the holographic console owns the full width and `xl:contents` is
+            dropped so its rails lay out around the camera. */}
+        <div
+          className={
+            planConsoleActive ? "min-w-0 space-y-4" : "min-w-0 space-y-3 sm:space-y-4 xl:contents"
+          }
+        >
+          {/* Plan Mode: the holographic console wraps the camera card as its
+              center slot (the card's coordinate system is untouched). HSE/Build:
+              the bare camera card sits in column 1. */}
+          {planConsoleActive ? (
+            <PlanConsole
+              session={build}
+              camera={cameraCard}
+              fallbackSafetyNote={ghostFrame?.safetyWarning}
+              fallbackQualityCheck={ghostFrame?.qualityCheck}
             />
-          </div>
-          <div className="xl:col-start-1 xl:row-start-2">
+          ) : (
+            cameraCard
+          )}
+          <div className={planConsoleActive ? undefined : "xl:col-start-1 xl:row-start-2"}>
             <SessionControls
               cameraActive={active}
               running={running}
@@ -891,7 +930,13 @@ export default function Live() {
             />
           </div>
 
-          <aside className="min-w-0 space-y-3 xl:sticky xl:top-7 xl:col-start-2 xl:row-span-2 xl:row-start-1 xl:max-h-[calc(100vh-3.5rem)] xl:overflow-y-auto xl:pr-1">
+          <aside
+            className={
+              planConsoleActive
+                ? "min-w-0 space-y-3"
+                : "min-w-0 space-y-3 xl:sticky xl:top-7 xl:col-start-2 xl:row-span-2 xl:row-start-1 xl:max-h-[calc(100vh-3.5rem)] xl:overflow-y-auto xl:pr-1"
+            }
+          >
             {appMode === "hse" && !running && (
               <div className="console-panel p-4">
                 <p className="console-eyebrow">Eagle Vision</p>
@@ -926,6 +971,7 @@ export default function Live() {
                 workflowMode={workflowMode}
                 replyOpen={planReplyOpen}
                 onReplyOpenChange={setPlanReplyOpen}
+                hideSceneNavigator={planConsoleActive}
               />
             )}
 
