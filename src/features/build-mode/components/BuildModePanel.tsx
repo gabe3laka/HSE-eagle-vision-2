@@ -13,6 +13,7 @@ import {
   ScanSearch,
   Sparkles,
   Square,
+  Target,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -241,8 +242,10 @@ export function BuildModePanel({
   const aiFrame = session.latestFrame ?? session.baseFrame;
   const planGuiding =
     !isPlan || session.planStage === "plan_guiding" || session.planStage === "plan_review";
+  const hasScenePlan = isPlan && session.sceneBlueprint != null;
   const showGuidance =
     planGuiding &&
+    !hasScenePlan &&
     aiFrame != null &&
     !!(
       aiFrame.nextAction ||
@@ -533,22 +536,33 @@ export function BuildModePanel({
 
       {/* Confirmed goal + reasoning source + follow-up drawer. */}
       {isPlan && session.userIntent?.confirmed && session.planStage !== "plan_generating_steps" && (
-        <div className="mt-2 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] text-violet-200">
-              Goal:{" "}
-              <span className="font-medium capitalize">{intentLabel(session.userIntent)}</span>
+        <div className="mt-3 rounded-xl border border-violet-300/20 bg-violet-400/5 p-3">
+          <div className="flex items-start gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyan-300/20 bg-cyan-400/10 text-cyan-200">
+              <Target className="h-4 w-4" />
             </span>
-            {session.reasoningStatus === "ok" && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/15 px-2 py-0.5 text-[9px] font-semibold text-cyan-300">
-                <Sparkles className="h-3 w-3" /> AI plan
-              </span>
-            )}
-            {session.reasoningStatus === "fallback" && (
-              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold text-amber-300">
-                Basic guide generated
-              </span>
-            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-cyan-300">
+                  Goal
+                </span>
+                {session.reasoningStatus === "ok" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/15 px-2 py-0.5 text-[9px] font-semibold text-cyan-300">
+                    <Sparkles className="h-3 w-3" /> AI plan
+                  </span>
+                )}
+                {session.reasoningStatus === "fallback" && (
+                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold text-amber-300">
+                    Basic guide
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-xs font-medium leading-relaxed text-violet-50">
+                {intentLabel(session.userIntent)}
+              </p>
+            </div>
+          </div>
+          <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-white/5 pt-2.5">
             <Button
               size="sm"
               variant="secondary"
@@ -576,6 +590,8 @@ export function BuildModePanel({
           onPrevious={session.goToPreviousPlanStep}
           onNext={session.goToNextPlanStep}
           onReset={session.resetPlanSteps}
+          fallbackSafetyNote={aiFrame?.safetyWarning}
+          fallbackQualityCheck={aiFrame?.qualityCheck}
         />
       )}
 
