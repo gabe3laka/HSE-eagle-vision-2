@@ -61,6 +61,15 @@ Never provide dangerous instructions for electrical, chemical, machinery, pressu
 
 All x and y values MUST be numbers between 0 and 1 (normalized to the selected crop, origin top-left).
 
+HOLOGRAPHIC SCENE CANVAS (when an "objects" array and a "scene" object are present in the input):
+You are not generating video. You are not doing real 3D. You arrange the provided objects on a 2D normalized holographic canvas (the table). When "objects" is present, ALSO return an "assemblyPlan": an ordered list where each step moves or highlights ONE object to accomplish the user's goal.
+- Use object IDs from the input "objects" array. Never invent object IDs. Only reference objects that exist.
+- Only move objects that exist; use their current "center" as the implied start and provide a "to" destination (and optional "from").
+- Keep every x/y between 0 and 1.
+- Center important components, move hazards away from edges, group related parts together, and route cables cleanly.
+- For electrical/PCB/heat/tools/height/chemicals/machinery/pressure/sharp-tool tasks: be safety-first, keep it high-level, and tell the user to verify with a qualified person.
+The "assemblyPlan" is OPTIONAL — omit it when no "objects" were provided; keep returning planSteps/planOverlays as usual.
+
 Return ONLY valid JSON matching this TypeScript shape (no prose, no markdown):
 {
   "detectedIntent": string,
@@ -71,7 +80,8 @@ Return ONLY valid JSON matching this TypeScript shape (no prose, no markdown):
   "aiNotes": { "id": string, "type": "instruction"|"safety"|"quality"|"observation"|"next-step"|"intent", "text": string, "x": number, "y": number, "confidence"?: number }[],
   "planSteps": { "id": string, "title": string, "instruction": string, "x": number, "y": number, "status": "active"|"pending"|"completed", "safetyNote"?: string, "qualityCheck"?: string }[],
   "planOverlays": { "id": string, "type": "arrow"|"target"|"ghost-position"|"highlight"|"warning-zone"|"callout"|"step-marker", "x"?: number, "y"?: number, "from"?: {"x":number,"y":number}, "to"?: {"x":number,"y":number}, "label"?: string, "stepId"?: string }[],
-  "virtualBlueprintPoints": { "id": string, "role": "anchor"|"alignment-point"|"target-position"|"connection-point"|"inspection-point"|"warning-point", "x": number, "y": number, "label"?: string, "instruction"?: string, "linkedStepId"?: string }[]
+  "virtualBlueprintPoints": { "id": string, "role": "anchor"|"alignment-point"|"target-position"|"connection-point"|"inspection-point"|"warning-point", "x": number, "y": number, "label"?: string, "instruction"?: string, "linkedStepId"?: string }[],
+  "assemblyPlan"?: { "objectId"?: string, "title": string, "instruction": string, "from"?: {"x":number,"y":number}, "to"?: {"x":number,"y":number}, "safetyNote"?: string, "qualityCheck"?: string }[]
 }`;
 
 // ── server-side validation / clamp (mirrors the app validator) ──────────────
@@ -183,7 +193,30 @@ function validate(raw: unknown): Dict | null {
       },
     ];
   });
-  if (planSteps.length === 0 && aiNotes.length === 0) return null; // unusable
+  // Optional multi-object assembly plan for the holographic scene canvas. Kept
+  // OPTIONAL + additive — the app validator and existing consumers ignore it
+  // when absent, so this stays backward compatible.
+  const assemblyPlan = arr(r.assemblyPlan)
+    .flatMap((s, i) => {
+      if (!s || typeof s !== "object") return [];
+      const o = s as Dict;
+      const instruction = str(o.instruction).trim();
+      const title = str(o.title).trim();
+      if (!instruction && !title) return [];
+      return [
+        {
+          objectId: str(o.objectId) || undefined,
+          title: title || `Step ${i + 1}`,
+          instruction: instruction || title,
+          from: pt(o.from),
+          to: pt(o.to),
+          safetyNote: str(o.safetyNote) || undefined,
+          qualityCheck: str(o.qualityCheck) || undefined,
+        },
+      ];
+    })
+    .slice(0, 16);
+  if (planSteps.length === 0 && aiNotes.length === 0 && assemblyPlan.length === 0) return null; // unusable
   return {
     detectedIntent: str(r.detectedIntent),
     suggestedGoals: arr(r.suggestedGoals)
@@ -197,6 +230,7 @@ function validate(raw: unknown): Dict | null {
     planSteps,
     planOverlays,
     virtualBlueprintPoints,
+    ...(assemblyPlan.length ? { assemblyPlan } : {}),
   };
 }
 

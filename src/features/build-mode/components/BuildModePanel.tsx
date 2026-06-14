@@ -31,6 +31,7 @@ import { compressImageB64 } from "../lib/thumbnail";
 import type { BlueprintWorkflowMode, BuildBackendStatus, PlanTaskType } from "../types";
 import { BlueprintTimeline } from "./BlueprintTimeline";
 import { PlanInputDrawer } from "./PlanInputDrawer";
+import { PlanStepNavigator } from "./PlanStepNavigator";
 
 /** Short chip label for the resolved Build Mode backend. */
 const BACKEND_STATUS: Record<BuildBackendStatus, { label: string; live: boolean }> = {
@@ -564,6 +565,18 @@ export function BuildModePanel({
             )}
           </div>
         </div>
+      )}
+
+      {/* Holographic Scene Canvas: user-gated Previous/Next step navigation for
+          the multi-object plan (only when a scene was built; the single-object
+          plan keeps its guided-steps list below). */}
+      {isPlan && planGuiding && session.sceneBlueprint && (
+        <PlanStepNavigator
+          scene={session.sceneBlueprint}
+          onPrevious={session.goToPreviousPlanStep}
+          onNext={session.goToNextPlanStep}
+          onReset={session.resetPlanSteps}
+        />
       )}
 
       {/* AI guidance carried on the blueprint frames: detected intent, the
