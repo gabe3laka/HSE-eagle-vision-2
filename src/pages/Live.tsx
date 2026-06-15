@@ -666,7 +666,11 @@ export default function Live() {
         showSkeleton={import.meta.env.DEV}
         backendEntities={backendEntities as BackendEntity[]}
         backendPoses={backendPoses as BackendPose[]}
-        backendDryRun={isBackendMode}
+        // Dry-run debug overlays (raw entity boxes, the fuchsia pose skeleton
+        // and the entity/pose count chip) belong to HSE monitoring only. In
+        // Build/Plan they just clutter the camera on top of the clean
+        // ExtractableCandidateOverlay selection boxes, so suppress them there.
+        backendDryRun={isBackendMode && !buildModeOn}
         zones={zones}
         editingZones={editingZones}
         onZoneCreate={(points) =>
