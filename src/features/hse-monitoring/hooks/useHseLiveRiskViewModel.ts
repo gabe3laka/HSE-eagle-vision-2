@@ -48,7 +48,8 @@ function shouldCarryMissing(entry: HseRiskSmoothingEntry, nowMs: number): boolea
   const missingFor = nowMs - entry.lastSeenMs;
   if (visibleFor < MIN_VISIBLE_RISK_MS) return true;
   const level = String(entry.level ?? "").toUpperCase();
-  if (level === "YELLOW") return missingFor <= YELLOW_RESOLVING_MS && visibleFor <= YELLOW_HARD_MAX_MS;
+  if (level === "YELLOW")
+    return missingFor <= YELLOW_RESOLVING_MS && visibleFor <= YELLOW_HARD_MAX_MS;
   if (level === "RED") return missingFor <= RED_STALE_MAX_MS;
   return false;
 }
@@ -98,7 +99,9 @@ export function applyHseRiskSmoothing(
   };
 }
 
-export function useHseLiveRiskViewModel(input: BuildHseLiveRiskViewModelInput): HseLiveRiskViewModel {
+export function useHseLiveRiskViewModel(
+  input: BuildHseLiveRiskViewModelInput,
+): HseLiveRiskViewModel {
   const cacheRef = useRef<HseRiskSmoothingCache>(new Map());
   return useMemo(() => {
     const base = buildHseLiveRiskViewModel(input);

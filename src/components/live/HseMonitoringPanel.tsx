@@ -1,4 +1,13 @@
-import { Check, Crosshair, Eye, Radar, ScanSearch, ShieldAlert, Sparkles, Telescope } from "lucide-react";
+import {
+  Check,
+  Crosshair,
+  Eye,
+  Radar,
+  ScanSearch,
+  ShieldAlert,
+  Sparkles,
+  Telescope,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HSE_PROFILES } from "@/lib/detection/hseDetectProfile";
 import type { HSEDetectionProfile } from "@/lib/detection/hseTypes";

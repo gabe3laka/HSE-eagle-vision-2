@@ -166,10 +166,7 @@ function riskHazard(risk: SceneRisk): string | undefined {
 
 function riskReason(risk: SceneRisk): string | undefined {
   return (
-    risk.risk_reason ??
-    risk.trigger_condition ??
-    risk.visual_evidence?.[0] ??
-    risk.evidence?.[0]
+    risk.risk_reason ?? risk.trigger_condition ?? risk.visual_evidence?.[0] ?? risk.evidence?.[0]
   );
 }
 
@@ -378,7 +375,11 @@ export function effectiveRiskLevel(input: {
   let best = rawLevel;
 
   const hazard = lower(riskHazard(risk ?? {}));
-  if (hazard === "object_near_edge" && typeof risk?.risk_score === "number" && risk.risk_score >= 4) {
+  if (
+    hazard === "object_near_edge" &&
+    typeof risk?.risk_score === "number" &&
+    risk.risk_score >= 4
+  ) {
     best = riskLevelRank(best) < riskLevelRank("YELLOW") ? "YELLOW" : best;
   }
 
@@ -424,9 +425,8 @@ function linkedLabelsForRisk(risk: SceneRisk, entities: BackendEntity[]): string
   return unique(
     entities
       .map((entity, index) =>
-        riskMatchesEntity(risk, entity, index) &&
-        isActionableObjectNearEdgeEntity(risk, entity)
-          ? entity.semantic_label ?? entity.label
+        riskMatchesEntity(risk, entity, index) && isActionableObjectNearEdgeEntity(risk, entity)
+          ? (entity.semantic_label ?? entity.label)
           : undefined,
       )
       .filter(Boolean),
@@ -435,8 +435,7 @@ function linkedLabelsForRisk(risk: SceneRisk, entities: BackendEntity[]): string
 
 function linkedIdsForRisk(risk: SceneRisk, entities: BackendEntity[]): string[] {
   const fromEntities = entities.flatMap((entity, index) =>
-    riskMatchesEntity(risk, entity, index) &&
-    isActionableObjectNearEdgeEntity(risk, entity)
+    riskMatchesEntity(risk, entity, index) && isActionableObjectNearEdgeEntity(risk, entity)
       ? entityIds(entity)
       : [],
   );
@@ -490,7 +489,9 @@ export function groupRisks(
         level,
         hazardType,
         linkedLabels: labels,
-        linkedTrackIds: unique(isObjectNearEdgeRisk(risk) ? linkedIds : [...riskTrackIds(risk), ...linkedIds]),
+        linkedTrackIds: unique(
+          isObjectNearEdgeRisk(risk) ? linkedIds : [...riskTrackIds(risk), ...linkedIds],
+        ),
         itemCount: Math.max(1, labels.length || linkedIds.length),
         reason: riskReason(risk),
         primaryAction: action,
@@ -510,7 +511,11 @@ export function groupRisks(
       ...existing.linkedTrackIds,
       ...(isObjectNearEdgeRisk(risk) ? linkedIds : [...riskTrackIds(risk), ...linkedIds]),
     ]);
-    existing.itemCount = Math.max(existing.itemCount + 1, existing.linkedLabels.length, existing.linkedTrackIds.length);
+    existing.itemCount = Math.max(
+      existing.itemCount + 1,
+      existing.linkedLabels.length,
+      existing.linkedTrackIds.length,
+    );
     if (riskLevelRank(level) > riskLevelRank(existing.level)) existing.level = level;
     if (
       typeof risk.risk_score === "number" &&
@@ -518,10 +523,16 @@ export function groupRisks(
     ) {
       existing.highestRiskScore = risk.risk_score;
     }
-    existing.latestSeenMs = Math.max(existing.latestSeenMs ?? Number.NEGATIVE_INFINITY, riskUpdatedMs(risk, index));
+    existing.latestSeenMs = Math.max(
+      existing.latestSeenMs ?? Number.NEGATIVE_INFINITY,
+      riskUpdatedMs(risk, index),
+    );
     if (!existing.reason) existing.reason = riskReason(risk);
     if (!existing.primaryAction) existing.primaryAction = action;
-    if (existing.sourceLabel !== "Rules + Qwen" && sourceLabelForRisk(risk) !== existing.sourceLabel) {
+    if (
+      existing.sourceLabel !== "Rules + Qwen" &&
+      sourceLabelForRisk(risk) !== existing.sourceLabel
+    ) {
       existing.sourceLabel = "Rules + Qwen";
     }
     existing.isResolving = existing.isResolving || risk.risk_resolving === true;
@@ -531,9 +542,15 @@ export function groupRisks(
   return [...groups.values()].sort(rankGroupedRisks);
 }
 
-function qwenCandidateFromRisk(risk: SceneRisk, index: number, entities: BackendEntity[]): HseQwenCandidate {
+function qwenCandidateFromRisk(
+  risk: SceneRisk,
+  index: number,
+  entities: BackendEntity[],
+): HseQwenCandidate {
   const approximateRegion = risk.approximate_region ?? risk.bbox ?? risk.box;
-  const matched = entities.find((entity, entityIndex) => riskMatchesEntity(risk, entity, entityIndex));
+  const matched = entities.find((entity, entityIndex) =>
+    riskMatchesEntity(risk, entity, entityIndex),
+  );
   const status =
     (risk.candidate_status as HseQwenCandidate["status"] | undefined) ??
     (matched ? "matched" : "unlinked");
@@ -574,9 +591,7 @@ export function filterOverlayEntities(
   groupedRisks: HseGroupedRisk[],
   debug = false,
 ): BackendEntity[] {
-  const activeRisks = groupedRisks.flatMap((group) =>
-    group.risks.map((risk) => ({ risk, group })),
-  );
+  const activeRisks = groupedRisks.flatMap((group) => group.risks.map((risk) => ({ risk, group })));
   const out: BackendEntity[] = [];
   entities.forEach((entity, index) => {
     if (entity.correction_status === "suppress_from_hse_alerts" && !debug) return;
@@ -595,7 +610,13 @@ export function filterOverlayEntities(
       linkedSceneHighest: match?.group.level,
     });
     if (!debug && (!level || riskLevelRank(level) < riskLevelRank("YELLOW"))) return;
-    if (!debug && !match && !entity.linked_risk_id && riskLevelRank(level) < riskLevelRank("YELLOW")) return;
+    if (
+      !debug &&
+      !match &&
+      !entity.linked_risk_id &&
+      riskLevelRank(level) < riskLevelRank("YELLOW")
+    )
+      return;
     out.push({
       ...entity,
       risk_level: level ?? entity.risk_level,
@@ -627,7 +648,9 @@ function hasHumanTorsoStructure(pose: BackendPose): boolean {
     .filter((kp) => kp.score >= MIN_HSE_POSE_KEYPOINT_SCORE)
     .map((kp) => lower(kp.name));
   const hasRecognizableNames = visibleNames.some((name) =>
-    /(nose|eye|ear|shoulder|hip|knee|ankle|elbow|wrist|thumb|index|middle|ring|pinky|palm)/.test(name),
+    /(nose|eye|ear|shoulder|hip|knee|ankle|elbow|wrist|thumb|index|middle|ring|pinky|palm)/.test(
+      name,
+    ),
   );
   if (!hasRecognizableNames) return true;
 
@@ -771,10 +794,14 @@ function sceneContextLabel(sceneContext: unknown): string | undefined {
   if (!sceneContext || typeof sceneContext !== "object") return undefined;
   const record = sceneContext as Record<string, unknown>;
   const candidates = [record.summary, record.scene, record.environment_type, record.location_type];
-  return candidates.find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  return candidates.find(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
 }
 
-export function buildHseLiveRiskViewModel(input: BuildHseLiveRiskViewModelInput): HseLiveRiskViewModel {
+export function buildHseLiveRiskViewModel(
+  input: BuildHseLiveRiskViewModelInput,
+): HseLiveRiskViewModel {
   const entities = input.entities ?? [];
   const poses = input.poses ?? [];
   const parsedRisk = input.parsedRisk;
@@ -807,7 +834,12 @@ export function buildHseLiveRiskViewModel(input: BuildHseLiveRiskViewModelInput)
   const hiddenGroupedRiskCount = Math.max(0, groupedRisks.length - priorityRisks.length);
 
   const overlayEntities = filterOverlayEntities(entities, groupedRisks, input.debug === true);
-  const poseResult = filterHsePoses(poses, entities, parsedRisk?.sceneContext, input.debug === true);
+  const poseResult = filterHsePoses(
+    poses,
+    entities,
+    parsedRisk?.sceneContext,
+    input.debug === true,
+  );
   const debugRisks: HseDebugRisk[] = [
     ...rawRisks.map((risk, index) => ({
       key: riskBaseKey(risk, index),

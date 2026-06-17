@@ -85,9 +85,7 @@ function riskIdLine(risk: SceneRisk): string | null {
     risk.track_id ? `track ${risk.track_id}` : null,
     risk.detection_id ? `det ${risk.detection_id}` : null,
     risk.involved_track_ids?.length ? `tracks ${risk.involved_track_ids.join(", ")}` : null,
-    risk.involved_detection_ids?.length
-      ? `dets ${risk.involved_detection_ids.join(", ")}`
-      : null,
+    risk.involved_detection_ids?.length ? `dets ${risk.involved_detection_ids.join(", ")}` : null,
   ].filter(Boolean);
   return ids.length ? ids.join(" | ") : null;
 }
@@ -271,7 +269,9 @@ function ReasonerChip({ vm }: { vm: HseLiveRiskViewModel }) {
             ? "bg-cyan-400/10 text-cyan-200"
             : "bg-white/[0.04] text-muted-foreground";
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${cls}`}>
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${cls}`}
+    >
       <Sparkles className="h-3 w-3" />
       {vm.reasonerBadge.label}
     </span>
@@ -310,7 +310,9 @@ function GroupedRiskRow({ group }: { group: HseGroupedRisk }) {
       <p className="mt-1 text-[11px] leading-snug text-muted-foreground">Why: {why}</p>
       <p className="mt-1 text-[11px] leading-snug text-foreground/90">Action: {action}</p>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[9px] text-muted-foreground">
-        <span className="rounded-full bg-white/[0.05] px-1.5 py-0.5">Source: {group.sourceLabel}</span>
+        <span className="rounded-full bg-white/[0.05] px-1.5 py-0.5">
+          Source: {group.sourceLabel}
+        </span>
         {group.isResolving && (
           <span className="rounded-full bg-yellow-300/10 px-1.5 py-0.5 text-yellow-100">
             clearing shortly
@@ -461,11 +463,7 @@ export function SceneRiskPanel({
 }) {
   if (hseRiskViewModel) {
     return (
-      <ReadableSceneRiskPanel
-        risk={risk}
-        vm={hseRiskViewModel}
-        showProvenance={showProvenance}
-      />
+      <ReadableSceneRiskPanel risk={risk} vm={hseRiskViewModel} showProvenance={showProvenance} />
     );
   }
 
@@ -629,9 +627,8 @@ export function RiskDebugPanel({ risk }: { risk: ParsedDetectRisk }) {
           engine: {risk.riskEngine ?? "-"}
         </div>
         <div>
-          risk: {String(risk.riskEnabled ?? "-")} | tracking:{" "}
-          {String(risk.trackingEnabled ?? "-")} | scene-graph:{" "}
-          {String(risk.sceneGraphEnabled ?? "-")}
+          risk: {String(risk.riskEnabled ?? "-")} | tracking: {String(risk.trackingEnabled ?? "-")}{" "}
+          | scene-graph: {String(risk.sceneGraphEnabled ?? "-")}
         </div>
         <div>
           degraded:{" "}

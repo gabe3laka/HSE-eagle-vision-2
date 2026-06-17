@@ -20,7 +20,11 @@ import {
   YELLOW_RESOLVING_MS,
   type HseRiskSmoothingCache,
 } from "../features/hse-monitoring/hooks/useHseLiveRiskViewModel";
-import { boxColorFor, boxLabelForEntity, shouldRenderEntityBox } from "../components/live/BackendEntityOverlay";
+import {
+  boxColorFor,
+  boxLabelForEntity,
+  shouldRenderEntityBox,
+} from "../components/live/BackendEntityOverlay";
 import type { ParsedDetectRisk } from "../lib/detection/backendVisionHttpDetector";
 import type { BackendEntity, BackendPose, BBox } from "../lib/detection/types";
 import type { HSEActiveAlert } from "../lib/detection/hseTypes";
@@ -174,8 +178,12 @@ describe("HSE live risk view model", () => {
       localAlertsEnabled: false,
     });
     expect(disabled.priorityRisks).toEqual([]);
-    expect(disabled.debugRisks.filter((item) => item.sourceLabel === "Local fallback")).toHaveLength(3);
-    expect(disabled.debugRisks.every((item) => item.sourceLabel !== "Local fallback" || item.hidden)).toBe(true);
+    expect(
+      disabled.debugRisks.filter((item) => item.sourceLabel === "Local fallback"),
+    ).toHaveLength(3);
+    expect(
+      disabled.debugRisks.every((item) => item.sourceLabel !== "Local fallback" || item.hidden),
+    ).toBe(true);
 
     const fallback = buildHseLiveRiskViewModel({
       entities: [],
@@ -207,9 +215,19 @@ describe("HSE live risk view model", () => {
   it("ranks RED before ORANGE before YELLOW", () => {
     const groups = groupRisks(
       [
-        risk({ risk_id: "yellow", hazard_type: "yellow_risk", risk_level: "YELLOW", risk_score: 99 }),
+        risk({
+          risk_id: "yellow",
+          hazard_type: "yellow_risk",
+          risk_level: "YELLOW",
+          risk_score: 99,
+        }),
         risk({ risk_id: "red", hazard_type: "red_risk", risk_level: "RED", risk_score: 1 }),
-        risk({ risk_id: "orange", hazard_type: "orange_risk", risk_level: "ORANGE", risk_score: 50 }),
+        risk({
+          risk_id: "orange",
+          hazard_type: "orange_risk",
+          risk_level: "ORANGE",
+          risk_score: 50,
+        }),
       ],
       [],
     ).sort(rankGroupedRisks);
@@ -369,7 +387,9 @@ describe("HSE live risk view model", () => {
   });
 
   it("calculates effective YELLOW for object_near_edge score 4 and latent risk", () => {
-    expect(effectiveRiskLevel({ risk: risk({ risk_level: "GREEN", risk_score: 4 }) })).toBe("YELLOW");
+    expect(effectiveRiskLevel({ risk: risk({ risk_level: "GREEN", risk_score: 4 }) })).toBe(
+      "YELLOW",
+    );
     expect(
       effectiveRiskLevel({
         risk: risk({ risk_level: "GREEN", risk_score: 1, risk_state: "latent" }),

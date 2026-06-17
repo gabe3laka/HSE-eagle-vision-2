@@ -111,7 +111,9 @@ function unique(values: Array<string | undefined>): string[] {
 }
 
 function labelKey(value?: string): string {
-  return String(value ?? "").trim().toLowerCase();
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function entityStableId(entity: BackendEntity, index: number): string {
@@ -144,7 +146,9 @@ function hazardType(risk: SceneRisk): string | undefined {
 }
 
 function riskReason(risk: SceneRisk): string | undefined {
-  return risk.risk_reason ?? risk.trigger_condition ?? risk.visual_evidence?.[0] ?? risk.evidence?.[0];
+  return (
+    risk.risk_reason ?? risk.trigger_condition ?? risk.visual_evidence?.[0] ?? risk.evidence?.[0]
+  );
 }
 
 function riskEvidence(risk: SceneRisk): string[] | undefined {
@@ -152,10 +156,7 @@ function riskEvidence(risk: SceneRisk): string[] | undefined {
 }
 
 function riskTrackIds(risk: SceneRisk): string[] {
-  return unique([
-    ...(risk.involved_track_ids ?? []),
-    asString(risk.track_id),
-  ]);
+  return unique([...(risk.involved_track_ids ?? []), asString(risk.track_id)]);
 }
 
 function riskDetectionIds(risk: SceneRisk): string[] {
@@ -178,10 +179,7 @@ function riskIdentity(risk: SceneRisk, index: number): string {
 }
 
 function correctionTrackIds(correction: SemanticCorrection): string[] {
-  return unique([
-    ...(correction.involved_track_ids ?? []),
-    asString(correction.track_id),
-  ]);
+  return unique([...(correction.involved_track_ids ?? []), asString(correction.track_id)]);
 }
 
 function correctionDetectionIds(correction: SemanticCorrection): string[] {
@@ -271,10 +269,16 @@ function matchScore(
   const sizeScore = sizeSimilarity(sourceBox, entity.bbox);
   const labelScore = compatibleLabels(sourceLabel, entity.label) ? 1 : 0;
   const semanticScore = compatibleLabels(sourceSemanticLabel, entity.semantic_label) ? 1 : 0.65;
-  return overlap * 0.35 + centerScore * 0.3 + sizeScore * 0.15 + labelScore * 0.15 + semanticScore * 0.05;
+  return (
+    overlap * 0.35 + centerScore * 0.3 + sizeScore * 0.15 + labelScore * 0.15 + semanticScore * 0.05
+  );
 }
 
-function findEntityByIds(entities: BackendEntity[], trackIds: string[], detectionIds: string[]): number {
+function findEntityByIds(
+  entities: BackendEntity[],
+  trackIds: string[],
+  detectionIds: string[],
+): number {
   return entities.findIndex((entity) => {
     const trackMatch = !!entity.track_id && trackIds.includes(entity.track_id);
     const detectionMatch = !!entity.detection_id && detectionIds.includes(entity.detection_id);
@@ -345,7 +349,8 @@ function buildAnchorFromRisk(
     status,
     stale,
     lastConfirmedAtMs: stale ? previous?.lastConfirmedAtMs : nowMs,
-    resolvingStartedAtMs: status === "resolving" ? (previous?.resolvingStartedAtMs ?? nowMs) : undefined,
+    resolvingStartedAtMs:
+      status === "resolving" ? (previous?.resolvingStartedAtMs ?? nowMs) : undefined,
     createdAtMs,
     updatedAtMs: nowMs,
     expiresAtMs,
@@ -418,11 +423,18 @@ function applyAnchorToEntity(
   );
 }
 
-function previousAnchorForRisk(previousAnchors: RiskAnchor[], riskId: string): RiskAnchor | undefined {
+function previousAnchorForRisk(
+  previousAnchors: RiskAnchor[],
+  riskId: string,
+): RiskAnchor | undefined {
   return previousAnchors.find((anchor) => anchor.riskId === riskId);
 }
 
-function riskStillConfirmedByCurrentResponse(anchor: RiskAnchor, risks: SceneRisk[], indexToSkip = -1): boolean {
+function riskStillConfirmedByCurrentResponse(
+  anchor: RiskAnchor,
+  risks: SceneRisk[],
+  indexToSkip = -1,
+): boolean {
   return risks.some((risk, index) => {
     if (index === indexToSkip) return false;
     if (risk.risk_id && risk.risk_id === anchor.riskId) return true;
@@ -485,7 +497,8 @@ export function associateRisksToEntities(
         previous.lastSemanticLabel,
       );
       const level = normalizeRiskLevel(risk.risk_level, risk.risk_color) ?? previous.riskLevel;
-      const threshold = String(level).toUpperCase() === "RED" ? RED_ANCHOR_THRESHOLD : ANCHOR_THRESHOLD;
+      const threshold =
+        String(level).toUpperCase() === "RED" ? RED_ANCHOR_THRESHOLD : ANCHOR_THRESHOLD;
       if (best.index >= 0 && best.score >= threshold) {
         matchedIndex = best.index;
         association = "anchor_carryover";
@@ -526,7 +539,10 @@ export function associateRisksToEntities(
 
   for (const previous of previousAnchors) {
     if (updatedAnchorIds.has(previous.riskId)) continue;
-    if (previous.status === "expired" || nowMs >= Math.min(previous.expiresAtMs, riskHardExpiry(previous))) {
+    if (
+      previous.status === "expired" ||
+      nowMs >= Math.min(previous.expiresAtMs, riskHardExpiry(previous))
+    ) {
       continue;
     }
     if (!previous.lastBox) {
@@ -592,7 +608,9 @@ export function associateRisksToEntities(
   return {
     entities,
     associatedRisks,
-    anchors: nextAnchors.filter((anchor) => anchor.status !== "expired" && nowMs < anchor.expiresAtMs),
+    anchors: nextAnchors.filter(
+      (anchor) => anchor.status !== "expired" && nowMs < anchor.expiresAtMs,
+    ),
     unmatchedRisks,
   };
 }
@@ -600,11 +618,19 @@ export function associateRisksToEntities(
 function isProtectedSuppression(entity: BackendEntity, correction: SemanticCorrection): boolean {
   const action = labelKey(correction.action);
   if (action !== "suppress_from_hse_alerts") return false;
-  const labels = [entity.label, entity.semantic_label, entity.raw_label, correction.semantic_label, correction.corrected_label]
+  const labels = [
+    entity.label,
+    entity.semantic_label,
+    entity.raw_label,
+    correction.semantic_label,
+    correction.corrected_label,
+  ]
     .map(labelKey)
     .filter(Boolean);
   return labels.some((label) =>
-    PROTECTED_SUPPRESSION_LABELS.some((protectedLabel) => label === protectedLabel || label.includes(protectedLabel)),
+    PROTECTED_SUPPRESSION_LABELS.some(
+      (protectedLabel) => label === protectedLabel || label.includes(protectedLabel),
+    ),
   );
 }
 
@@ -637,13 +663,20 @@ export function applySemanticCorrectionsToEntities(
     const correctionId = correctionIdentity(correction, index);
     const trackIds = correctionTrackIds(correction);
     const detectionIds = correctionDetectionIds(correction);
-    const previous = previousCorrectionAnchors.find((anchor) => anchor.correctionId === correctionId);
+    const previous = previousCorrectionAnchors.find(
+      (anchor) => anchor.correctionId === correctionId,
+    );
     let matchedIndex = findEntityByIds(entities, trackIds, detectionIds);
 
     if (matchedIndex < 0) {
       const historical = findHistoricalEntity(trackIds, detectionIds, recentSnapshots);
       if (historical) {
-        const best = findBestSpatialMatch(entities, historical.bbox, historical.label, historical.semantic_label);
+        const best = findBestSpatialMatch(
+          entities,
+          historical.bbox,
+          historical.label,
+          historical.semantic_label,
+        );
         if (
           best.index >= 0 &&
           (best.overlap >= HISTORICAL_IOU_THRESHOLD ||
@@ -656,14 +689,23 @@ export function applySemanticCorrectionsToEntities(
     }
 
     if (matchedIndex < 0 && previous?.lastBox) {
-      const best = findBestSpatialMatch(entities, previous.lastBox, previous.lastLabel, previous.lastSemanticLabel);
+      const best = findBestSpatialMatch(
+        entities,
+        previous.lastBox,
+        previous.lastLabel,
+        previous.lastSemanticLabel,
+      );
       if (best.index >= 0 && best.score >= ANCHOR_THRESHOLD) matchedIndex = best.index;
     }
 
     if (matchedIndex < 0) {
       const box = correctionBox(correction);
       if (box) {
-        const best = findBestSpatialMatch(entities, box, correction.original_label ?? correction.raw_label);
+        const best = findBestSpatialMatch(
+          entities,
+          box,
+          correction.original_label ?? correction.raw_label,
+        );
         if (best.index >= 0 && best.score >= SPATIAL_FALLBACK_THRESHOLD) matchedIndex = best.index;
       }
     }
@@ -681,7 +723,11 @@ export function applySemanticCorrectionsToEntities(
       rawLabel: correction.raw_label ?? correction.original_label,
       reason: correction.reason,
       linkedTrackIds: unique([...trackIds, entities[matchedIndex].track_id]),
-      linkedDetectionIds: unique([...detectionIds, entities[matchedIndex].detection_id, entities[matchedIndex].id]),
+      linkedDetectionIds: unique([
+        ...detectionIds,
+        entities[matchedIndex].detection_id,
+        entities[matchedIndex].id,
+      ]),
       lastMatchedEntityId: entityStableId(entities[matchedIndex], matchedIndex),
       lastMatchedTrackId: entities[matchedIndex].track_id,
       lastLabel: entities[matchedIndex].label,
@@ -696,7 +742,12 @@ export function applySemanticCorrectionsToEntities(
   for (const previous of previousCorrectionAnchors) {
     if (anchors.some((anchor) => anchor.correctionId === previous.correctionId)) continue;
     if (nowMs >= previous.expiresAtMs || !previous.lastBox) continue;
-    const best = findBestSpatialMatch(entities, previous.lastBox, previous.lastLabel, previous.lastSemanticLabel);
+    const best = findBestSpatialMatch(
+      entities,
+      previous.lastBox,
+      previous.lastLabel,
+      previous.lastSemanticLabel,
+    );
     if (best.index < 0 || best.score < ANCHOR_THRESHOLD) continue;
     applyCorrection(entities[best.index], {
       correction_id: previous.correctionId,

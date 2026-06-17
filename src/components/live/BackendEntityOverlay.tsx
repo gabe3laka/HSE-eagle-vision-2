@@ -41,7 +41,8 @@ export function boxLabelForEntity(
           : e.risk_level
             ? String(e.risk_level).toUpperCase()
             : null;
-  const semantic = e.semantic_label && e.semantic_label !== e.label ? ` -> ${e.semantic_label}` : "";
+  const semantic =
+    e.semantic_label && e.semantic_label !== e.label ? ` -> ${e.semantic_label}` : "";
   return status ? `${e.label}${semantic} - ${status} - ${pct}` : `${e.label}${semantic} - ${pct}`;
 }
 

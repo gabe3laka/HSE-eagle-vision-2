@@ -105,11 +105,7 @@ describe("backward-compatible parsing", () => {
       scene_context: { environment_type: "indoor" },
       semantic_corrections: [{ correction_id: "c1", action: "semantic_label" }],
     });
-    expect(parsed.sceneRisks.map((item) => item.risk_id)).toEqual([
-      "x",
-      "scene-only",
-      "risk-only",
-    ]);
+    expect(parsed.sceneRisks.map((item) => item.risk_id)).toEqual(["x", "scene-only", "risk-only"]);
     expect(parsed.sceneRisks[0].risk_level).toBe("ORANGE");
     expect(parsed.temporalReasoning).toEqual({ carried_tracks: 1 });
     expect(parsed.sceneContext).toEqual({ environment_type: "indoor" });
