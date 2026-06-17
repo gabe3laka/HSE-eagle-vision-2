@@ -140,21 +140,31 @@ describe("(6) isAiDraftReviewRequired", () => {
   });
 });
 
-// ── (7) feature-flag helper returns false when env unset ─────────────────────
-describe("(7) feature flags default OFF", () => {
-  it("readFlag returns false when env is unset", () => {
+// ── (7) feature-flag helper: readFlag off-by-default; risk flags default ON ──
+describe("(7) feature flags", () => {
+  it("readFlag returns its default (false) when env is unset", () => {
     expect(readFlag("VITE_RISK_AWARE_OVERLAY", {})).toBe(false);
     expect(readFlag("VITE_WORKER_SCENE_RISKS", { VITE_WORKER_SCENE_RISKS: "false" })).toBe(false);
     expect(readFlag("VITE_WORKER_SCENE_RISKS", { VITE_WORKER_SCENE_RISKS: "1" })).toBe(false);
   });
 
-  it("readFlag only true for the exact string 'true'", () => {
+  it("readFlag is true for 'true', false for 'false', else the default", () => {
     expect(readFlag("VITE_RISK_AWARE_OVERLAY", { VITE_RISK_AWARE_OVERLAY: "true" })).toBe(true);
+    expect(readFlag("VITE_RISK_AWARE_OVERLAY", {}, true)).toBe(true);
+    expect(readFlag("VITE_RISK_AWARE_OVERLAY", { VITE_RISK_AWARE_OVERLAY: "false" }, true)).toBe(
+      false,
+    );
   });
 
-  it("readRiskFeatureFlags returns all-false for an empty env", () => {
+  it("readRiskFeatureFlags defaults all flags ON for an empty env", () => {
     const f = readRiskFeatureFlags({});
-    expect(Object.values(f).every((v) => v === false)).toBe(true);
+    expect(Object.values(f).every((v) => v === true)).toBe(true);
+  });
+
+  it("readRiskFeatureFlags honours an explicit 'false' opt-out", () => {
+    const f = readRiskFeatureFlags({ VITE_RISK_AWARE_OVERLAY: "false" });
+    expect(f.riskAwareOverlay).toBe(false);
+    expect(f.workerSceneRisks).toBe(true);
   });
 });
 
