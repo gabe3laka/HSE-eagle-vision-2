@@ -43,6 +43,10 @@ interface Props {
   backendEntities?: BackendEntity[];
   backendPoses?: BackendPose[];
   backendDryRun?: boolean;
+  /** Risk-aware box coloring (VITE_RISK_AWARE_OVERLAY). OFF → unchanged. */
+  riskAwareOverlay?: boolean;
+  /** Small privacy notice slot near the camera (VITE_CAMERA_PRIVACY_NOTICE). */
+  privacyNotice?: React.ReactNode;
   zones?: DetectionZone[];
   editingZones?: boolean;
   onZoneCreate?: (points: ZonePoint[]) => void;
@@ -89,6 +93,8 @@ export function CameraView({
   backendEntities,
   backendPoses,
   backendDryRun,
+  riskAwareOverlay,
+  privacyNotice,
   zones,
   editingZones,
   onZoneCreate,
@@ -287,6 +293,7 @@ export function CameraView({
                 poses={backendPoses ?? []}
                 debug={showSkeleton}
                 mirrored={mirrored}
+                riskAware={riskAwareOverlay}
               />
               <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
             </>
@@ -302,6 +309,7 @@ export function CameraView({
 
           {active && buildOverlay}
           {active && hseOverlay}
+          {active && privacyNotice}
         </div>
 
         {/* Chips and banners anchored to the SHELL (which IS the visible video rect on mobile). */}

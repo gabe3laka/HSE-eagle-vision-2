@@ -1,5 +1,15 @@
 export type { HazardType, Severity } from "@/integrations/supabase/db";
 import type { HazardType, Severity } from "@/integrations/supabase/db";
+import type { RiskLevel, RecommendedControl } from "./riskTypes";
+// Re-export the risk-aware types so callers can import them from the same
+// module as BackendEntity (convenience; the canonical home is ./riskTypes).
+export type {
+  RiskLevel,
+  RecommendedControl,
+  RiskSummary,
+  SceneRisk,
+  RiskAwareFields,
+} from "./riskTypes";
 
 /** Which detector the live loop uses. */
 export type DetectionMode =
@@ -110,6 +120,23 @@ export interface BackendEntity {
   /** Segmentation outline, normalized 0..1 to the frame (when seg ran). */
   maskContour?: { x: number; y: number }[];
   maskSource?: "none" | "yolo26-seg" | "fallback-contour" | "sam2" | string;
+  // ── OPTIONAL risk-aware fields (newer worker schema). All optional, so
+  //    existing det-only code is unaffected; absent => undefined. ──
+  track_id?: string;
+  state?: string;
+  risk_level?: RiskLevel;
+  risk_color?: string;
+  risk_score?: number;
+  severity?: number;
+  likelihood?: number;
+  risk_reason?: string;
+  evidence?: string[];
+  recommended_action?: string;
+  recommended_controls?: RecommendedControl[];
+  produced_by?: string;
+  risk_matrix_version?: string;
+  requires_human_review?: boolean;
+  confidence_risk?: number;
 }
 
 /**

@@ -14,6 +14,8 @@ import {
 } from "./backendVisionDetector";
 import { applyHseRequestToBody } from "./hseDetectProfile";
 import type { HSEDetectRequest } from "./hseTypes";
+import type { RiskAwareFields, RecommendedControl, RiskSummary, SceneRisk } from "./riskTypes";
+import { normalizeRiskLevel } from "./riskTypes";
 import { supabase } from "@/integrations/supabase/own-client";
 import { computeCoverCrop, isMobileViewport, MOBILE_VISUAL_ASPECT } from "./coverCrop";
 
@@ -67,6 +69,9 @@ const DRY_RUN_CONF = 0.2;
 const CAMERA_ID = "browser-http";
 const TOKEN_SKEW_MS = 30_000; // refresh the token this long before it expires
 const AUTH_COOLDOWN_MS = 15_000; // back off after an auth failure (don't hammer)
+// Backoff after a transient failure (503 / model-warming / network). Short so
+// the stream recovers quickly once the worker is warm again.
+const TRANSIENT_BACKOFF_MS = 2_000;
 
 /**
  * Public, browser-safe Cloudflare Worker `/detect` URL. This is a gateway URL
@@ -143,8 +148,10 @@ export async function fetchDetectSession(cameraId: string): Promise<DetectSessio
 }
 
 /** Shape of a `/detect` JSON response (fields are all optional / best-effort).
- *  YOLO26 adds segments + fallback metadata; older responses omit them. */
-interface DetectResponse {
+ *  YOLO26 adds segments + fallback metadata; older responses omit them. The
+ *  risk-aware fields (RiskAwareFields) are also optional and never required to
+ *  render — an unknown schema_version simply renders the old fields. */
+interface DetectResponse extends RiskAwareFields {
   entities?: unknown;
   poses?: unknown;
   segments?: unknown;
@@ -158,6 +165,163 @@ interface DetectResponse {
   fallbackUsed?: boolean;
   fallbackReason?: string | null;
   warning?: string | null;
+}
+
+/**
+ * The parsed risk-aware view of a `/detect` response. Everything is optional and
+ * tolerant: missing fields stay undefined, unknown `schema_version` is preserved
+ * verbatim (never throws). This is the additive layer on top of the legacy
+ * entities/poses/segments parsing.
+ */
+export interface ParsedDetectRisk {
+  schemaVersion?: string | number;
+  riskEngine?: string;
+  sceneRisks: SceneRisk[];
+  riskSummary?: RiskSummary;
+  riskEnabled?: boolean;
+  trackingEnabled?: boolean;
+  sceneGraphEnabled?: boolean;
+  degraded: boolean;
+  degradationMode?: string;
+  reasonerStatus?: string;
+  stageTimingsMs?: Record<string, number>;
+  privacyBlurApplied?: boolean;
+  warnings: string[];
+  /** Non-blocking debug note when the schema_version is unknown to this client. */
+  schemaWarning?: string;
+}
+
+/** Schema versions this client recognises. An unknown version still renders the
+ *  old fields and only adds a non-blocking debug warning. */
+const KNOWN_SCHEMA_VERSIONS = new Set(["1", "2", "1.0", "2.0", "v1", "v2"]);
+
+/** PURE: true when a `/detect` response carries ANY risk-aware field. Used to
+ *  decide whether to expose a parsed risk view at all (legacy responses → null,
+ *  so the UI stays exactly as before). */
+export function hasRiskAwareData(resp: unknown): boolean {
+  if (!resp || typeof resp !== "object") return false;
+  const r = resp as Record<string, unknown>;
+  const keys: (keyof RiskAwareFields)[] = [
+    "schema_version",
+    "risk_engine",
+    "tracks",
+    "scene_graph",
+    "risks",
+    "scene_risks",
+    "risk_summary",
+    "risk_enabled",
+    "tracking_enabled",
+    "scene_graph_enabled",
+    "degraded",
+    "degradation_mode",
+    "reasoner_status",
+    "stage_timings_ms",
+    "privacy_blur_applied",
+    "warnings",
+  ];
+  return keys.some((k) => r[k] !== undefined);
+}
+
+/**
+ * PURE: parse the OPTIONAL risk-aware fields from a `/detect` response. Never
+ * throws — unknown/missing fields are tolerated and the legacy fields are left
+ * untouched by the caller. Both `scene_risks` and `risks` are accepted (scene_
+ * risks preferred).
+ */
+export function parseDetectRiskFields(resp: unknown): ParsedDetectRisk {
+  const r = (resp && typeof resp === "object" ? resp : {}) as RiskAwareFields;
+  const sceneRisks: SceneRisk[] = Array.isArray(r.scene_risks)
+    ? r.scene_risks
+    : Array.isArray(r.risks)
+      ? r.risks
+      : [];
+  const warnings: string[] = Array.isArray(r.warnings)
+    ? r.warnings.filter((w): w is string => typeof w === "string")
+    : [];
+  const out: ParsedDetectRisk = {
+    sceneRisks,
+    degraded: r.degraded === true,
+    warnings,
+  };
+  if (r.schema_version != null) out.schemaVersion = r.schema_version;
+  if (typeof r.risk_engine === "string") out.riskEngine = r.risk_engine;
+  if (r.risk_summary && typeof r.risk_summary === "object") out.riskSummary = r.risk_summary;
+  if (typeof r.risk_enabled === "boolean") out.riskEnabled = r.risk_enabled;
+  if (typeof r.tracking_enabled === "boolean") out.trackingEnabled = r.tracking_enabled;
+  if (typeof r.scene_graph_enabled === "boolean") out.sceneGraphEnabled = r.scene_graph_enabled;
+  if (typeof r.degradation_mode === "string") out.degradationMode = r.degradation_mode;
+  if (typeof r.reasoner_status === "string") out.reasonerStatus = r.reasoner_status;
+  if (r.stage_timings_ms && typeof r.stage_timings_ms === "object")
+    out.stageTimingsMs = r.stage_timings_ms;
+  if (typeof r.privacy_blur_applied === "boolean") out.privacyBlurApplied = r.privacy_blur_applied;
+  // Unknown schema_version: keep rendering, surface only a debug-level note.
+  if (out.schemaVersion != null && !KNOWN_SCHEMA_VERSIONS.has(String(out.schemaVersion))) {
+    out.schemaWarning = `unknown schema_version: ${String(out.schemaVersion)}`;
+  }
+  return out;
+}
+
+/** PURE: merge any entity-level risk fields (track_id, risk_level, …) from a raw
+ *  worker entity onto a normalized BackendEntity. Optional + tolerant. */
+export function applyEntityRiskFields(
+  entity: BackendEntity,
+  raw: Record<string, unknown>,
+): BackendEntity {
+  if (typeof raw.track_id === "string") entity.track_id = raw.track_id;
+  else if (typeof raw.track_id === "number") entity.track_id = String(raw.track_id);
+  if (typeof raw.state === "string") entity.state = raw.state;
+  const level = normalizeRiskLevel(raw.risk_level, raw.risk_color);
+  if (level) entity.risk_level = level;
+  if (typeof raw.risk_color === "string") entity.risk_color = raw.risk_color;
+  if (typeof raw.risk_score === "number") entity.risk_score = raw.risk_score;
+  if (typeof raw.severity === "number") entity.severity = raw.severity;
+  if (typeof raw.likelihood === "number") entity.likelihood = raw.likelihood;
+  if (typeof raw.risk_reason === "string") entity.risk_reason = raw.risk_reason;
+  if (Array.isArray(raw.evidence))
+    entity.evidence = raw.evidence.filter((e): e is string => typeof e === "string");
+  if (typeof raw.recommended_action === "string")
+    entity.recommended_action = raw.recommended_action;
+  if (Array.isArray(raw.recommended_controls))
+    entity.recommended_controls = raw.recommended_controls.filter(
+      (c): c is RecommendedControl => !!c && typeof c === "object" && "action" in c,
+    );
+  if (typeof raw.produced_by === "string") entity.produced_by = raw.produced_by;
+  if (typeof raw.risk_matrix_version === "string")
+    entity.risk_matrix_version = raw.risk_matrix_version;
+  if (typeof raw.requires_human_review === "boolean")
+    entity.requires_human_review = raw.requires_human_review;
+  if (typeof raw.confidence === "number") entity.confidence_risk = raw.confidence;
+  return entity;
+}
+
+/** PURE: overlay entity-level risk fields from the raw entities array onto the
+ *  already-normalized BackendEntity[] (positional, since normalizeEntities keeps
+ *  order and only drops items with no bbox — best-effort match by index). */
+export function mergeEntityRisk(normalized: BackendEntity[], raw: unknown): BackendEntity[] {
+  if (!Array.isArray(raw)) return normalized;
+  // Build a quick lookup of raw items that carry any risk field.
+  const rawWithRisk = raw.filter(
+    (it) =>
+      it &&
+      typeof it === "object" &&
+      ("risk_level" in it ||
+        "risk_color" in it ||
+        "track_id" in it ||
+        "risk_reason" in it ||
+        "produced_by" in it),
+  ) as Record<string, unknown>[];
+  if (rawWithRisk.length === 0) return normalized;
+  // Positional merge by label+index is fragile; instead match by index in the
+  // ORIGINAL raw array filtered to those with a bbox. Simpler + robust enough:
+  // re-walk raw and pair each bbox-bearing raw entity with the next normalized.
+  let ni = 0;
+  for (const it of raw) {
+    if (!it || typeof it !== "object") continue;
+    if (ni >= normalized.length) break;
+    applyEntityRiskFields(normalized[ni], it as Record<string, unknown>);
+    ni += 1;
+  }
+  return normalized;
 }
 
 function freshStatus(state: BackendStatus["state"]): BackendStatus {
@@ -203,6 +367,9 @@ export class BackendVisionHttpDetector implements Detector {
   private lastEntities: BackendEntity[] = [];
   private lastPoses: BackendPose[] = [];
   private lastSegments: BackendSegment[] = [];
+  // Latest parsed risk-aware view (additive). Null until a response carries any
+  // risk-aware field; old responses leave it null so the UI renders plain.
+  private lastRisk: ParsedDetectRisk | null = null;
   private captureCanvas: HTMLCanvasElement | null = null;
   private captureCtx: CanvasRenderingContext2D | null = null;
   private status: BackendStatus = freshStatus("idle");
@@ -212,6 +379,10 @@ export class BackendVisionHttpDetector implements Detector {
   private sessionPromise: Promise<DetectSession> | null = null;
   private tokenError: string | null = null;
   private tokenErrorAt = 0;
+  // Transient-failure backoff (503 model-warming / network errors). Skips
+  // submitting a new frame until the backoff window elapses — keeps the camera
+  // alive and avoids hammering a cold worker.
+  private retryAfterMs = 0;
   // Optional HSE-monitoring request metadata (profile / quality / ROI). When
   // null the /detect body is exactly the legacy shape — the contract is intact.
   private monitoringRequest: HSEDetectRequest | null = null;
@@ -237,6 +408,8 @@ export class BackendVisionHttpDetector implements Detector {
     this.lastEntities = [];
     this.lastPoses = [];
     this.lastSegments = [];
+    this.lastRisk = null;
+    this.retryAfterMs = 0;
     this.session = null;
     this.sessionPromise = null;
     this.tokenError = null;
@@ -263,11 +436,19 @@ export class BackendVisionHttpDetector implements Detector {
     this.lastEntities = [];
     this.lastPoses = [];
     this.lastSegments = [];
+    this.lastRisk = null;
+    this.retryAfterMs = 0;
     this.captureCanvas = null;
     this.captureCtx = null;
     this.session = null;
     this.sessionPromise = null;
     this.status = freshStatus("idle");
+  }
+
+  /** Latest parsed risk-aware view, or null when the worker didn't include any
+   *  risk-aware fields (legacy responses). Additive — never affects detect(). */
+  getLastRisk(): ParsedDetectRisk | null {
+    return this.lastRisk;
   }
 
   getBackendStatus(): BackendStatus {
@@ -319,7 +500,10 @@ export class BackendVisionHttpDetector implements Detector {
       input.video.readyState >= 2 &&
       input.video.videoWidth > 0 &&
       !this.inFlight &&
-      now - this.lastSubmitAt > TARGET_INTERVAL_MS
+      now - this.lastSubmitAt > TARGET_INTERVAL_MS &&
+      // Transient-failure backoff (503 model-warming / network): skip submitting
+      // until the backoff window elapses. Never tears the camera down.
+      now >= this.retryAfterMs
     ) {
       this.lastSubmitAt = now;
       void this._submitFrame(input.video);
@@ -410,12 +594,13 @@ export class BackendVisionHttpDetector implements Detector {
           ),
         });
       } catch (e) {
-        // network/CORS failure
+        // network/CORS failure — back off briefly and retry (camera stays up).
         this.lastEntities = [];
         this.lastPoses = [];
         this.status.state = "error";
         this.status.error = e instanceof Error ? e.message : String(e);
         this.status.lastLatencyMs = performance.now() - t0;
+        this.retryAfterMs = performance.now() + TRANSIENT_BACKOFF_MS;
         return;
       }
       const latency = performance.now() - t0;
@@ -423,11 +608,23 @@ export class BackendVisionHttpDetector implements Detector {
       this.status.lastLatencyMs = latency;
 
       if (!res.ok) {
-        // 401/403 -> token rejected: drop it so the next submit re-mints.
-        if (res.status === 401 || res.status === 403) this.session = null;
+        // 401/403 -> token invalid/expired: clear the cached token and re-mint
+        // the stream session NOW so the next frame goes out authenticated. We
+        // don't apply the auth cooldown here unless the re-mint itself reports
+        // the user is signed out.
+        if (res.status === 401 || res.status === 403) {
+          this.session = null;
+          void this._ensureToken().catch(() => undefined);
+        }
+        // 503 / model-warming: back off and retry — never a hard camera failure.
+        if (res.status === 503 || res.status === 429) {
+          this.retryAfterMs = performance.now() + TRANSIENT_BACKOFF_MS;
+          this.status.state = "loading";
+        } else {
+          this.status.state = "error";
+        }
         this.lastEntities = [];
         this.lastPoses = [];
-        this.status.state = "error";
         this.status.error = `http_${res.status}`;
         this.status.lastRawResponse = (await safeText(res)).slice(0, 1500);
         return;
@@ -456,9 +653,16 @@ export class BackendVisionHttpDetector implements Detector {
       }
 
       this.lastEntities = normalizeEntities(resp.entities, resp.img_w, resp.img_h);
+      // Additive: overlay any entity-level risk fields (track_id, risk_level, …).
+      mergeEntityRisk(this.lastEntities, resp.entities);
       this.lastPoses = normalizePoses(resp.poses, resp.img_w, resp.img_h);
       // Segments are OPTIONAL — missing/invalid => [] (never breaks parsing).
       this.lastSegments = normalizeSegments(resp.segments, resp.img_w, resp.img_h);
+      // Additive: parse the OPTIONAL risk-aware fields. Unknown schema_version or
+      // missing risk fields never throw — we just keep the legacy view. Only
+      // store a non-null risk when the worker actually included risk-aware data.
+      const parsedRisk = parseDetectRiskFields(resp);
+      this.lastRisk = hasRiskAwareData(resp) ? parsedRisk : null;
       this.status.segmentCount = this.lastSegments.length;
       this.status.lastBackendImgW = typeof resp.img_w === "number" ? resp.img_w : null;
       this.status.lastBackendImgH = typeof resp.img_h === "number" ? resp.img_h : null;
@@ -469,6 +673,7 @@ export class BackendVisionHttpDetector implements Detector {
       this.status.lastInferenceMs =
         typeof resp.inference_ms === "number" ? resp.inference_ms : null;
       this.status.lastSuccessAt = Date.now();
+      this.retryAfterMs = 0; // clear any transient backoff on success
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (import.meta.env.DEV) console.warn("[BackendVisionHttpDetector] error:", msg);

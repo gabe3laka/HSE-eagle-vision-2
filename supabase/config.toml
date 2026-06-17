@@ -1,1 +1,19 @@
 project_id = "pigisgebfcbfvvflxkdw"
+
+# Version-control the JWT verification posture for each Edge Function. The
+# orchestrator owns the function source + deploy; these declarations only make
+# the verify_jwt setting reviewable in git.
+[functions.create-stream-session]
+verify_jwt = true
+
+[functions.plan-reasoning]
+verify_jwt = true
+
+[functions.hse-risk-reasoning]
+verify_jwt = true
+
+[functions.get-build-mode-config]
+verify_jwt = false
+
+[functions.deimv2-proxy]
+verify_jwt = true
