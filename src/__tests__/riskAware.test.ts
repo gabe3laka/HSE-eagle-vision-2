@@ -91,9 +91,36 @@ describe("backward-compatible parsing", () => {
     expect(parsed.degraded).toBe(false);
   });
 
-  it("accepts `risks` as an alias for scene_risks", () => {
-    const parsed = parseDetectRiskFields({ risks: [{ risk_id: "x", risk_level: "ORANGE" }] });
-    expect(parsed.sceneRisks).toHaveLength(1);
+  it("combines risks + scene_risks and de-dupes repeated risk IDs", () => {
+    const parsed = parseDetectRiskFields({
+      scene_risks: [
+        { risk_id: "x", risk_level: "ORANGE", hazard_type: "spill" },
+        { risk_id: "scene-only", risk_level: "YELLOW" },
+      ],
+      risks: [
+        { risk_id: "x", risk_level: "RED", hazard_type: "duplicate" },
+        { risk_id: "risk-only", risk_level: "GREEN" },
+      ],
+      temporal_reasoning: { carried_tracks: 1 },
+      scene_context: { environment_type: "indoor" },
+      semantic_corrections: [{ correction_id: "c1", action: "semantic_label" }],
+    });
+    expect(parsed.sceneRisks.map((item) => item.risk_id)).toEqual([
+      "x",
+      "scene-only",
+      "risk-only",
+    ]);
+    expect(parsed.sceneRisks[0].risk_level).toBe("ORANGE");
+    expect(parsed.temporalReasoning).toEqual({ carried_tracks: 1 });
+    expect(parsed.sceneContext).toEqual({ environment_type: "indoor" });
+    expect(parsed.semanticCorrections).toHaveLength(1);
+  });
+
+  it("parses object-form reasoner_status without crashing the UI", () => {
+    const status = { state: "timeout", model: "risk-reasoner", reason: "deadline" };
+    const parsed = parseDetectRiskFields({ scene_risks: [], reasoner_status: status });
+    expect(parsed.reasonerStatus).toEqual(status);
+    expect(isReasonerUnavailable(parsed.reasonerStatus)).toBe(true);
   });
 
   // ── (4) unknown schema_version doesn't crash ───────────────────────────────
@@ -135,7 +162,9 @@ describe("(6) isAiDraftReviewRequired", () => {
     expect(isReasonerUnavailable("timeout")).toBe(true);
     expect(isReasonerUnavailable("unavailable")).toBe(true);
     expect(isReasonerUnavailable("schema_error")).toBe(true);
+    expect(isReasonerUnavailable({ state: "timeout" })).toBe(true);
     expect(isReasonerUnavailable("ok")).toBe(false);
+    expect(isReasonerUnavailable({ state: "ok" })).toBe(false);
     expect(isReasonerUnavailable(undefined)).toBe(false);
   });
 });

@@ -69,7 +69,7 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
     );
   });
 
-  it("reports transport http-cloudflare and a ~4 fps target", async () => {
+  it("reports transport http-cloudflare and the 700 ms cadence target", async () => {
     const { BackendVisionHttpDetector } =
       await import("../lib/detection/backendVisionHttpDetector");
     const det = new BackendVisionHttpDetector({
@@ -79,7 +79,7 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
     });
     const st = det.getBackendStatus();
     expect(st.transport).toBe("http-cloudflare");
-    expect(st.targetFps).toBe(4);
+    expect(st.targetFps).toBeCloseTo(1.4, 1);
     expect(st.requestCount).toBe(0);
   });
 
@@ -109,7 +109,24 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
 
       expect(calls).toHaveLength(1);
       expect(calls[0].url).toBe("https://gw.example/detect?token=tok.sig");
-      expect(calls[0].body).toContain("image_b64");
+      const body = JSON.parse(calls[0].body);
+      expect(body.image_b64).toBe("QUJD");
+      expect(body.conf).toBe(0.2);
+      expect(body.img_size).toBe(640);
+      expect(body.session_id).toMatch(/^browser-http-/);
+      expect(body.frame_id).toBe("1");
+      expect(body.camera_id).toBe("browser-http");
+      expect(body.scene_hint).toBe("indoor_demo");
+      expect(body.site_context).toMatchObject({
+        environment_type: "indoor",
+        mode: "demo",
+      });
+      expect(body.site_context.allowed_hazard_focus).toContain("object_near_edge");
+      expect(body.camera_context).toMatchObject({
+        camera_name: "browser-http",
+        location_name: "live_camera",
+      });
+      expect(body.reasoning_preferences).toMatchObject({ force_reason: false });
 
       const st = det.getBackendStatus();
       expect(st.state).toBe("ready");
@@ -149,6 +166,59 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
       await flush();
       await flush();
       expect(calls).toHaveLength(1);
+      det.stop();
+    });
+  });
+
+  it("keeps max one request in flight and does not queue an old frame", async () => {
+    const { BackendVisionHttpDetector } =
+      await import("../lib/detection/backendVisionHttpDetector");
+    const calls: { url: string; body: string }[] = [];
+    let resolveFetch: (() => void) | null = null;
+    const slowFetch = (async (url: string | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), body: String(init?.body ?? "") });
+      await new Promise<void>((resolve) => {
+        resolveFetch = resolve;
+      });
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { entities: [], backend: "edgecrafter" };
+        },
+        async text() {
+          return "";
+        },
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    await withFakeDocument(async () => {
+      const det = new BackendVisionHttpDetector({
+        detectUrl: "https://gw.example/detect",
+        sessionProvider: async () => session,
+        fetchImpl: slowFetch,
+      });
+      await det.start();
+      det.detect({ video: fakeVideo, timestamp: 1000, enabledHazards: [], sensitivity: 0.5 });
+      await flush();
+      await flush();
+      expect(calls).toHaveLength(1);
+      expect(det.getInFlight()).toBe(true);
+
+      det.detect({ video: fakeVideo, timestamp: 2000, enabledHazards: [], sensitivity: 0.5 });
+      det.detect({ video: fakeVideo, timestamp: 3000, enabledHazards: [], sensitivity: 0.5 });
+      expect(calls).toHaveLength(1);
+
+      resolveFetch?.();
+      await flush();
+      await flush();
+      expect(det.getInFlight()).toBe(false);
+
+      det.detect({ video: fakeVideo, timestamp: 3701, enabledHazards: [], sensitivity: 0.5 });
+      await flush();
+      await flush();
+      expect(calls).toHaveLength(2);
+      expect(JSON.parse(calls[1].body).frame_id).toBe("2");
       det.stop();
     });
   });

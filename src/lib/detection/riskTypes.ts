@@ -15,6 +15,17 @@ export type RiskLevel = "GREEN" | "YELLOW" | "ORANGE" | "RED" | string;
 
 export type RecommendedControl = { level?: string; action: string };
 
+export type ReasonerStatus =
+  | string
+  | {
+      state?: string;
+      mode?: string;
+      model?: string;
+      reason?: string;
+      pending_jobs?: number;
+      [key: string]: unknown;
+    };
+
 export type RiskSummary = {
   highest_level?: RiskLevel;
   total?: number;
@@ -25,13 +36,20 @@ export type RiskSummary = {
 export type SceneRisk = {
   risk_id?: string;
   track_id?: string;
+  detection_id?: string;
+  entity_id?: string;
+  involved_track_ids?: string[];
+  involved_detection_ids?: string[];
   hazard?: string;
+  hazard_type?: string;
   risk_level?: RiskLevel;
   risk_color?: string;
   risk_score?: number;
+  risk_state?: string;
   severity?: number;
   likelihood?: number;
   risk_reason?: string;
+  trigger_condition?: string;
   evidence?: string[];
   visual_evidence?: string[];
   recommended_action?: string;
@@ -43,6 +61,35 @@ export type SceneRisk = {
   reasoner_model?: string;
   reasoner_status?: "not_run" | "ok" | "timeout" | "unavailable" | "schema_error" | string;
   confidence?: number;
+  bbox?: { x: number; y: number; w: number; h: number };
+  box?: { x: number; y: number; w: number; h: number };
+  linked_entity_id?: string;
+  risk_association?: string;
+  risk_anchor_status?: "active" | "resolving" | "expired";
+  risk_stale?: boolean;
+  risk_resolving?: boolean;
+};
+
+export type SemanticCorrection = {
+  correction_id?: string;
+  track_id?: string;
+  detection_id?: string;
+  entity_id?: string;
+  involved_track_ids?: string[];
+  involved_detection_ids?: string[];
+  action?: string;
+  status?: string;
+  label?: string;
+  raw_label?: string;
+  original_label?: string;
+  semantic_label?: string;
+  corrected_label?: string;
+  reason?: string;
+  confidence?: number;
+  bbox?: { x: number; y: number; w: number; h: number };
+  box?: { x: number; y: number; w: number; h: number };
+  produced_by?: string;
+  [key: string]: unknown;
 };
 
 /**
@@ -54,6 +101,9 @@ export interface RiskAwareFields {
   risk_engine?: string;
   tracks?: unknown;
   scene_graph?: unknown;
+  temporal_reasoning?: unknown;
+  scene_context?: unknown;
+  semantic_corrections?: SemanticCorrection[];
   risks?: SceneRisk[];
   scene_risks?: SceneRisk[];
   risk_summary?: RiskSummary;
@@ -62,7 +112,7 @@ export interface RiskAwareFields {
   scene_graph_enabled?: boolean;
   degraded?: boolean;
   degradation_mode?: string;
-  reasoner_status?: string;
+  reasoner_status?: ReasonerStatus;
   stage_timings_ms?: Record<string, number>;
   privacy_blur_applied?: boolean;
   warnings?: string[];
@@ -124,7 +174,13 @@ export function isAiDraftReviewRequired(
 
 /** PURE: a reasoner status that means the AI did not produce a usable result. */
 export function isReasonerUnavailable(status?: unknown): boolean {
-  return status === "timeout" || status === "unavailable" || status === "schema_error";
+  const state =
+    typeof status === "string"
+      ? status
+      : status && typeof status === "object" && "state" in status
+        ? (status as { state?: unknown }).state
+        : undefined;
+  return state === "timeout" || state === "unavailable" || state === "schema_error";
 }
 
 /**

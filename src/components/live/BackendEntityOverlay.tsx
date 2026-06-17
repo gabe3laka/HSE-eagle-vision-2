@@ -6,14 +6,33 @@ import { normalizeRiskLevel, riskLevelColor } from "@/lib/detection/riskTypes";
 // Teal — deliberately distinct from the red/amber severity hazard boxes so the
 // dry-run entities can't be mistaken for real safety detections.
 const BOX_COLOR = "rgba(20,184,166,0.95)";
+const SUPPRESSED_COLOR = "rgba(148,163,184,0.88)";
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 /** Pick a box color for an entity. When `riskAware` is on AND the entity carries
  *  a risk level, color GREEN/YELLOW/ORANGE/RED; otherwise the neutral teal. */
 function boxColorFor(e: BackendEntity, riskAware: boolean): string {
   if (!riskAware) return BOX_COLOR;
+  if (e.correction_status === "suppress_from_hse_alerts") return SUPPRESSED_COLOR;
   const level = normalizeRiskLevel(e.risk_level, e.risk_color);
   return level ? riskLevelColor(level) : BOX_COLOR;
+}
+
+function labelFor(e: BackendEntity, riskAware: boolean): string {
+  const pct = `${Math.round((e.confidence ?? 0) * 100)}%`;
+  if (!riskAware) return `${e.label} - ${pct}`;
+  const status =
+    e.correction_status === "suppress_from_hse_alerts"
+      ? "suppressed"
+      : e.risk_resolving
+        ? "resolving"
+        : e.risk_stale
+          ? "stale"
+          : e.risk_level
+            ? String(e.risk_level).toUpperCase()
+            : null;
+  const semantic = e.semantic_label && e.semantic_label !== e.label ? ` -> ${e.semantic_label}` : "";
+  return status ? `${e.label}${semantic} - ${status} - ${pct}` : `${e.label}${semantic} - ${pct}`;
 }
 
 /**
@@ -34,7 +53,7 @@ export function BackendEntityOverlay({
   poses,
   debug = false,
   mirrored = false,
-  riskAware = false,
+  riskAware = true,
 }: {
   entities: BackendEntity[];
   poses?: BackendPose[];
@@ -59,6 +78,8 @@ export function BackendEntityOverlay({
         const b = e?.bbox ? mirrorBox(e.bbox, mirrored) : undefined;
         if (!b) return null;
         const color = boxColorFor(e, riskAware);
+        const stale = e.risk_stale === true || e.risk_resolving === true;
+        const suppressed = e.correction_status === "suppress_from_hse_alerts";
         return (
           <div
             key={`${e.label}-${i}`}
@@ -69,6 +90,8 @@ export function BackendEntityOverlay({
               width: `${clamp01(b.w) * 100}%`,
               height: `${clamp01(b.h) * 100}%`,
               borderColor: color,
+              borderStyle: stale || suppressed ? "dashed" : "solid",
+              opacity: e.risk_resolving ? 0.48 : stale || suppressed ? 0.68 : 1,
               boxShadow: `0 0 0 1px rgba(0,0,0,0.4), 0 0 12px ${color}`,
             }}
           >
@@ -76,7 +99,7 @@ export function BackendEntityOverlay({
               className="absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold text-black"
               style={{ backgroundColor: color }}
             >
-              {e.label} · {Math.round((e.confidence ?? 0) * 100)}%
+              {labelFor(e, riskAware)}
             </span>
           </div>
         );

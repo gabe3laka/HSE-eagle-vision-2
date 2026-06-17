@@ -108,7 +108,7 @@ export interface BackendStatus {
   currentQueueDepth?: number | null;
   avgEndToEndLatencyMs?: number | null;
   // Fast Cloudflare HTTP transport extras.
-  targetFps?: number | null; // requested frame cadence (~3 FPS)
+  targetFps?: number | null; // requested frame cadence
   lastLatencyMs?: number | null; // last request round-trip (wall-clock), ms
   // Aspect-preserving capture diagnostics (HTTP transports). Help diagnose
   // overlay alignment vs the visible video on mobile portrait streams.
