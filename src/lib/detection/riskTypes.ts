@@ -35,6 +35,7 @@ export type RiskSummary = {
 
 export type SceneRisk = {
   risk_id?: string;
+  source_risk_id?: string;
   track_id?: string;
   detection_id?: string;
   entity_id?: string;
@@ -61,6 +62,8 @@ export type SceneRisk = {
   reasoner_model?: string;
   reasoner_status?: "not_run" | "ok" | "timeout" | "unavailable" | "schema_error" | string;
   confidence?: number;
+  candidate_status?: "unlinked" | "matched" | "ignored" | "expired" | string;
+  approximate_region?: { x: number; y: number; w: number; h: number };
   bbox?: { x: number; y: number; w: number; h: number };
   box?: { x: number; y: number; w: number; h: number };
   linked_entity_id?: string;
@@ -106,6 +109,7 @@ export interface RiskAwareFields {
   semantic_corrections?: SemanticCorrection[];
   risks?: SceneRisk[];
   scene_risks?: SceneRisk[];
+  qwen_candidates?: SceneRisk[];
   risk_summary?: RiskSummary;
   risk_enabled?: boolean;
   tracking_enabled?: boolean;

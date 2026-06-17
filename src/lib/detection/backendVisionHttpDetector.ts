@@ -198,6 +198,7 @@ export interface ParsedDetectRisk {
   sceneContext?: unknown;
   semanticCorrections?: SemanticCorrection[];
   unmatchedCorrections?: SemanticCorrection[];
+  qwenCandidates?: SceneRisk[];
   riskSummary?: RiskSummary;
   riskEnabled?: boolean;
   trackingEnabled?: boolean;
@@ -232,6 +233,7 @@ export function hasRiskAwareData(resp: unknown): boolean {
     "semantic_corrections",
     "risks",
     "scene_risks",
+    "qwen_candidates",
     "risk_summary",
     "risk_enabled",
     "tracking_enabled",
@@ -293,6 +295,7 @@ export function parseDetectRiskFields(resp: unknown): ParsedDetectRisk {
   if (r.temporal_reasoning !== undefined) out.temporalReasoning = r.temporal_reasoning;
   if (r.scene_context !== undefined) out.sceneContext = r.scene_context;
   if (Array.isArray(r.semantic_corrections)) out.semanticCorrections = r.semantic_corrections;
+  if (Array.isArray(r.qwen_candidates)) out.qwenCandidates = r.qwen_candidates;
   if (r.risk_summary && typeof r.risk_summary === "object") out.riskSummary = r.risk_summary;
   if (typeof r.risk_enabled === "boolean") out.riskEnabled = r.risk_enabled;
   if (typeof r.tracking_enabled === "boolean") out.trackingEnabled = r.tracking_enabled;

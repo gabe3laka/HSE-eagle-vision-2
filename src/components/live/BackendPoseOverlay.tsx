@@ -1,4 +1,5 @@
 import type { BackendPose } from "@/lib/detection/types";
+import type { HseOverlayMode } from "@/lib/detection/hseLiveRiskViewModel";
 
 // Fuchsia — distinct from the teal entity boxes AND the green/amber MediaPipe
 // SkeletonOverlay (pose-beta), so EdgeCrafter poses are unmistakable.
@@ -18,11 +19,14 @@ const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 export function BackendPoseOverlay({
   poses,
   mirrored = false,
+  overlayMode = "normal",
 }: {
   poses: BackendPose[];
   mirrored?: boolean;
+  overlayMode?: HseOverlayMode;
 }) {
   if (!poses || poses.length === 0) return null;
+  const minScore = overlayMode === "hse-risk-only" ? 0.45 : MIN_KP_SCORE;
   return (
     <svg
       className="pointer-events-none absolute inset-0 z-20 h-full w-full"
@@ -39,7 +43,7 @@ export function BackendPoseOverlay({
               {edges.map(([a, b], ei) => {
                 const ka = kps[a];
                 const kb = kps[b];
-                if (!ka || !kb || ka.score < MIN_KP_SCORE || kb.score < MIN_KP_SCORE) return null;
+                if (!ka || !kb || ka.score < minScore || kb.score < minScore) return null;
                 return (
                   <line
                     key={`e${ei}`}
@@ -54,7 +58,7 @@ export function BackendPoseOverlay({
                 );
               })}
               {kps.map((k, ki) =>
-                k.score >= MIN_KP_SCORE ? (
+                k.score >= minScore ? (
                   <circle
                     key={`k${ki}`}
                     cx={clamp01(k.x) * 100}

@@ -185,15 +185,34 @@ describe("(7) feature flags", () => {
     );
   });
 
-  it("readRiskFeatureFlags defaults all flags ON for an empty env", () => {
+  it("readRiskFeatureFlags keeps risk UI on and HSE optional lanes off by default", () => {
     const f = readRiskFeatureFlags({});
-    expect(Object.values(f).every((v) => v === true)).toBe(true);
+    expect(f.riskAwareOverlay).toBe(true);
+    expect(f.workerSceneRisks).toBe(true);
+    expect(f.riskDebugPanel).toBe(true);
+    expect(f.showControlHierarchy).toBe(true);
+    expect(f.showProvenance).toBe(true);
+    expect(f.cameraPrivacyNotice).toBe(true);
+    expect(f.hseQwenCandidateLaneEnabled).toBe(false);
+    expect(f.hseShowQwenCandidates).toBe(false);
+    expect(f.hseLocalAlertsEnabled).toBe(false);
   });
 
   it("readRiskFeatureFlags honours an explicit 'false' opt-out", () => {
     const f = readRiskFeatureFlags({ VITE_RISK_AWARE_OVERLAY: "false" });
     expect(f.riskAwareOverlay).toBe(false);
     expect(f.workerSceneRisks).toBe(true);
+  });
+
+  it("readRiskFeatureFlags enables optional HSE lanes only when explicit", () => {
+    const f = readRiskFeatureFlags({
+      VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED: "true",
+      VITE_HSE_SHOW_QWEN_CANDIDATES: "true",
+      VITE_HSE_LOCAL_ALERTS_ENABLED: "true",
+    });
+    expect(f.hseQwenCandidateLaneEnabled).toBe(true);
+    expect(f.hseShowQwenCandidates).toBe(true);
+    expect(f.hseLocalAlertsEnabled).toBe(true);
   });
 });
 

@@ -1,7 +1,8 @@
 import type { BackendEntity, BackendPose } from "@/lib/detection/types";
 import { isPersonLabel, poseCoversBox } from "@/lib/detection/hseEntityMapper";
 import { mirrorBox } from "@/lib/detection/mirror";
-import { normalizeRiskLevel, riskLevelColor } from "@/lib/detection/riskTypes";
+import type { HseOverlayMode } from "@/lib/detection/hseLiveRiskViewModel";
+import { normalizeRiskLevel, riskLevelColor, riskLevelRank } from "@/lib/detection/riskTypes";
 
 // Teal — deliberately distinct from the red/amber severity hazard boxes so the
 // dry-run entities can't be mistaken for real safety detections.
@@ -11,16 +12,25 @@ const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 /** Pick a box color for an entity. When `riskAware` is on AND the entity carries
  *  a risk level, color GREEN/YELLOW/ORANGE/RED; otherwise the neutral teal. */
-function boxColorFor(e: BackendEntity, riskAware: boolean): string {
+export function boxColorFor(e: BackendEntity, riskAware: boolean): string {
   if (!riskAware) return BOX_COLOR;
   if (e.correction_status === "suppress_from_hse_alerts") return SUPPRESSED_COLOR;
   const level = normalizeRiskLevel(e.risk_level, e.risk_color);
   return level ? riskLevelColor(level) : BOX_COLOR;
 }
 
-function labelFor(e: BackendEntity, riskAware: boolean): string {
+export function boxLabelForEntity(
+  e: BackendEntity,
+  riskAware: boolean,
+  overlayMode: HseOverlayMode = "normal",
+): string | null {
+  if (overlayMode === "hse-risk-only") return null;
   const pct = `${Math.round((e.confidence ?? 0) * 100)}%`;
   if (!riskAware) return `${e.label} - ${pct}`;
+  if (overlayMode !== "debug") {
+    const semantic = e.semantic_label && e.semantic_label !== e.label ? e.semantic_label : e.label;
+    return `${semantic} - ${pct}`;
+  }
   const status =
     e.correction_status === "suppress_from_hse_alerts"
       ? "suppressed"
@@ -33,6 +43,21 @@ function labelFor(e: BackendEntity, riskAware: boolean): string {
             : null;
   const semantic = e.semantic_label && e.semantic_label !== e.label ? ` -> ${e.semantic_label}` : "";
   return status ? `${e.label}${semantic} - ${status} - ${pct}` : `${e.label}${semantic} - ${pct}`;
+}
+
+export function shouldRenderEntityBox(
+  e: BackendEntity,
+  poses: BackendPose[] | undefined,
+  debug: boolean,
+  overlayMode: HseOverlayMode = "normal",
+): boolean {
+  if (!e?.bbox) return false;
+  if (overlayMode === "hse-risk-only") {
+    if (e.correction_status === "suppress_from_hse_alerts" && !debug) return false;
+    const level = normalizeRiskLevel(e.risk_level, e.risk_color);
+    return riskLevelRank(level) >= riskLevelRank("YELLOW") || !!e.linked_risk_id;
+  }
+  return debug || !isPersonLabel(e.label) || !poseCoversBox(e.bbox, poses);
 }
 
 /**
@@ -54,6 +79,7 @@ export function BackendEntityOverlay({
   debug = false,
   mirrored = false,
   riskAware = true,
+  overlayMode = "normal",
 }: {
   entities: BackendEntity[];
   poses?: BackendPose[];
@@ -64,13 +90,13 @@ export function BackendEntityOverlay({
   /** Risk-aware coloring (VITE_RISK_AWARE_OVERLAY): color boxes by risk level
    *  when entities carry one. OFF → unchanged teal boxes. */
   riskAware?: boolean;
+  overlayMode?: HseOverlayMode;
   videoWidth?: number;
   videoHeight?: number;
 }) {
   if (!entities || entities.length === 0) return null;
-  const visible = entities.filter(
-    (e) => debug || !e?.bbox || !isPersonLabel(e.label) || !poseCoversBox(e.bbox, poses),
-  );
+  const debugOn = debug || overlayMode === "debug";
+  const visible = entities.filter((e) => shouldRenderEntityBox(e, poses, debugOn, overlayMode));
   if (visible.length === 0) return null;
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
@@ -80,6 +106,7 @@ export function BackendEntityOverlay({
         const color = boxColorFor(e, riskAware);
         const stale = e.risk_stale === true || e.risk_resolving === true;
         const suppressed = e.correction_status === "suppress_from_hse_alerts";
+        const label = boxLabelForEntity(e, riskAware, overlayMode);
         return (
           <div
             key={`${e.label}-${i}`}
@@ -95,12 +122,14 @@ export function BackendEntityOverlay({
               boxShadow: `0 0 0 1px rgba(0,0,0,0.4), 0 0 12px ${color}`,
             }}
           >
-            <span
-              className="absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold text-black"
-              style={{ backgroundColor: color }}
-            >
-              {labelFor(e, riskAware)}
-            </span>
+            {label && (
+              <span
+                className="absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold text-black"
+                style={{ backgroundColor: color }}
+              >
+                {label}
+              </span>
+            )}
           </div>
         );
       })}

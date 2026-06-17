@@ -6,6 +6,12 @@ import type {
   SceneRisk,
   SemanticCorrection,
 } from "@/lib/detection/riskTypes";
+import type {
+  HseGroupedRisk,
+  HseLiveRiskViewModel,
+  HseQwenCandidate,
+} from "@/lib/detection/hseLiveRiskViewModel";
+import { HSE_PRIORITY_RISK_LIMIT } from "@/lib/detection/hseLiveRiskViewModel";
 import {
   highestRiskLevel,
   isAiDraftReviewRequired,
@@ -245,15 +251,224 @@ function RiskRow({
   );
 }
 
+function linkedSummary(group: HseGroupedRisk): string {
+  if (group.linkedLabels.length > 1) return `Linked items: ${group.linkedLabels.join(", ")}`;
+  if (group.linkedLabels[0]) return `Linked item: ${group.linkedLabels[0]}`;
+  if (group.itemCount > 1) return `${group.itemCount} linked items`;
+  return "No stable entity match in current frame.";
+}
+
+function ReasonerChip({ vm }: { vm: HseLiveRiskViewModel }) {
+  const tone = vm.reasonerBadge.tone;
+  const cls =
+    tone === "success"
+      ? "bg-emerald-400/10 text-emerald-200"
+      : tone === "warning"
+        ? "bg-amber-400/10 text-amber-200"
+        : tone === "error"
+          ? "bg-red-400/10 text-red-200"
+          : tone === "info"
+            ? "bg-cyan-400/10 text-cyan-200"
+            : "bg-white/[0.04] text-muted-foreground";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${cls}`}>
+      <Sparkles className="h-3 w-3" />
+      {vm.reasonerBadge.label}
+    </span>
+  );
+}
+
+function GroupedRiskRow({ group }: { group: HseGroupedRisk }) {
+  const color = riskLevelColor(group.level);
+  const firstRisk = group.risks[0];
+  const why =
+    group.reason ||
+    firstRisk?.risk_reason ||
+    firstRisk?.trigger_condition ||
+    "Worker scene risk engine marked this as active.";
+  const action = group.primaryAction || "Review and correct the hazard.";
+  return (
+    <li
+      className="rounded-lg border border-white/[0.06] bg-black/20 p-2.5"
+      style={{ borderLeftColor: color, borderLeftWidth: 3 }}
+    >
+      <div className="flex items-center gap-2">
+        <span className="truncate text-xs font-semibold text-foreground">{group.title}</span>
+        <span
+          className="rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase text-black"
+          style={{ background: color }}
+        >
+          {group.level}
+        </span>
+        {group.itemCount > 1 && (
+          <span className="rounded-full bg-white/[0.05] px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
+            {group.itemCount} items
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-[10px] font-medium text-cyan-100/80">{linkedSummary(group)}</p>
+      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">Why: {why}</p>
+      <p className="mt-1 text-[11px] leading-snug text-foreground/90">Action: {action}</p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[9px] text-muted-foreground">
+        <span className="rounded-full bg-white/[0.05] px-1.5 py-0.5">Source: {group.sourceLabel}</span>
+        {group.isResolving && (
+          <span className="rounded-full bg-yellow-300/10 px-1.5 py-0.5 text-yellow-100">
+            clearing shortly
+          </span>
+        )}
+        {group.isStale && !group.isResolving && (
+          <span className="rounded-full bg-white/[0.05] px-1.5 py-0.5">carried briefly</span>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function QwenCandidateRow({ candidate }: { candidate: HseQwenCandidate }) {
+  const color = riskLevelColor(candidate.level);
+  return (
+    <li className="rounded-lg border border-violet-300/15 bg-violet-300/10 p-2.5">
+      <div className="flex items-center gap-2">
+        <span className="truncate text-xs font-semibold text-violet-100">{candidate.title}</span>
+        <span
+          className="rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase text-black"
+          style={{ background: color }}
+        >
+          {candidate.level}
+        </span>
+        <span className="rounded-full bg-violet-300/15 px-1.5 py-0.5 text-[9px] text-violet-100">
+          Qwen Candidate
+        </span>
+      </div>
+      {candidate.reason && (
+        <p className="mt-1 text-[11px] leading-snug text-violet-100/80">{candidate.reason}</p>
+      )}
+      <p className="mt-1 text-[10px] text-violet-100/60">
+        Advisory only until matched to a detector track.
+      </p>
+    </li>
+  );
+}
+
+function ReadableSceneRiskPanel({
+  risk,
+  vm,
+  showProvenance,
+}: {
+  risk: ParsedDetectRisk;
+  vm: HseLiveRiskViewModel;
+  showProvenance: boolean;
+}) {
+  const topGroups = vm.priorityRisks;
+  return (
+    <div className="console-panel p-4">
+      <div className="flex items-center gap-2">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400/10 text-amber-200">
+          <ShieldAlert className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="console-eyebrow">Scene risk</p>
+          <h2 className="font-display text-sm font-semibold">
+            Top {HSE_PRIORITY_RISK_LIMIT} scene risks
+          </h2>
+        </div>
+        <div className="ml-auto flex items-center gap-1.5">
+          <ReasonerChip vm={vm} />
+          <span
+            className="rounded px-2 py-0.5 text-[10px] font-bold uppercase text-black"
+            style={{ background: riskLevelColor(vm.highestLevel) }}
+          >
+            {vm.highestLevel ?? "-"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+        <span>
+          {vm.groupedRiskCount} grouped risk{vm.groupedRiskCount === 1 ? "" : "s"}
+        </span>
+        {vm.sceneContextLabel && <span>Scene: {vm.sceneContextLabel}</span>}
+      </div>
+
+      {topGroups.length === 0 ? (
+        <p className="mt-3 rounded-lg border border-white/[0.06] bg-black/20 p-2.5 text-xs text-muted-foreground">
+          No active entity-linked scene risks.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {topGroups.map((group) => (
+            <GroupedRiskRow key={group.key} group={group} />
+          ))}
+        </ul>
+      )}
+
+      {vm.groupedRiskCount > HSE_PRIORITY_RISK_LIMIT && topGroups.length > 0 && (
+        <p className="mt-2 text-[10px] text-muted-foreground">
+          Showing top {HSE_PRIORITY_RISK_LIMIT} of {vm.groupedRiskCount} grouped scene risks
+        </p>
+      )}
+
+      {vm.qwenCandidates.length > 0 && (
+        <div className="mt-3 border-t border-white/[0.06] pt-3">
+          <p className="console-eyebrow">Qwen candidates</p>
+          <ul className="mt-2 space-y-2">
+            {vm.qwenCandidates.map((candidate) => (
+              <QwenCandidateRow key={candidate.key} candidate={candidate} />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {topGroups.some((group) => group.isResolving) && (
+        <div className="mt-3 rounded-lg border border-yellow-300/20 bg-yellow-300/10 p-2 text-[10px] text-yellow-100">
+          <p className="font-semibold">Resolving risk color</p>
+          <p className="mt-0.5">
+            The matched YELLOW hazard is no longer confirmed, so the box fades and clears shortly.
+          </p>
+        </div>
+      )}
+
+      <CorrectionList corrections={risk.semanticCorrections ?? []} />
+      <CorrectionList corrections={risk.unmatchedCorrections ?? []} title="Unmatched corrections" />
+
+      {showProvenance && (
+        <details className="mt-3 rounded-lg border border-white/[0.06] bg-black/20 p-2 text-[10px] text-muted-foreground">
+          <summary className="cursor-pointer text-foreground">Debug provenance</summary>
+          <div className="mt-2 space-y-1">
+            <div>Raw risks: {vm.rawRiskCount}</div>
+            <div>Grouped risks: {vm.groupedRiskCount}</div>
+            <div>Hidden/acknowledged risks: {vm.hiddenGroupedRiskCount}</div>
+            <div>temporal: {compactValue(risk.temporalReasoning)}</div>
+            <div>scene context: {compactValue(risk.sceneContext)}</div>
+            <div>reasoner: {compactValue(risk.reasonerStatus)}</div>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 export function SceneRiskPanel({
   risk,
+  hseRiskViewModel,
   showControlHierarchy = false,
   showProvenance = false,
 }: {
   risk: ParsedDetectRisk;
+  hseRiskViewModel?: HseLiveRiskViewModel;
   showControlHierarchy?: boolean;
   showProvenance?: boolean;
 }) {
+  if (hseRiskViewModel) {
+    return (
+      <ReadableSceneRiskPanel
+        risk={risk}
+        vm={hseRiskViewModel}
+        showProvenance={showProvenance}
+      />
+    );
+  }
+
   const allRisks = [...(risk.sceneRisks ?? [])].sort(
     (a, b) =>
       riskLevelRank(normalizeRiskLevel(b.risk_level, b.risk_color)) -
