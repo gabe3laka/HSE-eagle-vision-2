@@ -44,6 +44,14 @@ import { PlanHologramRenderer } from "@/features/build-mode/components/PlanHolog
 import { PlanConsole } from "@/features/build-mode/components/PlanConsole";
 import { useHseMonitoring } from "@/features/hse-monitoring/hooks/useHseMonitoring";
 import { EagleVisionHUD } from "@/components/live/EagleVisionHUD";
+import {
+  SceneRiskPanel,
+  MonitoringDegradedBanner,
+  RiskDebugPanel,
+  CameraPrivacyNotice,
+} from "@/components/live/SceneRiskPanel";
+import { readRiskFeatureFlags } from "@/lib/featureFlags";
+import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import { WearableAlertOverlay } from "@/components/live/WearableAlertOverlay";
 import { HseMonitoringPanel } from "@/components/live/HseMonitoringPanel";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
@@ -270,6 +278,10 @@ export default function Live() {
   // boxes/dots/ghosts land on the mirrored image (text always stays readable).
   const mirrored = facing === "user";
 
+  // Risk-aware feature flags (all default OFF). When every flag is off the
+  // risk-aware UI below is never mounted and behavior is byte-for-byte unchanged.
+  const riskFlags = useMemo(() => readRiskFeatureFlags(), []);
+
   const onIncidentSaved = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
   }, [queryClient]);
@@ -286,6 +298,7 @@ export default function Live() {
     backendEntities,
     backendPoses,
     backendSegments,
+    backendRisk,
     start,
     stop,
     dismissAlert,
@@ -580,6 +593,13 @@ export default function Live() {
 
   const topAlert = useMemo(() => alerts.find((a) => a.isIncident) ?? null, [alerts]);
 
+  // Parsed risk-aware view from the HTTP detector (null for legacy responses).
+  // Only consumed when a risk-aware flag is on — otherwise it's inert.
+  const risk = (backendRisk as ParsedDetectRisk | null) ?? null;
+  const showSceneRiskPanel =
+    riskFlags.workerSceneRisks && !!risk && (risk.sceneRisks.length > 0 || !!risk.riskSummary);
+  const showDegradedBanner = riskFlags.workerSceneRisks && !!risk && risk.degraded;
+
   // All EdgeCrafter modes share the same dry-run overlays + debug panel. The
   // single-frame test button is for the HTTP modes (fast Cloudflare /detect, or
   // the legacy Supabase-proxy path).
@@ -671,6 +691,10 @@ export default function Live() {
         // Build/Plan they just clutter the camera on top of the clean
         // ExtractableCandidateOverlay selection boxes, so suppress them there.
         backendDryRun={isBackendMode && !buildModeOn}
+        riskAwareOverlay={riskFlags.riskAwareOverlay && !buildModeOn}
+        privacyNotice={
+          riskFlags.cameraPrivacyNotice && !buildModeOn ? <CameraPrivacyNotice /> : undefined
+        }
         zones={zones}
         editingZones={editingZones}
         onZoneCreate={(points) =>
@@ -962,6 +986,18 @@ export default function Live() {
               />
             )}
 
+            {/* Risk-aware UI (feature-flagged). When the flags are off these are
+                never rendered, so the layout is unchanged. Read-only surfacing —
+                never converts a draft/VLM risk into an incident or CAPA. */}
+            {showDegradedBanner && <MonitoringDegradedBanner />}
+            {showSceneRiskPanel && risk && (
+              <SceneRiskPanel
+                risk={risk}
+                showControlHierarchy={riskFlags.showControlHierarchy}
+                showProvenance={riskFlags.showProvenance}
+              />
+            )}
+
             {buildModeOn && (
               <BuildModePanel
                 session={build}
@@ -1088,6 +1124,9 @@ export default function Live() {
                           stats={stats}
                         />
                       )}
+                      {/* Risk-aware diagnostics (degradation_mode, privacy blur,
+                          reasoner availability, schema warnings) — flag-gated. */}
+                      {riskFlags.riskDebugPanel && risk && <RiskDebugPanel risk={risk} />}
                       {showFrameTest && (
                         <div className="rounded-xl border border-border bg-background/40 p-3">
                           <div className="flex items-center justify-between">

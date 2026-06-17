@@ -100,6 +100,8 @@ export function useDetectionSession({
   const [backendEntities, setBackendEntities] = useState<unknown[]>([]);
   const [backendPoses, setBackendPoses] = useState<unknown[]>([]);
   const [backendSegments, setBackendSegments] = useState<unknown[]>([]);
+  // Optional risk-aware view from the HTTP detector (null for legacy responses).
+  const [backendRisk, setBackendRisk] = useState<unknown>(null);
 
   const detectorRef = useRef<Detector | null>(null);
   const engineRef = useRef<RiskEngine | null>(null);
@@ -295,6 +297,7 @@ export function useDetectionSession({
         setBackendSegments(
           (det as { getLastSegments?: () => unknown[] }).getLastSegments?.() ?? [],
         );
+        setBackendRisk((det as { getLastRisk?: () => unknown }).getLastRisk?.() ?? null);
       }
     },
     [persistDetection, persistIncident, videoRef],
@@ -485,6 +488,7 @@ export function useDetectionSession({
     backendEntities,
     backendPoses,
     backendSegments,
+    backendRisk,
     start,
     stop,
     dismissAlert,
