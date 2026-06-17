@@ -69,7 +69,7 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
     );
   });
 
-  it("reports transport http-cloudflare and the 700 ms cadence target", async () => {
+  it("reports transport http-cloudflare and the 500 ms cadence target", async () => {
     const { BackendVisionHttpDetector } =
       await import("../lib/detection/backendVisionHttpDetector");
     const det = new BackendVisionHttpDetector({
@@ -79,7 +79,7 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
     });
     const st = det.getBackendStatus();
     expect(st.transport).toBe("http-cloudflare");
-    expect(st.targetFps).toBeCloseTo(1.4, 1);
+    expect(st.targetFps).toBeCloseTo(2.0, 1);
     expect(st.requestCount).toBe(0);
   });
 
@@ -126,7 +126,12 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
         camera_name: "browser-http",
         location_name: "live_camera",
       });
-      expect(body.reasoning_preferences).toMatchObject({ force_reason: false });
+      expect(body.reasoning_preferences).toMatchObject({
+        force_reason: false,
+        prefer_low_latency: true,
+        target_reasoning_interval_ms: 1500,
+        max_candidate_age_ms: 1500,
+      });
 
       const st = det.getBackendStatus();
       expect(st.state).toBe("ready");
@@ -160,7 +165,7 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
       });
       await det.start();
       det.detect({ video: fakeVideo, timestamp: 1000, enabledHazards: [], sensitivity: 0.5 });
-      // 100ms later — inside the 333ms cadence -> must NOT submit again
+      // 100ms later: inside the 500ms cadence, so it must not submit again.
       det.detect({ video: fakeVideo, timestamp: 1100, enabledHazards: [], sensitivity: 0.5 });
       await flush();
       await flush();

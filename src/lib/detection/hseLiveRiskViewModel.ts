@@ -99,6 +99,7 @@ export type BuildHseLiveRiskViewModelInput = {
 const MIN_PERSON_CONFIDENCE = 0.45;
 const MIN_HSE_POSE_KEYPOINT_SCORE = 0.45;
 const MIN_HSE_POSE_KEYPOINTS = 8;
+const FRAME_EDGE_MARGIN = 0.035;
 
 function unique(values: Array<string | undefined>): string[] {
   return Array.from(new Set(values.filter((value): value is string => !!value)));
@@ -114,6 +115,29 @@ function lower(value?: string | null): string {
 
 function titleCaseToken(value: string): string {
   return value ? value[0].toUpperCase() + value.slice(1) : value;
+}
+
+function bboxTouchesFrameEdge(bbox: BBox): boolean {
+  return (
+    bbox.x <= FRAME_EDGE_MARGIN ||
+    bbox.y <= FRAME_EDGE_MARGIN ||
+    bbox.x + bbox.w >= 1 - FRAME_EDGE_MARGIN ||
+    bbox.y + bbox.h >= 1 - FRAME_EDGE_MARGIN
+  );
+}
+
+function isObjectNearEdgeRisk(risk: SceneRisk): boolean {
+  return lower(riskHazard(risk)) === "object_near_edge";
+}
+
+function isQwenConfirmedRisk(risk: SceneRisk): boolean {
+  return riskLooksQwen(risk);
+}
+
+function isActionableObjectNearEdgeEntity(risk: SceneRisk, entity: BackendEntity): boolean {
+  if (!isObjectNearEdgeRisk(risk)) return true;
+  if (isQwenConfirmedRisk(risk)) return true;
+  return !bboxTouchesFrameEdge(entity.bbox);
 }
 
 export function formatHazardLabel(value?: string | null): string {
@@ -400,7 +424,10 @@ function linkedLabelsForRisk(risk: SceneRisk, entities: BackendEntity[]): string
   return unique(
     entities
       .map((entity, index) =>
-        riskMatchesEntity(risk, entity, index) ? entity.semantic_label ?? entity.label : undefined,
+        riskMatchesEntity(risk, entity, index) &&
+        isActionableObjectNearEdgeEntity(risk, entity)
+          ? entity.semantic_label ?? entity.label
+          : undefined,
       )
       .filter(Boolean),
   ).slice(0, 4);
@@ -408,8 +435,14 @@ function linkedLabelsForRisk(risk: SceneRisk, entities: BackendEntity[]): string
 
 function linkedIdsForRisk(risk: SceneRisk, entities: BackendEntity[]): string[] {
   const fromEntities = entities.flatMap((entity, index) =>
-    riskMatchesEntity(risk, entity, index) ? entityIds(entity) : [],
+    riskMatchesEntity(risk, entity, index) &&
+    isActionableObjectNearEdgeEntity(risk, entity)
+      ? entityIds(entity)
+      : [],
   );
+  if (isObjectNearEdgeRisk(risk) && fromEntities.length === 0) {
+    return isQwenConfirmedRisk(risk) ? riskDetectionIds(risk) : [];
+  }
   return unique([...riskTrackIds(risk), ...riskDetectionIds(risk), ...fromEntities]);
 }
 
@@ -434,6 +467,14 @@ export function groupRisks(
     const action = primaryAction(risk);
     const linkedIds = linkedIdsForRisk(risk, entities);
     const labels = linkedLabelsForRisk(risk, entities);
+    if (
+      isObjectNearEdgeRisk(risk) &&
+      labels.length === 0 &&
+      linkedIds.length === 0 &&
+      !isQwenConfirmedRisk(risk)
+    ) {
+      return;
+    }
     const ackKey = acknowledgedKeyFor(
       hazardType,
       level,
@@ -449,7 +490,7 @@ export function groupRisks(
         level,
         hazardType,
         linkedLabels: labels,
-        linkedTrackIds: unique([...riskTrackIds(risk), ...linkedIds]),
+        linkedTrackIds: unique(isObjectNearEdgeRisk(risk) ? linkedIds : [...riskTrackIds(risk), ...linkedIds]),
         itemCount: Math.max(1, labels.length || linkedIds.length),
         reason: riskReason(risk),
         primaryAction: action,
@@ -465,7 +506,10 @@ export function groupRisks(
 
     existing.risks.push(risk);
     existing.linkedLabels = unique([...existing.linkedLabels, ...labels]).slice(0, 4);
-    existing.linkedTrackIds = unique([...existing.linkedTrackIds, ...riskTrackIds(risk), ...linkedIds]);
+    existing.linkedTrackIds = unique([
+      ...existing.linkedTrackIds,
+      ...(isObjectNearEdgeRisk(risk) ? linkedIds : [...riskTrackIds(risk), ...linkedIds]),
+    ]);
     existing.itemCount = Math.max(existing.itemCount + 1, existing.linkedLabels.length, existing.linkedTrackIds.length);
     if (riskLevelRank(level) > riskLevelRank(existing.level)) existing.level = level;
     if (
@@ -537,6 +581,14 @@ export function filterOverlayEntities(
   entities.forEach((entity, index) => {
     if (entity.correction_status === "suppress_from_hse_alerts" && !debug) return;
     const match = activeRisks.find(({ risk }) => riskMatchesEntity(risk, entity, index));
+    if (
+      match &&
+      isObjectNearEdgeRisk(match.risk) &&
+      !isActionableObjectNearEdgeEntity(match.risk, entity) &&
+      !debug
+    ) {
+      return;
+    }
     const level = effectiveRiskLevel({
       risk: match?.risk,
       entity,
@@ -570,6 +622,30 @@ function poseBounds(pose: BackendPose): BBox | null {
   return { x: minX, y: minY, w: Math.max(0.02, maxX - minX), h: Math.max(0.02, maxY - minY) };
 }
 
+function hasHumanTorsoStructure(pose: BackendPose): boolean {
+  const visibleNames = pose.keypoints
+    .filter((kp) => kp.score >= MIN_HSE_POSE_KEYPOINT_SCORE)
+    .map((kp) => lower(kp.name));
+  const hasRecognizableNames = visibleNames.some((name) =>
+    /(nose|eye|ear|shoulder|hip|knee|ankle|elbow|wrist|thumb|index|middle|ring|pinky|palm)/.test(name),
+  );
+  if (!hasRecognizableNames) return true;
+
+  const shoulders = visibleNames.filter((name) => name.includes("shoulder")).length;
+  const hips = visibleNames.filter((name) => name.includes("hip")).length;
+  const head = visibleNames.some((name) => /nose|eye|ear/.test(name));
+  const lowerBody = visibleNames.some((name) => /knee|ankle/.test(name));
+  const handOnly =
+    visibleNames.some((name) => /thumb|index|middle|ring|pinky|palm/.test(name)) &&
+    shoulders === 0 &&
+    hips === 0 &&
+    !head &&
+    !lowerBody;
+
+  if (handOnly) return false;
+  return shoulders >= 1 && (hips >= 1 || head || lowerBody);
+}
+
 function centerDistance(a: BBox, b: BBox): number {
   return Math.hypot(a.x + a.w / 2 - (b.x + b.w / 2), a.y + a.h / 2 - (b.y + b.h / 2));
 }
@@ -585,23 +661,16 @@ function overlapsOrNear(a: BBox, b: BBox): boolean {
   return overlap > 0 || centerDistance(a, b) <= 0.25;
 }
 
-function sceneContextConfirmsPerson(sceneContext: unknown): boolean {
-  if (!sceneContext || typeof sceneContext !== "object") return false;
-  const text = JSON.stringify(sceneContext).toLowerCase();
-  return text.includes("person") || text.includes("worker") || text.includes("human");
-}
-
 export function filterHsePoses(
   poses: BackendPose[],
   entities: BackendEntity[],
-  sceneContext?: unknown,
+  _sceneContext?: unknown,
   debug = false,
 ): { poses: BackendPose[]; hiddenPoseReasons: string[] } {
   if (debug) return { poses, hiddenPoseReasons: [] };
   const people = entities.filter(
     (entity) => isPersonLabel(entity.label) && entity.confidence >= MIN_PERSON_CONFIDENCE,
   );
-  const contextPerson = sceneContextConfirmsPerson(sceneContext);
   const accepted: BackendPose[] = [];
   const hiddenPoseReasons: string[] = [];
 
@@ -609,11 +678,18 @@ export function filterHsePoses(
     const strongKeypoints = pose.keypoints.filter((kp) => kp.score >= MIN_HSE_POSE_KEYPOINT_SCORE);
     const bounds = poseBounds(pose);
     const matchedPerson = !!bounds && people.some((person) => overlapsOrNear(bounds, person.bbox));
-    if (strongKeypoints.length >= MIN_HSE_POSE_KEYPOINTS && (matchedPerson || contextPerson)) {
+    const torsoOk = hasHumanTorsoStructure(pose);
+    if (strongKeypoints.length >= MIN_HSE_POSE_KEYPOINTS && matchedPerson && torsoOk) {
       accepted.push(pose);
     } else {
       hiddenPoseReasons.push(
-        `pose ${index} hidden: ${matchedPerson ? "low keypoint confidence" : "no matching person entity"}`,
+        `pose ${index} hidden: ${
+          !matchedPerson
+            ? "no matching person entity"
+            : !torsoOk
+              ? "no torso structure"
+              : "low keypoint confidence"
+        }`,
       );
     }
   });

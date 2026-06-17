@@ -62,7 +62,7 @@ function resolveViewportTargetAspect(): number | null {
  * `create-stream-session` Edge Function) authenticates the call to the Worker.
  *
  * Fast + adaptive: at most ONE request is in flight at a time, and frames are
- * submitted at most every TARGET_INTERVAL_MS (about 1.4 FPS). If a request is still
+ * submitted at most every TARGET_INTERVAL_MS (about 2 FPS). If a request is still
  * running the newest frame is simply skipped — there is no queue of stale
  * frames, so we always send the freshest frame the camera can give us.
  *
@@ -71,7 +71,7 @@ function resolveViewportTargetAspect(): number | null {
  * cached entities/poses for the debug overlay.
  */
 
-export const TARGET_INTERVAL_MS = 700; // clearer backend cadence, one request at a time
+export const TARGET_INTERVAL_MS = 500; // clearer backend cadence, one request at a time
 const TARGET_FPS = Number((1000 / TARGET_INTERVAL_MS).toFixed(1));
 // Aspect-preserving capture: keep longest side at most CAPTURE_MAX_SIDE so the
 // frame we send mirrors the visible video's shape (portrait → portrait,
@@ -463,6 +463,9 @@ function buildRiskAwareDetectBody(
       },
       reasoning_preferences: {
         force_reason: false,
+        prefer_low_latency: true,
+        target_reasoning_interval_ms: 1500,
+        max_candidate_age_ms: 1500,
       },
     },
     monitoringRequest,

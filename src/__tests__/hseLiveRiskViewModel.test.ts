@@ -33,7 +33,7 @@ const entity = (over: Partial<BackendEntity> = {}): BackendEntity => ({
   id: "entity-1",
   detection_id: "det-1",
   track_id: "trk-1",
-  label: "chair",
+  label: "object",
   class_id: 1,
   confidence: 0.9,
   bbox: box(),
@@ -87,6 +87,25 @@ const pose = (score = 0.8): BackendPose => ({
     x: 0.3 + (i % 2) * 0.04,
     y: 0.3 + Math.floor(i / 2) * 0.04,
     score,
+  })),
+});
+
+const handOnlyPose = (): BackendPose => ({
+  confidence: 0.9,
+  keypoints: [
+    "wrist",
+    "thumb_tip",
+    "thumb_ip",
+    "index_finger_tip",
+    "index_finger_pip",
+    "middle_finger_tip",
+    "ring_finger_tip",
+    "pinky_tip",
+  ].map((name, index) => ({
+    name,
+    x: 0.32 + (index % 3) * 0.025,
+    y: 0.55 + Math.floor(index / 3) * 0.025,
+    score: 0.9,
   })),
 });
 
@@ -245,16 +264,27 @@ describe("HSE live risk view model", () => {
   });
 
   it("groups duplicate object_near_edge risks before the top 10 slice", () => {
+    const duplicateEntities = Array.from({ length: 5 }, (_, index) =>
+      entity({
+        id: `edge-entity-${index}`,
+        detection_id: `edge-det-${index}`,
+        track_id: `edge-${index}`,
+        label: "detected_item",
+        semantic_label: "detected item",
+        bbox: box(0.25 + index * 0.04, 0.58, 0.08, 0.08),
+      }),
+    );
     const duplicateEdges = Array.from({ length: 5 }, (_, index) =>
       risk({
         risk_id: `edge-dup-${index}`,
         linked_entity_id: undefined,
         involved_track_ids: [`edge-${index}`],
         recommended_action: "Move objects away from edges.",
+        risk_reason: "The object is close to the table edge.",
       }),
     );
     const vm = buildHseLiveRiskViewModel({
-      entities: [],
+      entities: duplicateEntities,
       poses: [],
       parsedRisk: parsed({ sceneRisks: [...duplicateEdges, ...groupedRiskSet(10)] }),
       nowMs: 1000,
@@ -263,6 +293,79 @@ describe("HSE live risk view model", () => {
     expect(vm.groupedRiskCount).toBe(11);
     expect(vm.priorityRisks).toHaveLength(10);
     expect(vm.groupedRisks.filter((item) => item.title === "Object near edge")).toHaveLength(1);
+  });
+
+  it("keeps linked object_near_edge risks without object allowlists and suppresses rules-only frame-edge artifacts", () => {
+    const centeredEntity = entity({
+      id: "center-1",
+      detection_id: "center-det",
+      track_id: "center-trk",
+      label: "detected_item",
+      semantic_label: "detected item",
+      bbox: box(0.38, 0.55, 0.2, 0.18),
+    });
+    const frameEdgeEntity = entity({
+      id: "edge-1",
+      detection_id: "edge-det",
+      track_id: "edge-trk",
+      label: "detected_item",
+      semantic_label: "detected item",
+      bbox: box(0.0, 0.15, 0.18, 0.5),
+    });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [centeredEntity, frameEdgeEntity],
+      poses: [],
+      parsedRisk: parsed({
+        sceneRisks: [
+          risk({
+            risk_id: "center-edge",
+            linked_entity_id: "center-1",
+            risk_reason: "Object is close to the table edge.",
+          }),
+          risk({
+            risk_id: "frame-artifact",
+            linked_entity_id: "edge-1",
+            risk_reason: "Object is close to the camera edge.",
+          }),
+        ],
+      }),
+      nowMs: 1000,
+    });
+
+    expect(vm.groupedRisks).toHaveLength(1);
+    expect(vm.groupedRisks[0].linkedLabels).toEqual(["detected item"]);
+    expect(vm.overlayEntities).toHaveLength(1);
+    expect(vm.overlayEntities[0].id).toBe("center-1");
+  });
+
+  it("lets Qwen-confirmed object_near_edge risks override the frame-edge artifact guard", () => {
+    const frameEdgeEntity = entity({
+      id: "edge-qwen",
+      detection_id: "edge-qwen-det",
+      track_id: "edge-qwen-trk",
+      label: "unknown",
+      bbox: box(0.0, 0.2, 0.18, 0.2),
+    });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [frameEdgeEntity],
+      poses: [],
+      parsedRisk: parsed({
+        sceneRisks: [
+          risk({
+            risk_id: "qwen-edge",
+            linked_entity_id: "edge-qwen",
+            produced_by: "vlm_reasoner",
+            reasoner_model: "qwen_vl",
+            risk_reason: "Qwen confirmed the object is at the real support edge.",
+          }),
+        ],
+      }),
+      nowMs: 1000,
+    });
+
+    expect(vm.groupedRisks).toHaveLength(1);
+    expect(vm.groupedRisks[0].sourceLabel).toBe("Qwen");
+    expect(vm.overlayEntities).toHaveLength(1);
   });
 
   it("calculates effective YELLOW for object_near_edge score 4 and latent risk", () => {
@@ -397,6 +500,17 @@ describe("HSE live risk view model", () => {
     expect(shown.poses).toHaveLength(1);
   });
 
+  it("hides hand-only backend pose candidates even near a person-like box", () => {
+    const hidden = filterHsePoses(
+      [handOnlyPose()],
+      [entity({ label: "person", confidence: 0.8, bbox: box(0.25, 0.45, 0.2, 0.2) })],
+      undefined,
+      false,
+    );
+    expect(hidden.poses).toHaveLength(0);
+    expect(hidden.hiddenPoseReasons[0]).toContain("no torso structure");
+  });
+
   it("formats reasoner status and hazard labels without raw JSON", () => {
     expect(formatReasonerBadge({ state: "queued", model: "qwen_vl" }).label).toBe("Qwen: queued");
     expect(formatReasonerBadge({ state: "unavailable", model: "qwen_vl" }).label).toContain(
@@ -477,7 +591,7 @@ describe("HSE risk smoothing", () => {
     expect(expired.overlayEntities).toHaveLength(0);
   });
 
-  it("carries RED only as stale and expires by 5000 ms unless reconfirmed", () => {
+  it("carries RED only as stale and expires by the stale max unless reconfirmed", () => {
     const cache: HseRiskSmoothingCache = new Map();
     const base = buildHseLiveRiskViewModel({
       entities: [entity({ risk_level: "RED", linked_risk_id: "risk-red" })],
