@@ -901,7 +901,10 @@ export function buildHseLiveRiskViewModel(
     hiddenPoseReasons,
     hasWorkerSceneRisks,
     shouldUseLocalFallback,
-    riskLinkedEntityCount: overlayEntities.length,
+    riskLinkedEntityCount: activeRiskEntityCount,
     riskLinkedPoseCount: overlayPoses.length,
+    statusEntityCount: overlayEntities.length,
+    activeRiskEntityCount,
+    safeEntityCount,
   };
 }
