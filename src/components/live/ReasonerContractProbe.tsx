@@ -50,19 +50,22 @@ export function buildReasonerProbe(
   const endToEndWorking = risks.length > 0 && hasLevel && hasLink;
 
   // Qwen contribution: explicit produced_by / reasoner_model markers OR semantic
-  // corrections OR a scene_context with a ready/running reasoner status.
-  const status_ = (parsed?.reasonerStatus ?? "").toLowerCase();
+  // corrections OR a scene_context with a ready/running reasoner status. Falls
+  // back to the summary (which itself reads raw response fields) so the probe
+  // still reports Qwen presence when `parsed` is null.
+  const READY_RUNNING = new Set([
+    "ready", "ok", "done", "completed", "success",
+    "running", "processing", "in_progress", "busy",
+  ]);
+  const status_ = (summary.reasoner.reasonerStatus ?? "").toLowerCase();
   const qwenFromRisks = risks.some((r) => {
     const p = (r.produced_by ?? "").toLowerCase();
     const m = (r.reasoner_model ?? "").toLowerCase();
     return p.includes("qwen") || p.includes("vlm") || m.includes("qwen");
   });
-  const qwenFromCorrections = (parsed?.semanticCorrections?.length ?? 0) > 0;
+  const qwenFromCorrections = summary.reasoner.semanticCorrections > 0;
   const qwenFromContext =
-    !!parsed?.sceneContext &&
-    ["ready", "ok", "done", "completed", "success", "running", "processing", "in_progress"].includes(
-      status_,
-    );
+    summary.reasoner.sceneContextPresent && READY_RUNNING.has(status_);
   const qwenDetected = qwenFromRisks || qwenFromCorrections || qwenFromContext;
 
   return { summary, endToEndWorking, qwenDetected };
