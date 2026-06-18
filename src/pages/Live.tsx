@@ -887,7 +887,7 @@ export default function Live() {
           ) : null
         }
         hseOverlay={
-          hseActive ? (
+          hseActive && hseFlags.localAlertsEnabled ? (
             <>
               <WearableAlertOverlay severity={hse.visibleTopAlert?.severity ?? null} />
               <EagleVisionHUD
