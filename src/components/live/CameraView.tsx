@@ -15,6 +15,7 @@ import type { PoseDebug, PoseStatus } from "@/lib/detection/poseGeometry";
 import type { DetectionZone, ZonePoint } from "@/lib/detection/types";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { computeCoverCrop, MOBILE_VISUAL_ASPECT } from "@/lib/detection/coverCrop";
+import type { HseOverlayMode } from "@/lib/detection/hseLiveRiskViewModel";
 
 const POSE_STATUS_LABEL: Record<PoseStatus, string> = {
   loading: "Loading pose model",
@@ -45,6 +46,8 @@ interface Props {
   backendDryRun?: boolean;
   /** Risk-aware box coloring (VITE_RISK_AWARE_OVERLAY). OFF → unchanged. */
   riskAwareOverlay?: boolean;
+  /** HSE overlay mode: "normal" | "hse-risk-only" | "debug". */
+  overlayMode?: HseOverlayMode;
   /** Small privacy notice slot near the camera (VITE_CAMERA_PRIVACY_NOTICE). */
   privacyNotice?: React.ReactNode;
   zones?: DetectionZone[];
@@ -94,6 +97,7 @@ export function CameraView({
   backendPoses,
   backendDryRun,
   riskAwareOverlay,
+  overlayMode = "normal",
   privacyNotice,
   zones,
   editingZones,
@@ -294,8 +298,14 @@ export function CameraView({
                 debug={showSkeleton}
                 mirrored={mirrored}
                 riskAware={riskAwareOverlay}
+                overlayMode={overlayMode}
               />
-              <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
+              {overlayMode !== "hse-risk-only" && (
+                <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
+              )}
+              {overlayMode === "hse-risk-only" && (backendPoses?.length ?? 0) > 0 && (
+                <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
+              )}
             </>
           )}
 

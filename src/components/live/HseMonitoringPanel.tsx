@@ -1,34 +1,90 @@
 import { Check, Crosshair, Eye, Radar, ScanSearch, Sparkles, Telescope } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HSE_PROFILES } from "@/lib/detection/hseDetectProfile";
-import type { HSEDetectionProfile, HSESeverity } from "@/lib/detection/hseTypes";
+import type { HSEDetectionProfile } from "@/lib/detection/hseTypes";
 import type { HseMonitoring } from "@/features/hse-monitoring/hooks/useHseMonitoring";
+import type {
+  HseLiveRiskViewModel,
+  HseGroupedRisk,
+} from "@/lib/detection/hseLiveRiskViewModel";
+import { HSE_PRIORITY_RISK_LIMIT } from "@/lib/detection/hseLiveRiskViewModel";
+import { riskLevelColor } from "@/lib/detection/riskTypes";
 
 /**
- * HSE monitoring control card (below the camera, monitoring only): detection
- * profile, Far Scan / Tap-to-focus / Analyze scene, a small detection status,
- * and the de-spammed wearable alert feed with Acknowledge.
+ * HSE monitoring control card: detection profile, Far Scan / Tap-to-focus /
+ * Analyze scene, detection status, and the cleaned Priority Scene Risks list
+ * driven by the shared HseLiveRiskViewModel (top-10 grouped, evidence-supported).
  */
 
 const PROFILE_ORDER: HSEDetectionProfile[] = ["fast", "balanced", "far-scan", "inspection"];
-
-const SEV_STYLE: Record<HSESeverity, { dot: string; text: string; chip: string }> = {
-  info: { dot: "bg-cyan-400", text: "text-cyan-200", chip: "bg-cyan-500/15 text-cyan-300" },
-  low: { dot: "bg-cyan-400", text: "text-cyan-200", chip: "bg-cyan-500/15 text-cyan-300" },
-  medium: { dot: "bg-amber-400", text: "text-amber-200", chip: "bg-amber-500/15 text-amber-300" },
-  high: { dot: "bg-orange-500", text: "text-orange-200", chip: "bg-orange-500/15 text-orange-300" },
-  critical: { dot: "bg-red-500", text: "text-red-200", chip: "bg-red-500/20 text-red-300" },
-};
 
 interface Props {
   hse: HseMonitoring;
   focusArmed: boolean;
   onArmFocus: () => void;
+  viewModel?: HseLiveRiskViewModel | null;
+  /** From VITE_HSE_LOCAL_ALERTS_ENABLED. Hides "Analyze scene" + local UI. */
+  localAlertsEnabled?: boolean;
 }
 
-export function HseMonitoringPanel({ hse, focusArmed, onArmFocus }: Props) {
+function RiskCard({ risk, onAck }: { risk: HseGroupedRisk; onAck?: () => void }) {
+  const color = riskLevelColor(risk.level);
+  return (
+    <li className="rounded-xl border border-white/[0.06] bg-black/20 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <span
+          className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black"
+          style={{ background: color }}
+        >
+          {risk.level}
+        </span>
+        <span className="truncate text-xs font-semibold text-foreground">{risk.hazardLabel}</span>
+        <span className="ml-auto rounded-full bg-white/5 px-1.5 py-0.5 text-[9px] font-medium uppercase text-muted-foreground">
+          {risk.source}
+        </span>
+      </div>
+      {risk.linkedItem && (
+        <p className="mt-1 text-[10px] text-muted-foreground/85">
+          Linked item: <span className="text-foreground/90">{risk.linkedItem}</span>
+        </p>
+      )}
+      {risk.why && (
+        <p className="mt-1 text-[11px] leading-snug text-white/85">
+          <span className="text-muted-foreground">Why:</span> {risk.why}
+        </p>
+      )}
+      {risk.action && (
+        <p className="mt-1 text-[11px] leading-snug text-foreground/90">
+          <span className="text-muted-foreground">Action:</span> {risk.action}
+        </p>
+      )}
+      {!risk.acknowledged && onAck && (
+        <button
+          type="button"
+          className="mt-2 text-[10px] text-muted-foreground transition-colors hover:text-cyan-300"
+          onClick={onAck}
+        >
+          <Check className="-mt-0.5 mr-1 inline h-3 w-3" />
+          Acknowledge
+        </button>
+      )}
+    </li>
+  );
+}
+
+export function HseMonitoringPanel({
+  hse,
+  focusArmed,
+  onArmFocus,
+  viewModel,
+  localAlertsEnabled = false,
+}: Props) {
   const lowObjects = hse.objectCount <= 1;
-  const unresolvedAlerts = hse.activeAlerts.filter((a) => a.state !== "resolved");
+  const priority = viewModel?.priorityRisks ?? [];
+  const hiddenCount = viewModel?.hiddenGroupedRiskCount ?? 0;
+  const totalGrouped = viewModel?.groupedRiskCount ?? priority.length;
+  const reasoner = viewModel?.reasonerBadge;
+
   return (
     <section className="console-panel overflow-hidden p-4">
       <div className="flex items-center justify-between">
@@ -41,10 +97,10 @@ export function HseMonitoringPanel({ hse, focusArmed, onArmFocus }: Props) {
             <span className="text-sm font-semibold">Eagle Vision monitoring</span>
           </div>
         </div>
-        {hse.reasoningSource && (
+        {reasoner && (
           <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.04] px-2 py-1 text-[9px] font-medium text-muted-foreground">
             <Sparkles className="h-3 w-3" />
-            {hse.reasoningSource === "deepseek" ? "AI reasoning" : "local risk engine"}
+            {reasoner.label}
           </span>
         )}
       </div>
@@ -66,13 +122,13 @@ export function HseMonitoringPanel({ hse, focusArmed, onArmFocus }: Props) {
           </p>
         </div>
         <div className="metric-card p-2.5">
-          <p className="console-eyebrow">Open alerts</p>
+          <p className="console-eyebrow">Scene risks</p>
           <p
             className={`mt-1 font-display text-xl font-semibold ${
-              unresolvedAlerts.length > 0 ? "text-amber-200" : "text-slate-200"
+              priority.length > 0 ? "text-amber-200" : "text-slate-200"
             }`}
           >
-            {unresolvedAlerts.length}
+            {priority.length}
           </p>
         </div>
       </div>
@@ -122,13 +178,19 @@ export function HseMonitoringPanel({ hse, focusArmed, onArmFocus }: Props) {
             Clear focus
           </Button>
         )}
-        <Button size="sm" variant="secondary" className="min-h-9" onClick={hse.analyzeScene}>
-          <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
-          Analyze scene
-        </Button>
+        {localAlertsEnabled ? (
+          <Button size="sm" variant="secondary" className="min-h-9" onClick={hse.analyzeScene}>
+            <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
+            Analyze scene
+          </Button>
+        ) : (
+          <div className="col-span-1 rounded-lg border border-dashed border-white/10 bg-black/20 px-2 py-1.5 text-[10px] leading-snug text-muted-foreground/80">
+            Legacy local analysis disabled; worker/Qwen scene risks are active.
+          </div>
+        )}
       </div>
 
-      {/* Detection status (non-intrusive) */}
+      {/* Detection status */}
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-white/5 pt-3 text-[10px] text-muted-foreground">
         <span className="flex items-center gap-1">
           <Eye className="h-3 w-3" />{" "}
@@ -140,55 +202,41 @@ export function HseMonitoringPanel({ hse, focusArmed, onArmFocus }: Props) {
         {lowObjects && <span className="text-cyan-300">Try Far Scan for distant objects</span>}
       </div>
 
-      {/* Wearable alert feed (de-spammed, acknowledge-able) */}
-      {unresolvedAlerts.length > 0 && (
-        <div className="mt-4">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="console-eyebrow">Priority alerts</p>
-            <span className="text-[10px] text-muted-foreground">Acknowledge when handled</span>
-          </div>
-          <ul className="space-y-2">
-            {unresolvedAlerts.slice(0, 4).map((a) => {
-              const s = SEV_STYLE[a.severity];
-              return (
-                <li
-                  key={a.key}
-                  className="flex items-start gap-2 rounded-xl border border-white/[0.06] bg-black/20 px-3 py-2.5"
-                >
-                  <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${s.dot}`} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-[11px] font-semibold ${s.text}`}>{a.title}</span>
-                      <span
-                        className={`rounded-full px-1.5 py-px text-[8px] font-bold uppercase ${s.chip}`}
-                      >
-                        {a.severity}
-                      </span>
-                      {a.state === "acknowledged" && (
-                        <span className="text-[8px] uppercase text-muted-foreground">ack’d</span>
-                      )}
-                    </div>
-                    <p className="text-[11px] leading-snug text-white/85">{a.spokenMessage}</p>
-                    {a.recommendedAction && (
-                      <p className="text-[10px] text-muted-foreground">{a.recommendedAction}</p>
-                    )}
-                  </div>
-                  {a.state !== "acknowledged" && (
-                    <button
-                      type="button"
-                      aria-label="Acknowledge alert"
-                      className="shrink-0 text-muted-foreground transition-colors hover:text-cyan-300"
-                      onClick={() => hse.acknowledge(a.key)}
-                    >
-                      <Check className="h-4 w-4" />
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+      {/* Priority Scene Risks (worker/Qwen-driven, evidence-supported, top 10) */}
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="console-eyebrow">Priority Scene Risks</p>
+          {totalGrouped > HSE_PRIORITY_RISK_LIMIT && (
+            <span className="text-[10px] text-muted-foreground">
+              Showing top {HSE_PRIORITY_RISK_LIMIT} of {totalGrouped} grouped scene risks
+            </span>
+          )}
         </div>
-      )}
+        {priority.length === 0 ? (
+          <p className="rounded-lg border border-white/[0.05] bg-black/20 px-3 py-3 text-[11px] text-muted-foreground">
+            No active scene risks.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {priority.map((r) => (
+              <RiskCard
+                key={r.key}
+                risk={r}
+                onAck={
+                  r.key.startsWith("local:")
+                    ? () => hse.acknowledge(r.key.replace(/^local:/, ""))
+                    : undefined
+                }
+              />
+            ))}
+          </ul>
+        )}
+        {hiddenCount > 0 && (
+          <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+            +{hiddenCount} additional grouped risk{hiddenCount === 1 ? "" : "s"} hidden.
+          </p>
+        )}
+      </div>
     </section>
   );
 }

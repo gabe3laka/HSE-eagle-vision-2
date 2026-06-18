@@ -43,6 +43,7 @@ import { BlueprintCalloutLayer } from "@/features/build-mode/components/Blueprin
 import { PlanHologramRenderer } from "@/features/build-mode/components/PlanHologramRenderer";
 import { PlanConsole } from "@/features/build-mode/components/PlanConsole";
 import { useHseMonitoring } from "@/features/hse-monitoring/hooks/useHseMonitoring";
+import { useHseLiveRiskViewModel } from "@/features/hse-monitoring/hooks/useHseLiveRiskViewModel";
 import { EagleVisionHUD } from "@/components/live/EagleVisionHUD";
 import {
   SceneRiskPanel,
@@ -50,7 +51,7 @@ import {
   RiskDebugPanel,
   CameraPrivacyNotice,
 } from "@/components/live/SceneRiskPanel";
-import { readRiskFeatureFlags } from "@/lib/featureFlags";
+import { readRiskFeatureFlags, readHseFeatureFlags } from "@/lib/featureFlags";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import { WearableAlertOverlay } from "@/components/live/WearableAlertOverlay";
 import { HseMonitoringPanel } from "@/components/live/HseMonitoringPanel";
@@ -281,6 +282,7 @@ export default function Live() {
   // Risk-aware feature flags (all default OFF). When every flag is off the
   // risk-aware UI below is never mounted and behavior is byte-for-byte unchanged.
   const riskFlags = useMemo(() => readRiskFeatureFlags(), []);
+  const hseFlags = useMemo(() => readHseFeatureFlags(), []);
 
   const onIncidentSaved = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
@@ -326,6 +328,22 @@ export default function Live() {
     backendName: (backendStatus as BackendStatus | null)?.backend ?? null,
     fallbackActive: !!(backendStatus as BackendStatus | null)?.fallbackUsed,
     setMonitoringRequest,
+    localAlertsEnabled: hseFlags.localAlertsEnabled,
+  });
+
+  // HSE Live Risk View Model — single selector for what the HSE UI shows
+  // (priority list, scene panel, overlay entities/poses, Qwen badge). Only
+  // built in HSE mode so Build/Plan are byte-for-byte unchanged.
+  const parsedRiskForVm = (backendRisk as ParsedDetectRisk | null) ?? null;
+  const hseRiskViewModel = useHseLiveRiskViewModel({
+    entities: backendEntities as BackendEntity[],
+    poses: backendPoses as BackendPose[],
+    parsedRisk: parsedRiskForVm,
+    localActiveAlerts: hse.activeAlerts,
+    nowMs: Date.now(),
+    qwenCandidateLaneEnabled: hseFlags.qwenCandidateLaneEnabled,
+    showQwenCandidates: hseFlags.showQwenCandidates,
+    localAlertsEnabled: hseFlags.localAlertsEnabled,
   });
 
   // Finger-level hand tracking (MediaPipe Hand Landmarker) — Build Mode only,
@@ -597,7 +615,9 @@ export default function Live() {
   // Only consumed when a risk-aware flag is on — otherwise it's inert.
   const risk = (backendRisk as ParsedDetectRisk | null) ?? null;
   const showSceneRiskPanel =
-    riskFlags.workerSceneRisks && !!risk && (risk.sceneRisks.length > 0 || !!risk.riskSummary);
+    appMode === "hse" &&
+    riskFlags.workerSceneRisks &&
+    (hseRiskViewModel.priorityRisks.length > 0 || !!risk?.riskSummary);
   const showDegradedBanner = riskFlags.workerSceneRisks && !!risk && risk.degraded;
 
   // All EdgeCrafter modes share the same dry-run overlays + debug panel. The
@@ -684,14 +704,23 @@ export default function Live() {
         poseStatus={poseStatus}
         debug={debug}
         showSkeleton={import.meta.env.DEV}
-        backendEntities={backendEntities as BackendEntity[]}
-        backendPoses={backendPoses as BackendPose[]}
+        backendEntities={
+          appMode === "hse"
+            ? hseRiskViewModel.overlayEntities
+            : (backendEntities as BackendEntity[])
+        }
+        backendPoses={
+          appMode === "hse"
+            ? hseRiskViewModel.overlayPoses
+            : (backendPoses as BackendPose[])
+        }
         // Dry-run debug overlays (raw entity boxes, the fuchsia pose skeleton
         // and the entity/pose count chip) belong to HSE monitoring only. In
         // Build/Plan they just clutter the camera on top of the clean
         // ExtractableCandidateOverlay selection boxes, so suppress them there.
         backendDryRun={isBackendMode && !buildModeOn}
         riskAwareOverlay={riskFlags.riskAwareOverlay && !buildModeOn}
+        overlayMode={appMode === "hse" ? "hse-risk-only" : "normal"}
         privacyNotice={
           riskFlags.cameraPrivacyNotice && !buildModeOn ? <CameraPrivacyNotice /> : undefined
         }
@@ -983,6 +1012,8 @@ export default function Live() {
                 hse={hse}
                 focusArmed={focusArmed}
                 onArmFocus={() => setFocusArmed(true)}
+                viewModel={hseRiskViewModel}
+                localAlertsEnabled={hseFlags.localAlertsEnabled}
               />
             )}
 
@@ -990,13 +1021,7 @@ export default function Live() {
                 never rendered, so the layout is unchanged. Read-only surfacing —
                 never converts a draft/VLM risk into an incident or CAPA. */}
             {showDegradedBanner && <MonitoringDegradedBanner />}
-            {showSceneRiskPanel && risk && (
-              <SceneRiskPanel
-                risk={risk}
-                showControlHierarchy={riskFlags.showControlHierarchy}
-                showProvenance={riskFlags.showProvenance}
-              />
-            )}
+            {showSceneRiskPanel && <SceneRiskPanel viewModel={hseRiskViewModel} />}
 
             {buildModeOn && (
               <BuildModePanel
@@ -1067,33 +1092,36 @@ export default function Live() {
               )}
             </div>
 
-            {/* Mobile-only alerts trigger */}
-            <div className="xl:hidden">
-              <Sheet open={alertsOpen} onOpenChange={setAlertsOpen}>
-                <SheetTrigger asChild>
-                  <button
-                    type="button"
-                    className="console-panel flex w-full items-center justify-between px-4 py-3 text-sm font-medium transition-colors hover:border-cyan-300/20"
-                  >
-                    <span className="flex items-center gap-2">
-                      <BellRing className="h-4 w-4 text-primary" />
-                      Live alerts
-                    </span>
-                    <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">
-                      {alerts.length}
-                    </span>
-                  </button>
-                </SheetTrigger>
-                <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-4">
-                  <AlertFeed
-                    alerts={alerts}
-                    running={running}
-                    language={config.language}
-                    onDismiss={dismissAlert}
-                  />
-                </SheetContent>
-              </Sheet>
-            </div>
+            {/* Mobile-only alerts trigger — hidden in HSE mode unless legacy
+                local alerts are explicitly enabled. */}
+            {(appMode !== "hse" || hseFlags.localAlertsEnabled) && (
+              <div className="xl:hidden">
+                <Sheet open={alertsOpen} onOpenChange={setAlertsOpen}>
+                  <SheetTrigger asChild>
+                    <button
+                      type="button"
+                      className="console-panel flex w-full items-center justify-between px-4 py-3 text-sm font-medium transition-colors hover:border-cyan-300/20"
+                    >
+                      <span className="flex items-center gap-2">
+                        <BellRing className="h-4 w-4 text-primary" />
+                        Live alerts
+                      </span>
+                      <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">
+                        {alerts.length}
+                      </span>
+                    </button>
+                  </SheetTrigger>
+                  <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-4">
+                    <AlertFeed
+                      alerts={alerts}
+                      running={running}
+                      language={config.language}
+                      onDismiss={dismissAlert}
+                    />
+                  </SheetContent>
+                </Sheet>
+              </div>
+            )}
 
             {((import.meta.env.DEV && !!debug) || isBackendMode) && (
               <details className="console-panel group p-3">
@@ -1171,14 +1199,16 @@ export default function Live() {
                 </div>
               </details>
             )}
-            <div className="console-panel hidden h-[360px] p-4 xl:block">
-              <AlertFeed
-                alerts={alerts}
-                running={running}
-                language={config.language}
-                onDismiss={dismissAlert}
-              />
-            </div>
+            {(appMode !== "hse" || hseFlags.localAlertsEnabled) && (
+              <div className="console-panel hidden h-[360px] p-4 xl:block">
+                <AlertFeed
+                  alerts={alerts}
+                  running={running}
+                  language={config.language}
+                  onDismiss={dismissAlert}
+                />
+              </div>
+            )}
           </aside>
         </div>
       </div>

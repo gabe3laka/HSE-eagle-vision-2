@@ -1,57 +1,23 @@
 import { AlertTriangle, ShieldAlert, Sparkles } from "lucide-react";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
-import type { RecommendedControl, SceneRisk } from "@/lib/detection/riskTypes";
-import {
-  highestRiskLevel,
-  isAiDraftReviewRequired,
-  riskLevelColor,
-  riskLevelRank,
-  normalizeRiskLevel,
-} from "@/lib/detection/riskTypes";
-import { CONTROL_TYPE_META, type ControlType } from "@/features/safety/lib/controlLibrary";
+import { riskLevelColor, riskLevelRank } from "@/lib/detection/riskTypes";
+import type {
+  HseLiveRiskViewModel,
+  HseGroupedRisk,
+} from "@/lib/detection/hseLiveRiskViewModel";
 
 /**
- * Scene-risk panel (feature-flagged by VITE_WORKER_SCENE_RISKS). Renders the
- * highest risk level, the alerting count, and the top 3 risks with reason +
- * evidence + recommended controls. Additive + read-only: it never converts a
- * VLM/draft risk into an incident, risk_register entry or CAPA — human
- * confirmation stays required elsewhere. Mirrors the existing console-panel
- * styling so it sits naturally alongside the other Live panels.
+ * Scene Risk Overview — driven by the shared HseLiveRiskViewModel so the box
+ * colors, friendly labels, and the worker/Qwen status chip all agree with the
+ * Priority Scene Risks list in HseMonitoringPanel.
+ *
+ * Raw temporal JSON / session_id / risk id / track IDs / anchor details and the
+ * full hierarchy-of-controls list are hidden by default; debug surfaces them
+ * via the existing risk-debug panel.
  */
 
-/** Order recommended controls by the NIOSH hierarchy when a `level` maps to a
- *  known ControlType; unknown/absent levels keep their original order (stable). */
-function orderControlsByHierarchy(
-  controls: RecommendedControl[] | undefined,
-  enabled: boolean,
-): RecommendedControl[] {
-  if (!controls || controls.length === 0) return [];
-  if (!enabled) return controls;
-  const rank = (c: RecommendedControl): number => {
-    const key = (c.level ?? "").toLowerCase() as ControlType;
-    const meta = CONTROL_TYPE_META[key];
-    return meta ? meta.rank : 99;
-  };
-  return controls
-    .map((c, i) => ({ c, i }))
-    .sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i)
-    .map((x) => x.c);
-}
-
-function RiskRow({
-  risk,
-  showControlHierarchy,
-  showProvenance,
-}: {
-  risk: SceneRisk;
-  showControlHierarchy: boolean;
-  showProvenance: boolean;
-}) {
-  const level = normalizeRiskLevel(risk.risk_level, risk.risk_color);
-  const color = riskLevelColor(level);
-  const draft = isAiDraftReviewRequired(risk);
-  const controls = orderControlsByHierarchy(risk.recommended_controls, showControlHierarchy);
-  const evidence = (risk.visual_evidence ?? risk.evidence ?? []).slice(0, 3);
+function RiskRow({ risk }: { risk: HseGroupedRisk }) {
+  const color = riskLevelColor(risk.level);
   return (
     <li className="rounded-lg border border-white/[0.06] bg-black/20 p-2.5">
       <div className="flex items-center gap-2">
@@ -59,87 +25,39 @@ function RiskRow({
           className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black"
           style={{ background: color }}
         >
-          {level ?? "—"}
+          {risk.level}
         </span>
-        <span className="truncate text-xs font-medium text-foreground">
-          {risk.hazard ?? "Hazard"}
+        <span className="truncate text-xs font-medium text-foreground">{risk.hazardLabel}</span>
+        <span className="ml-auto rounded-full bg-white/5 px-1.5 py-0.5 text-[9px] font-medium uppercase text-muted-foreground">
+          {risk.source}
         </span>
-        {draft && (
-          <span className="ml-auto flex shrink-0 items-center gap-1 rounded-full bg-violet-400/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-200">
-            <Sparkles className="h-2.5 w-2.5" /> AI draft — review required
-          </span>
-        )}
       </div>
-      {risk.risk_reason && (
-        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{risk.risk_reason}</p>
+      {risk.linkedItem && (
+        <p className="mt-1 text-[10px] text-muted-foreground/85">
+          Linked item: <span className="text-foreground/90">{risk.linkedItem}</span>
+        </p>
       )}
-      {evidence.length > 0 && (
-        <ul className="mt-1 list-disc pl-4 text-[10px] text-muted-foreground/80">
-          {evidence.map((e, i) => (
-            <li key={i} className="truncate">
-              {e}
-            </li>
-          ))}
-        </ul>
+      {risk.why && (
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          <span className="font-medium text-foreground/80">Why:</span> {risk.why}
+        </p>
       )}
-      {controls.length > 0 && (
-        <div className="mt-1.5 space-y-1">
-          {controls.slice(0, 4).map((c, i) => {
-            const key = (c.level ?? "").toLowerCase() as ControlType;
-            const meta = CONTROL_TYPE_META[key];
-            return (
-              <div key={i} className="flex items-start gap-1.5 text-[10px]">
-                {meta && showControlHierarchy ? (
-                  <span
-                    className={`shrink-0 rounded px-1 py-0.5 font-semibold ${meta.bg} ${meta.text}`}
-                  >
-                    {meta.label}
-                  </span>
-                ) : c.level ? (
-                  <span className="shrink-0 rounded bg-white/5 px-1 py-0.5 font-medium text-muted-foreground">
-                    {c.level}
-                  </span>
-                ) : null}
-                <span className="leading-snug text-foreground/90">{c.action}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {showProvenance && (risk.produced_by || risk.reasoner_model) && (
-        <p className="mt-1.5 text-[9px] uppercase tracking-wide text-muted-foreground/60">
-          {risk.produced_by ?? "rules"}
-          {risk.reasoner_model ? ` · ${risk.reasoner_model}` : ""}
-          {risk.risk_matrix_version ? ` · matrix ${risk.risk_matrix_version}` : ""}
+      {risk.action && (
+        <p className="mt-1 text-[11px] leading-snug text-foreground/90">
+          <span className="font-medium text-muted-foreground">Action:</span> {risk.action}
         </p>
       )}
     </li>
   );
 }
 
-export function SceneRiskPanel({
-  risk,
-  showControlHierarchy = false,
-  showProvenance = false,
-}: {
-  risk: ParsedDetectRisk;
-  showControlHierarchy?: boolean;
-  showProvenance?: boolean;
-}) {
-  const risks = risk.sceneRisks ?? [];
-  const summary = risk.riskSummary;
-  const highest = summary?.highest_level ?? highestRiskLevel(risks);
-  const alertingCount =
-    summary?.alerting_count ?? risks.filter((r) => r.should_alert === true).length;
-  // Top 3 by severity rank (then by risk_score desc).
-  const top = [...risks]
-    .sort(
-      (a, b) =>
-        riskLevelRank(normalizeRiskLevel(b.risk_level, b.risk_color)) -
-          riskLevelRank(normalizeRiskLevel(a.risk_level, a.risk_color)) ||
-        (b.risk_score ?? 0) - (a.risk_score ?? 0),
-    )
-    .slice(0, 3);
+export function SceneRiskPanel({ viewModel }: { viewModel: HseLiveRiskViewModel }) {
+  const top = viewModel.priorityRisks.slice(0, 3);
+  const highest = viewModel.highestLevel;
+  const alerting = viewModel.priorityRisks.filter(
+    (r) => riskLevelRank(r.level) >= riskLevelRank("ORANGE"),
+  ).length;
+  const reasoner = viewModel.reasonerBadge;
 
   return (
     <div className="console-panel p-4">
@@ -149,7 +67,7 @@ export function SceneRiskPanel({
         </span>
         <div className="min-w-0">
           <p className="console-eyebrow">Scene risk</p>
-          <h2 className="font-display text-sm font-semibold">Risk overview</h2>
+          <h2 className="font-display text-sm font-semibold">Scene Risk Overview</h2>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <span
@@ -158,26 +76,28 @@ export function SceneRiskPanel({
           >
             {highest ?? "—"}
           </span>
-          {alertingCount > 0 && (
+          {alerting > 0 && (
             <span className="flex items-center gap-1 rounded-full bg-red-400/10 px-2 py-0.5 text-[10px] font-semibold text-red-200">
               <AlertTriangle className="h-3 w-3" />
-              {alertingCount}
+              {alerting}
             </span>
           )}
         </div>
+      </div>
+
+      <div className="mt-2 flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.04] px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
+          <Sparkles className="h-3 w-3" />
+          {reasoner.label}
+        </span>
       </div>
 
       {top.length === 0 ? (
         <p className="mt-3 text-xs text-muted-foreground">No active scene risks.</p>
       ) : (
         <ul className="mt-3 space-y-2">
-          {top.map((r, i) => (
-            <RiskRow
-              key={r.risk_id ?? r.track_id ?? i}
-              risk={r}
-              showControlHierarchy={showControlHierarchy}
-              showProvenance={showProvenance}
-            />
+          {top.map((r) => (
+            <RiskRow key={r.key} risk={r} />
           ))}
         </ul>
       )}

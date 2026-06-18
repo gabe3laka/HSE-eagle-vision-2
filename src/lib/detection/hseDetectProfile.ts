@@ -87,9 +87,54 @@ export function buildHseDetectRequest(
 }
 
 /**
+ * Neutral, scene-first HSE monitoring context attached to the /detect body when
+ * monitoring mode is active. Replaces any older edge-biased `allowed_hazard_focus`
+ * wording. The Cloudflare worker forwards these fields verbatim to the reasoner;
+ * a worker that ignores them keeps working exactly as before.
+ *
+ * Goals:
+ *  - Qwen reasons from the visible frame first, not a hazard template.
+ *  - Qwen may say "no active scene risk" instead of inventing one.
+ *  - Cached risk must be re-verified against the current frame.
+ */
+export const NEUTRAL_HSE_SITE_CONTEXT = {
+  environment_type: "indoor",
+  mode: "live_hse_monitoring",
+  reasoning_policy: {
+    report_only_visible_supported_risks: true,
+    allow_no_risk_result: true,
+    prefer_scene_observation_over_hazard_template: true,
+    require_visual_evidence_for_scene_risk: true,
+    avoid_assuming_edge_risk_from_object_presence: true,
+  },
+  monitoring_focus: [
+    "visible slip/trip hazards",
+    "falling-object potential",
+    "blocked path",
+    "broken object",
+    "unsafe human-object interaction",
+    "visible PPE concern",
+    "vehicle/person proximity when visible",
+  ],
+} as const;
+
+export const NEUTRAL_HSE_REASONING_PREFERENCES = {
+  force_reason: false,
+  prefer_low_latency: true,
+  target_reasoning_interval_ms: 1500,
+  max_candidate_age_ms: 1500,
+  require_visual_evidence: true,
+  allow_no_active_risk: true,
+  avoid_repeating_unconfirmed_risks: true,
+  verify_current_frame_before_reusing_cached_risk: true,
+} as const;
+
+/**
  * Merge the HSE request metadata into a base /detect body. The base fields stay
  * (back-compat); profile-derived `conf`/`img_size` override the defaults so the
- * worker that DOES read top-level conf/img_size also benefits.
+ * worker that DOES read top-level conf/img_size also benefits. Neutral
+ * `site_context` and `reasoning_preferences` are attached when monitoring is
+ * active so the worker/Qwen reasoner is not biased toward edge/danger templates.
  */
 export function applyHseRequestToBody(
   base: Record<string, unknown>,
@@ -106,5 +151,8 @@ export function applyHseRequestToBody(
     quality: req.quality,
     ...(req.roi ? { roi: req.roi } : {}),
     requestReason: req.requestReason,
+    site_context: NEUTRAL_HSE_SITE_CONTEXT,
+    reasoning_preferences: NEUTRAL_HSE_REASONING_PREFERENCES,
   };
 }
+
