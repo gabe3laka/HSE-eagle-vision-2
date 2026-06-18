@@ -6,13 +6,10 @@
  *
  * Pure (no React / DOM). Driven by worker/Qwen scene risks as the source of
  * truth — local alerts only feed the model when `localAlertsEnabled` is true.
- *
- * Used by: SceneRiskPanel, HseMonitoringPanel, BackendEntityOverlay,
- * BackendPoseOverlay, Live.tsx (HSE mode wiring).
  */
 
 import type { BackendEntity, BackendPose } from "./types";
-import type { RiskLevel, SceneRisk } from "./riskTypes";
+import type { RiskBBox, RiskLevel, SceneRisk } from "./riskTypes";
 import { normalizeRiskLevel, riskLevelRank } from "./riskTypes";
 import type { ParsedDetectRisk } from "./backendVisionHttpDetector";
 import type { HSEActiveAlert } from "./hseTypes";
@@ -46,7 +43,6 @@ export interface HseGroupedRisk {
   raw: SceneRisk[];
 }
 
-/** Internal/debug-only view of every raw risk that fed the view model. */
 export interface HseDebugRisk {
   key: string;
   level: RiskLevel | null;
@@ -56,7 +52,6 @@ export interface HseDebugRisk {
   raw: SceneRisk;
 }
 
-/** Qwen-only candidate — never auto-rendered unless flags allow. */
 export interface HseQwenCandidate {
   key: string;
   label: string;
@@ -65,7 +60,6 @@ export interface HseQwenCandidate {
   raw: SceneRisk;
 }
 
-/** Qwen / reasoner availability badge for the panel. */
 export type HseReasonerBadge =
   | { state: "queued"; label: "Qwen: queued" }
   | { state: "running"; label: "Qwen: running" }
@@ -104,6 +98,9 @@ export interface HseLiveRiskViewModel {
   hiddenPoseReasons: string[];
   hasWorkerSceneRisks: boolean;
   shouldUseLocalFallback: boolean;
+  /** Convenient counts for camera chips ("Risk-linked boxes/poses"). */
+  riskLinkedEntityCount: number;
+  riskLinkedPoseCount: number;
 }
 
 // ── Friendly labels ─────────────────────────────────────────────────────────
@@ -128,14 +125,12 @@ export function friendlyHazardLabel(raw: string | undefined): string {
   if (!raw) return "Hazard";
   const k = raw.trim().toLowerCase();
   if (HAZARD_LABELS[k]) return HAZARD_LABELS[k];
-  // Fallback: replace separators with spaces and capitalize.
   const spaced = k.replace(/[_-]+/g, " ").trim();
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 // ── Item name helpers ───────────────────────────────────────────────────────
 
-/** Best-effort item name for a backend entity. */
 export function itemNameForEntity(e: BackendEntity): string {
   const record = e as unknown as Record<string, unknown>;
   const candidates = [
@@ -151,8 +146,7 @@ export function itemNameForEntity(e: BackendEntity): string {
 /**
  * Resolve the visible label for an entity box.
  * - hse-risk-only: ITEM NAME only — never risk words/stale/track ids.
- * - normal: existing behavior of the caller (returns null so the caller can
- *   keep its current label code path).
+ * - normal: caller decides (returns null).
  * - debug: detailed label including risk + confidence.
  */
 export function boxLabelForEntity(
@@ -172,24 +166,12 @@ export function boxLabelForEntity(
     if (e.state) parts.push(e.state);
     return parts.join(" · ");
   }
-  // normal: caller decides (return null so legacy label rendering wins).
   void riskAware;
   return null;
 }
 
 // ── Effective risk level ────────────────────────────────────────────────────
 
-/**
- * Decide the "effective" visible risk level for an entity/risk pair.
- *
- * Rules:
- * - Never DOWNGRADE a linked YELLOW/ORANGE/RED scene risk to GREEN.
- * - `object_near_edge` is only promoted to visible YELLOW when there is real
- *   evidence (Qwen-confirmed, visual evidence, active/confirmed state,
- *   should_alert=true, or risk_score >= 4). Latent/generic edge risks alone
- *   never auto-paint YELLOW — caller decides whether to surface them in debug.
- * - Strong evidence on any hazard can promote to YELLOW.
- */
 export function effectiveRiskLevel(input: {
   risk?: SceneRisk;
   entity?: BackendEntity;
@@ -201,12 +183,10 @@ export function effectiveRiskLevel(input: {
     normalizeRiskLevel(input.risk?.risk_level, input.risk?.risk_color);
   const entityLevel = normalizeRiskLevel(input.entity?.risk_level, input.entity?.risk_color);
   const candidates: (RiskLevel | null)[] = [linked, entityLevel];
-  // Never downgrade a linked non-GREEN to GREEN.
   if (linked && riskLevelRank(linked) >= riskLevelRank("YELLOW")) {
     return linked;
   }
 
-  // Special case object_near_edge: require evidence for YELLOW promotion.
   const risk = input.risk;
   const hazardKey = (risk?.hazard ?? "").toLowerCase();
   if (hazardKey === "object_near_edge") {
@@ -219,15 +199,12 @@ export function effectiveRiskLevel(input: {
       risk?.produced_by === "rules+vlm"
     );
     if (hasEvidence) {
-      // Promote at least to YELLOW.
       const candidate = linked && riskLevelRank(linked) > 0 ? linked : ("YELLOW" as RiskLevel);
       return candidate;
     }
-    // No evidence → keep weak/latent edge risks invisible (caller filters).
     return linked ?? null;
   }
 
-  // Generic: pick the highest of the available candidates, fall back to summary.
   let best: RiskLevel | null = null;
   let bestRank = -1;
   for (const c of candidates) {
@@ -243,22 +220,173 @@ export function effectiveRiskLevel(input: {
   return best;
 }
 
-// ── Group key ──────────────────────────────────────────────────────────────
+// ── Wording fallback chain ──────────────────────────────────────────────────
+
+export function pickRiskWhy(
+  risk: SceneRisk,
+  parsedRisk: ParsedDetectRisk | null = null,
+): string | undefined {
+  const r = risk as Record<string, unknown>;
+  const candidates: (string | undefined)[] = [
+    typeof risk.risk_reason === "string" ? risk.risk_reason : undefined,
+    Array.isArray(risk.visual_evidence) ? risk.visual_evidence[0] : undefined,
+    Array.isArray(risk.evidence) ? risk.evidence[0] : undefined,
+    typeof risk.trigger_condition === "string" ? risk.trigger_condition : undefined,
+    typeof risk.observation === "string" ? risk.observation : undefined,
+    typeof risk.description === "string" ? risk.description : undefined,
+    typeof r.scene_summary === "string" ? (r.scene_summary as string) : undefined,
+    parsedRisk?.sceneContext?.summary,
+    parsedRisk?.sceneContext?.scene_summary,
+    parsedRisk?.semanticCorrections?.[0]?.explanation,
+  ];
+  return candidates.find((s) => typeof s === "string" && s.trim().length > 0);
+}
+
+export function pickRiskAction(risk: SceneRisk): string | undefined {
+  const candidates: (string | undefined)[] = [
+    typeof risk.recommended_action === "string" ? risk.recommended_action : undefined,
+    Array.isArray(risk.recommended_controls) && risk.recommended_controls.length > 0
+      ? risk.recommended_controls[0]?.action
+      : undefined,
+    typeof risk.primary_action === "string" ? risk.primary_action : undefined,
+    typeof risk.next_action === "string" ? risk.next_action : undefined,
+    typeof risk.control_recommendation === "string" ? risk.control_recommendation : undefined,
+  ];
+  return candidates.find((s) => typeof s === "string" && s.trim().length > 0);
+}
+
+// ── Risk-to-entity linking ──────────────────────────────────────────────────
+
+/** Extract a spatial region (0..1) from a worker scene risk, if present. */
+export function riskRegionFor(risk: SceneRisk): RiskBBox | null {
+  const r = risk as Record<string, unknown>;
+  const candidates: unknown[] = [
+    risk.bbox,
+    risk.box,
+    risk.approximate_region,
+    risk.region,
+    risk.visual_region,
+    risk.location_box,
+    r.location,
+  ];
+  for (const c of candidates) {
+    if (!c || typeof c !== "object") continue;
+    const o = c as Record<string, unknown>;
+    const x = numOr(o.x);
+    const y = numOr(o.y);
+    const w = numOr(o.w ?? o.width);
+    const h = numOr(o.h ?? o.height);
+    if (x == null || y == null || w == null || h == null) continue;
+    if (w <= 0 || h <= 0) continue;
+    return { x, y, w, h };
+  }
+  return null;
+}
+
+function numOr(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/** Whether a risk and entity share any id (track, entity, detection, source/linked risk). */
+export function entityMatchesRiskIds(risk: SceneRisk, entity: BackendEntity): boolean {
+  const e = entity as unknown as Record<string, unknown>;
+  const entityIds = new Set<string>();
+  for (const key of ["id", "entity_id", "detection_id", "linked_risk_id"]) {
+    const v = e[key];
+    if (typeof v === "string" && v) entityIds.add(v);
+  }
+  if (entity.track_id) entityIds.add(String(entity.track_id));
+
+  const riskEntityIds: (string | undefined)[] = [
+    risk.linked_entity_id,
+    risk.entity_id,
+    risk.detection_id,
+    risk.source_risk_id,
+    risk.linked_risk_id,
+  ];
+  for (const id of riskEntityIds) {
+    if (typeof id === "string" && id && entityIds.has(id)) return true;
+  }
+  const riskTracks: string[] = [];
+  if (risk.track_id) riskTracks.push(String(risk.track_id));
+  if (Array.isArray(risk.involved_track_ids)) {
+    for (const t of risk.involved_track_ids) if (typeof t === "string") riskTracks.push(t);
+  }
+  if (entity.track_id) {
+    if (riskTracks.includes(String(entity.track_id))) return true;
+  }
+  return false;
+}
+
+function bboxIoU(a: RiskBBox, b: RiskBBox): number {
+  const ax2 = a.x + a.w;
+  const ay2 = a.y + a.h;
+  const bx2 = b.x + b.w;
+  const by2 = b.y + b.h;
+  const ix = Math.max(0, Math.min(ax2, bx2) - Math.max(a.x, b.x));
+  const iy = Math.max(0, Math.min(ay2, by2) - Math.max(a.y, b.y));
+  const inter = ix * iy;
+  const union = a.w * a.h + b.w * b.h - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+function centerDistance(a: RiskBBox, b: RiskBBox): number {
+  const cax = a.x + a.w / 2;
+  const cay = a.y + a.h / 2;
+  const cbx = b.x + b.w / 2;
+  const cby = b.y + b.h / 2;
+  return Math.hypot(cax - cbx, cay - cby);
+}
+
+/** Best spatial match (IoU≥0.2 OR center-distance<0.12). null if none. */
+export function spatialMatchRiskToEntity(
+  risk: SceneRisk,
+  entities: BackendEntity[],
+): BackendEntity | null {
+  const region = riskRegionFor(risk);
+  if (!region) return null;
+  let best: BackendEntity | null = null;
+  let bestScore = -1;
+  for (const e of entities) {
+    if (!e.bbox) continue;
+    const iou = bboxIoU(region, e.bbox);
+    const d = centerDistance(region, e.bbox);
+    if (iou < 0.2 && d > 0.12) continue;
+    // Score: higher IoU is better; tiebreak by closer center.
+    const score = iou + (1 - Math.min(1, d / 0.12)) * 0.25;
+    if (score > bestScore) {
+      bestScore = score;
+      best = e;
+    }
+  }
+  return best;
+}
+
+/**
+ * Resolve all entities a risk should color. Priority:
+ *   ids → spatial IoU/center → no match (empty array).
+ */
+export function linkedEntitiesForRisk(risk: SceneRisk, entities: BackendEntity[]): BackendEntity[] {
+  const byId: BackendEntity[] = [];
+  for (const e of entities) {
+    if (entityMatchesRiskIds(risk, e)) byId.push(e);
+  }
+  if (byId.length > 0) return byId;
+  const spatial = spatialMatchRiskToEntity(risk, entities);
+  return spatial ? [spatial] : [];
+}
+
+// ── Misc ────────────────────────────────────────────────────────────────────
 
 function groupKey(r: SceneRisk): string {
   if (r.risk_id) return `id:${r.risk_id}`;
-  const sourceId = (r as Record<string, unknown>).source_risk_id;
-  if (typeof sourceId === "string" && sourceId) return `src:${sourceId}`;
+  if (r.source_risk_id) return `src:${r.source_risk_id}`;
   const hazard = (r.hazard ?? "unknown").toLowerCase();
-  const tracks =
-    (r as Record<string, unknown>).involved_track_ids ?? (r.track_id ? [r.track_id] : undefined);
+  const tracks = r.involved_track_ids ?? (r.track_id ? [String(r.track_id)] : undefined);
   if (Array.isArray(tracks) && tracks.length > 0) {
     return `${hazard}|t:${[...tracks].sort().join(",")}`;
   }
-  const linkedEntity = (r as Record<string, unknown>).linked_entity_id;
-  if (typeof linkedEntity === "string" && linkedEntity) {
-    return `${hazard}|e:${linkedEntity}`;
-  }
+  if (r.linked_entity_id) return `${hazard}|e:${r.linked_entity_id}`;
   const action = (r.recommended_action ?? "").toLowerCase();
   return `${hazard}|a:${action}`;
 }
@@ -287,37 +415,53 @@ function rankSource(s: HseRiskSource): number {
   }
 }
 
-/** Whether a single risk has real visual support. */
+/** Strong visual support test (Qwen-confirmed, real evidence, alerting, etc.). */
 function hasVisualSupport(r: SceneRisk): boolean {
   if (r.should_alert === true) return true;
-  if (r.visual_evidence && r.visual_evidence.length > 0) return true;
-  if (r.evidence && r.evidence.length > 0) return true;
+  if (Array.isArray(r.visual_evidence) && r.visual_evidence.length > 0) return true;
+  if (Array.isArray(r.evidence) && r.evidence.length > 0) return true;
   if (typeof r.risk_score === "number" && r.risk_score >= 4) return true;
   if (r.produced_by && r.produced_by !== "rules") return true;
+  const state = (r.risk_state ?? "").toLowerCase();
+  if (state === "active" || state === "confirmed") return true;
   return false;
 }
 
-/** A weak/generic latent edge risk that should NOT flood the priority list. */
 function isWeakEdgeRisk(r: SceneRisk): boolean {
   const hazard = (r.hazard ?? "").toLowerCase();
   if (hazard !== "object_near_edge") return false;
   return !hasVisualSupport(r);
 }
 
+/**
+ * Qwen / reasoner badge. Strict: only explicit ready-class statuses become
+ * "ready"; any unknown non-empty string is mapped to "unavailable" so the user
+ * is never falsely told Qwen is healthy.
+ */
 function reasonerBadge(parsedRisk: ParsedDetectRisk | null): HseReasonerBadge {
   if (!parsedRisk) return { state: "disabled", label: "Qwen: disabled" };
-  const s = (parsedRisk.reasonerStatus ?? "").toLowerCase();
-  if (s === "ok" || s === "ready") return { state: "ready", label: "Qwen: ready" };
-  if (s === "running" || s === "in_progress") return { state: "running", label: "Qwen: running" };
-  if (s === "queued" || s === "pending") return { state: "queued", label: "Qwen: queued" };
-  if (s === "unavailable" || s === "timeout") {
+  const raw = (parsedRisk.reasonerStatus ?? "").trim().toLowerCase();
+  if (raw === "") return { state: "disabled", label: "Qwen: disabled" };
+  if (["ready", "ok", "done", "completed", "success"].includes(raw)) {
+    return { state: "ready", label: "Qwen: ready" };
+  }
+  if (["running", "busy", "processing", "in_progress"].includes(raw)) {
+    return { state: "running", label: "Qwen: running" };
+  }
+  if (["queued", "pending", "scheduled"].includes(raw)) {
+    return { state: "queued", label: "Qwen: queued" };
+  }
+  if (["disabled", "not_run"].includes(raw)) {
+    return { state: "disabled", label: "Qwen: disabled" };
+  }
+  if (["unavailable", "timeout", "missing", "not_available"].includes(raw)) {
     return { state: "unavailable", label: "Qwen: unavailable — using rules only" };
   }
-  if (s === "schema_error" || s === "error") {
+  if (["error", "schema_error"].includes(raw)) {
     return { state: "error", label: "Qwen: error — using rules only" };
   }
-  if (s === "disabled" || s === "not_run") return { state: "disabled", label: "Qwen: disabled" };
-  return { state: "ready", label: "Qwen: ready" };
+  // Unknown non-empty status → treat as unavailable, never as ready.
+  return { state: "unavailable", label: "Qwen: unavailable — using rules only" };
 }
 
 // ── Pose filtering (HSE risk-only) ──────────────────────────────────────────
@@ -341,13 +485,12 @@ const STRUCTURAL_KEYPOINT_NAMES = new Set([
   "torso",
 ]);
 
-function poseHasStructure(pose: BackendPose): { ok: boolean; reason?: string } {
+export function poseHasStructure(pose: BackendPose): { ok: boolean; reason?: string } {
   const kps = pose.keypoints ?? [];
   const visible = kps.filter((k) => k && k.score >= POSE_MIN_KP_SCORE);
   if (visible.length < POSE_MIN_VISIBLE_KP) {
     return { ok: false, reason: "too few high-confidence keypoints" };
   }
-  // If keypoint names are present, require torso/head/lower-body structure.
   const named = visible.filter((k) => typeof k.name === "string" && k.name.length > 0);
   if (named.length > 0) {
     const present = new Set(named.map((k) => k.name.toLowerCase()));
@@ -367,7 +510,6 @@ function poseHasStructure(pose: BackendPose): { ok: boolean; reason?: string } {
 }
 
 function poseHasNearbyPerson(pose: BackendPose, entities: BackendEntity[]): boolean {
-  // Centroid of pose keypoints.
   const kps = pose.keypoints ?? [];
   if (kps.length === 0) return false;
   let sx = 0;
@@ -394,6 +536,22 @@ function poseHasNearbyPerson(pose: BackendPose, entities: BackendEntity[]): bool
 
 // ── Main builder ────────────────────────────────────────────────────────────
 
+/** Copy risk metadata onto a (shallow-cloned) entity for overlay rendering. */
+function entityWithRisk(entity: BackendEntity, level: RiskLevel, risk: SceneRisk): BackendEntity {
+  const clone: BackendEntity = { ...entity };
+  clone.risk_level = level;
+  if (risk.risk_color) clone.risk_color = risk.risk_color;
+  if (typeof risk.risk_score === "number") clone.risk_score = risk.risk_score;
+  if (typeof risk.risk_reason === "string") clone.risk_reason = risk.risk_reason;
+  const action = pickRiskAction(risk);
+  if (action) clone.recommended_action = action;
+  if (typeof risk.produced_by === "string") clone.produced_by = risk.produced_by;
+  if (risk.risk_id) {
+    (clone as unknown as Record<string, unknown>).linked_risk_id = risk.risk_id;
+  }
+  return clone;
+}
+
 export function buildHseLiveRiskViewModel(
   input: BuildHseLiveRiskViewModelInput,
 ): HseLiveRiskViewModel {
@@ -413,28 +571,35 @@ export function buildHseLiveRiskViewModel(
   const rawRisks: SceneRisk[] = parsedRisk?.sceneRisks ?? [];
   const hasWorkerSceneRisks = rawRisks.length > 0;
 
-  // Bucket risks: unlinked Qwen-only candidates go into qwenCandidates lane.
+  // Pre-link every risk to its candidate entities so the overlay can paint
+  // weak edge risks too, while the priority list keeps only strong ones.
+  const linkMap = new Map<SceneRisk, BackendEntity[]>();
+  for (const r of rawRisks) {
+    linkMap.set(r, linkedEntitiesForRisk(r, entities));
+  }
+
+  // Bucket: unlinked Qwen-only candidates → qwenCandidates lane.
   const linkedRisks: SceneRisk[] = [];
   const qwenOnly: SceneRisk[] = [];
   for (const r of rawRisks) {
     const src = sourceFromRisk(r);
-    const linked = !!(
-      r.track_id ||
-      (r as Record<string, unknown>).linked_entity_id ||
-      (Array.isArray((r as Record<string, unknown>).involved_track_ids) &&
-        ((r as Record<string, unknown>).involved_track_ids as unknown[]).length > 0)
-    );
-    if ((src === "Qwen" || src === "Rules + Qwen") && !linked) {
+    const hasIdLink =
+      !!r.track_id ||
+      !!r.linked_entity_id ||
+      (Array.isArray(r.involved_track_ids) && r.involved_track_ids.length > 0);
+    const hasAnyLink = hasIdLink || (linkMap.get(r) ?? []).length > 0;
+    if ((src === "Qwen" || src === "Rules + Qwen") && !hasAnyLink) {
       qwenOnly.push(r);
     } else {
       linkedRisks.push(r);
     }
   }
 
-  // Group linked risks.
+  // Group linked risks for the priority list. Weak edge risks are excluded
+  // from priority but still allowed to paint linked boxes (see overlay below).
   const buckets = new Map<string, SceneRisk[]>();
   for (const r of linkedRisks) {
-    if (isWeakEdgeRisk(r) && !debug) continue; // weak/generic edge risks excluded
+    if (isWeakEdgeRisk(r) && !debug) continue;
     const key = groupKey(r);
     const arr = buckets.get(key) ?? [];
     arr.push(r);
@@ -443,7 +608,6 @@ export function buildHseLiveRiskViewModel(
 
   const groupedAll: HseGroupedRisk[] = [];
   for (const [key, arr] of buckets) {
-    // Choose the strongest representative.
     arr.sort((a, b) => {
       const la = riskLevelRank(normalizeRiskLevel(a.risk_level, a.risk_color));
       const lb = riskLevelRank(normalizeRiskLevel(b.risk_level, b.risk_color));
@@ -458,7 +622,6 @@ export function buildHseLiveRiskViewModel(
         riskSummaryHighest: parsedRisk?.riskSummary?.highest_level ?? null,
         linkedSceneHighest: normalizeRiskLevel(rep.risk_level, rep.risk_color),
       }) ?? "GREEN";
-    // Combine source over the bucket — Rules + Qwen wins when both present.
     const sources = new Set(arr.map(sourceFromRisk));
     const source: HseRiskSource = sources.has("Rules + Qwen")
       ? "Rules + Qwen"
@@ -473,21 +636,28 @@ export function buildHseLiveRiskViewModel(
     const linkedTracks = new Set<string>();
     const linkedEntities = new Set<string>();
     for (const r of arr) {
-      if (r.track_id) linkedTracks.add(r.track_id);
-      const it = (r as Record<string, unknown>).involved_track_ids;
-      if (Array.isArray(it)) for (const t of it) if (typeof t === "string") linkedTracks.add(t);
-      const le = (r as Record<string, unknown>).linked_entity_id;
-      if (typeof le === "string") linkedEntities.add(le);
+      if (r.track_id) linkedTracks.add(String(r.track_id));
+      if (Array.isArray(r.involved_track_ids))
+        for (const t of r.involved_track_ids) if (typeof t === "string") linkedTracks.add(t);
+      if (r.linked_entity_id) linkedEntities.add(r.linked_entity_id);
+      // Also pull ids from spatially-linked entities so overlay matching works.
+      for (const e of linkMap.get(r) ?? []) {
+        if (e.track_id) linkedTracks.add(String(e.track_id));
+        const eid = (e as unknown as { id?: string }).id;
+        if (typeof eid === "string") linkedEntities.add(eid);
+      }
     }
 
-    const linkedItem = [...linkedEntities, ...linkedTracks]
-      .map((id) =>
-        entities.find((e) => e.track_id === id || (e as unknown as { id?: string }).id === id),
-      )
-      .find((e) => e)?.label;
+    const linkedItem =
+      [...linkedEntities, ...linkedTracks]
+        .map((id) =>
+          entities.find((e) => e.track_id === id || (e as unknown as { id?: string }).id === id),
+        )
+        .find((e) => e)?.label ??
+      // Fall back to spatially-linked entity's label.
+      linkMap.get(rep)?.[0]?.label;
 
-    const state = (rep as Record<string, unknown>).risk_state;
-    const stateStr = typeof state === "string" ? state.toLowerCase() : "";
+    const stateStr = (rep.risk_state ?? "").toLowerCase();
     const resolving = stateStr === "resolving" || stateStr === "stale";
     const active = stateStr === "" || stateStr === "active" || stateStr === "confirmed";
 
@@ -497,9 +667,11 @@ export function buildHseLiveRiskViewModel(
       hazardLabel: friendlyHazardLabel(rep.hazard),
       level,
       source,
-      why: rep.risk_reason,
-      action: rep.recommended_action,
-      linkedItem,
+      why: pickRiskWhy(rep, parsedRisk),
+      action: pickRiskAction(rep),
+      linkedItem: linkedItem
+        ? itemNameForEntity({ label: linkedItem } as BackendEntity)
+        : undefined,
       linkedTrackIds: [...linkedTracks],
       linkedEntityIds: [...linkedEntities],
       riskScore: rep.risk_score ?? 0,
@@ -511,8 +683,7 @@ export function buildHseLiveRiskViewModel(
     });
   }
 
-  // Optional: local fallback when there are NO worker scene risks and the flag
-  // is on. Maps local alerts onto grouped risks so the panel can still render.
+  // Local fallback (only when explicitly enabled and no worker risks).
   const shouldUseLocalFallback = !hasWorkerSceneRisks && localAlertsEnabled;
   if (shouldUseLocalFallback) {
     for (const a of localActiveAlerts) {
@@ -547,8 +718,6 @@ export function buildHseLiveRiskViewModel(
     }
   }
 
-  // Rank: RED first → YELLOW; active before stale; non-resolving first;
-  // Rules+Qwen → Qwen → Rules; higher risk_score; more linked items; newer.
   groupedAll.sort((a, b) => {
     const lr = riskLevelRank(b.level) - riskLevelRank(a.level);
     if (lr !== 0) return lr;
@@ -568,23 +737,59 @@ export function buildHseLiveRiskViewModel(
   const priorityRisks = visibleGrouped.slice(0, HSE_PRIORITY_RISK_LIMIT);
   const hiddenGroupedRiskCount = Math.max(0, visibleGrouped.length - priorityRisks.length);
 
-  // Overlay entities: only those tied to a visible YELLOW+ risk.
-  const visibleEntityIds = new Set<string>();
-  const visibleTrackIds = new Set<string>();
-  for (const g of visibleGrouped) {
-    for (const id of g.linkedEntityIds) visibleEntityIds.add(id);
-    for (const t of g.linkedTrackIds) visibleTrackIds.add(t);
-  }
-  const overlayEntities = entities.filter((e) => {
-    if (e.track_id && visibleTrackIds.has(e.track_id)) return true;
-    const id = (e as unknown as { id?: string }).id;
-    if (typeof id === "string" && visibleEntityIds.has(id)) return true;
-    const entLevel = normalizeRiskLevel(e.risk_level, e.risk_color);
-    if (entLevel && riskLevelRank(entLevel) >= riskLevelRank("YELLOW")) return true;
-    return false;
-  });
+  // Overlay entities: paint every linked entity (priority + linked weak edge).
+  // For each linked entity, copy effective risk metadata onto a clone.
+  const overlayMap = new Map<string, BackendEntity>();
+  const stampEntity = (e: BackendEntity, level: RiskLevel, risk: SceneRisk) => {
+    const id =
+      e.track_id ?? (e as unknown as { id?: string }).id ?? `${e.label}|${e.bbox?.x}|${e.bbox?.y}`;
+    const existing = overlayMap.get(id);
+    if (
+      !existing ||
+      riskLevelRank(level) >
+        riskLevelRank(normalizeRiskLevel(existing.risk_level, existing.risk_color))
+    ) {
+      overlayMap.set(id, entityWithRisk(e, level, risk));
+    }
+  };
 
-  // Overlay poses: pose filtering rules.
+  // Pass 1: priority/grouped risks.
+  for (const g of visibleGrouped) {
+    for (const r of g.raw) {
+      for (const e of linkMap.get(r) ?? []) {
+        stampEntity(e, g.level, r);
+      }
+    }
+  }
+  // Pass 2: weak edge risks that ARE linked spatially get a YELLOW box but stay
+  // out of the priority list. They never create haptics/incidents (UI-only).
+  for (const r of rawRisks) {
+    if (!isWeakEdgeRisk(r)) continue;
+    const linkedByIds =
+      !!r.track_id ||
+      !!r.linked_entity_id ||
+      (Array.isArray(r.involved_track_ids) && r.involved_track_ids.length > 0);
+    const linked = linkMap.get(r) ?? [];
+    if (!linkedByIds && linked.length === 0) continue;
+    for (const e of linked) {
+      stampEntity(e, "YELLOW", r);
+    }
+  }
+  // Also include any entity that already carries its own YELLOW+ level from the
+  // worker (defence in depth — never lose worker-painted boxes).
+  for (const e of entities) {
+    const lvl = normalizeRiskLevel(e.risk_level, e.risk_color);
+    if (lvl && riskLevelRank(lvl) >= riskLevelRank("YELLOW")) {
+      const id =
+        e.track_id ??
+        (e as unknown as { id?: string }).id ??
+        `${e.label}|${e.bbox?.x}|${e.bbox?.y}`;
+      if (!overlayMap.has(id)) overlayMap.set(id, { ...e });
+    }
+  }
+  const overlayEntities = [...overlayMap.values()];
+
+  // Overlay poses: only well-formed poses near a real person entity.
   const hiddenPoseReasons: string[] = [];
   const overlayPoses: BackendPose[] = [];
   for (const p of poses) {
@@ -600,17 +805,16 @@ export function buildHseLiveRiskViewModel(
     overlayPoses.push(p);
   }
 
-  // Qwen advisory lane.
   const qwenCandidates: HseQwenCandidate[] = qwenCandidateLaneEnabled
     ? qwenOnly.map((r, i) => ({
         key: r.risk_id ?? `qwen-${i}`,
         label: friendlyHazardLabel(r.hazard),
-        why: r.risk_reason,
+        why: pickRiskWhy(r, parsedRisk),
         level: normalizeRiskLevel(r.risk_level, r.risk_color),
         raw: r,
       }))
     : [];
-  void showQwenCandidates; // surfaced via flag at render-time
+  void showQwenCandidates;
 
   const debugRisks: HseDebugRisk[] = debug
     ? rawRisks.map((r) => ({
@@ -625,6 +829,8 @@ export function buildHseLiveRiskViewModel(
 
   const highestLevel = priorityRisks[0]?.level ?? null;
   const acknowledgedRiskCount = groupedAll.filter((g) => g.acknowledged).length;
+  const sceneContextLabel =
+    parsedRisk?.sceneContext?.summary ?? parsedRisk?.sceneContext?.scene_summary;
 
   return {
     overlayEntities,
@@ -634,7 +840,7 @@ export function buildHseLiveRiskViewModel(
     debugRisks,
     qwenCandidates,
     reasonerBadge: reasonerBadge(parsedRisk),
-    sceneContextLabel: undefined,
+    sceneContextLabel: typeof sceneContextLabel === "string" ? sceneContextLabel : undefined,
     highestLevel,
     rawRiskCount: rawRisks.length,
     groupedRiskCount: visibleGrouped.length,
@@ -643,5 +849,7 @@ export function buildHseLiveRiskViewModel(
     hiddenPoseReasons,
     hasWorkerSceneRisks,
     shouldUseLocalFallback,
+    riskLinkedEntityCount: overlayEntities.length,
+    riskLinkedPoseCount: overlayPoses.length,
   };
 }
