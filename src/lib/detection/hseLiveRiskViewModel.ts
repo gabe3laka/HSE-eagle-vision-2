@@ -111,6 +111,8 @@ export interface HseLiveRiskViewModel {
   activeRiskEntityCount: number;
   /** GREEN-only status boxes (safe/observed). */
   safeEntityCount: number;
+}
+
 
 // ── Friendly labels ─────────────────────────────────────────────────────────
 
