@@ -155,3 +155,27 @@ describe("Build Mode hand tracking — keyframe recording", () => {
     expect(frame.handLandmarks![0].y).toBeCloseTo(0.5, 5);
   });
 });
+
+import { readBackendWristFallbackFlag } from "../features/build-mode/hooks/useBuildHandTracking";
+
+describe("Build Mode — backend wrist fallback flag (VITE_BUILD_BACKEND_WRIST_FALLBACK)", () => {
+  const envBag = (import.meta as unknown as { env: Record<string, unknown> }).env;
+  const prev = envBag.VITE_BUILD_BACKEND_WRIST_FALLBACK;
+  afterEach(() => {
+    envBag.VITE_BUILD_BACKEND_WRIST_FALLBACK = prev;
+  });
+
+  it("defaults to false when the env var is unset", () => {
+    delete envBag.VITE_BUILD_BACKEND_WRIST_FALLBACK;
+    expect(readBackendWristFallbackFlag()).toBe(false);
+  });
+
+  it("returns true only for the exact string 'true'", () => {
+    envBag.VITE_BUILD_BACKEND_WRIST_FALLBACK = "true";
+    expect(readBackendWristFallbackFlag()).toBe(true);
+    envBag.VITE_BUILD_BACKEND_WRIST_FALLBACK = "false";
+    expect(readBackendWristFallbackFlag()).toBe(false);
+    envBag.VITE_BUILD_BACKEND_WRIST_FALLBACK = "yes";
+    expect(readBackendWristFallbackFlag()).toBe(false);
+  });
+});
