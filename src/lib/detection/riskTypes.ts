@@ -84,12 +84,21 @@ export interface RiskAwareFields {
   risks?: SceneRisk[];
   scene_risks?: SceneRisk[];
   risk_summary?: RiskSummary;
+  /** Top-level convenience field some workers emit alongside risk_summary. */
+  highest_risk_level?: string;
   risk_enabled?: boolean;
   tracking_enabled?: boolean;
   scene_graph_enabled?: boolean;
   degraded?: boolean;
   degradation_mode?: string;
-  reasoner_status?: string;
+  /**
+   * Worker may emit either a plain string ("ready") OR a structured object
+   * such as `{ enabled: true, mode: "qwen_vl", state: "ready" }`. Both shapes
+   * are normalized via `normalizeReasonerStatus`.
+   */
+  reasoner_status?:
+    | string
+    | ({ state?: unknown; status?: unknown; reasoner_status?: unknown } & Record<string, unknown>);
   stage_timings_ms?: Record<string, number>;
   privacy_blur_applied?: boolean;
   warnings?: string[];
@@ -97,6 +106,24 @@ export interface RiskAwareFields {
   temporal_reasoning?: unknown;
   scene_context?: { summary?: string; scene_summary?: string } & Record<string, unknown>;
   semantic_corrections?: Array<{ explanation?: string } & Record<string, unknown>>;
+}
+
+/**
+ * PURE: normalize a worker `reasoner_status` field. Accepts either a plain
+ * string ("ready") or a structured object ({ state: "ready", ... }). Returns
+ * the trimmed status token, or null when nothing usable is present.
+ *
+ * Only the state token is returned; the original object (if any) should be
+ * preserved separately for diagnostics.
+ */
+export function normalizeReasonerStatus(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const state = record.state ?? record.status ?? record.reasoner_status;
+    if (typeof state === "string" && state.trim()) return state.trim();
+  }
+  return null;
 }
 
 // ── PURE helpers ─────────────────────────────────────────────────────────────

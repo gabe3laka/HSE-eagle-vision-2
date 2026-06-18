@@ -212,3 +212,43 @@ describe("(9) readDetectUrl", () => {
     expect(url).not.toContain("runpod");
   });
 });
+
+// ── (10) reasoner_status normalization (string OR object) ────────────────────
+describe("(10) reasoner_status normalization + reasoner-only hasRiskAwareData", () => {
+  it("parses a string reasoner_status verbatim", () => {
+    const resp = { reasoner_status: "ready" };
+    expect(hasRiskAwareData(resp)).toBe(true);
+    const parsed = parseDetectRiskFields(resp);
+    expect(parsed.reasonerStatus).toBe("ready");
+    expect(parsed.reasonerStatusRaw).toBeUndefined();
+  });
+
+  it("parses a structured reasoner_status object via state", () => {
+    const resp = {
+      reasoner_status: { enabled: true, mode: "qwen_vl", state: "ready" },
+    };
+    expect(hasRiskAwareData(resp)).toBe(true);
+    const parsed = parseDetectRiskFields(resp);
+    expect(parsed.reasonerStatus).toBe("ready");
+    expect(parsed.reasonerStatusRaw).toEqual({
+      enabled: true,
+      mode: "qwen_vl",
+      state: "ready",
+    });
+  });
+
+  it("leaves reasonerStatus undefined for an unknown object shape", () => {
+    const resp = { reasoner_status: { foo: "bar" } };
+    expect(hasRiskAwareData(resp)).toBe(true);
+    const parsed = parseDetectRiskFields(resp);
+    expect(parsed.reasonerStatus).toBeUndefined();
+    expect(parsed.reasonerStatusRaw).toEqual({ foo: "bar" });
+  });
+
+  it("hasRiskAwareData is true for reasoner-only payloads", () => {
+    expect(hasRiskAwareData({ scene_context: { summary: "x" } })).toBe(true);
+    expect(hasRiskAwareData({ semantic_corrections: [{ explanation: "x" }] })).toBe(true);
+    expect(hasRiskAwareData({ temporal_reasoning: { window_s: 5 } })).toBe(true);
+    expect(hasRiskAwareData({ highest_risk_level: "RED" })).toBe(true);
+  });
+});

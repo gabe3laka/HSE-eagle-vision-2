@@ -15,7 +15,7 @@ import {
 import { applyHseRequestToBody } from "./hseDetectProfile";
 import type { HSEDetectRequest } from "./hseTypes";
 import type { RiskAwareFields, RecommendedControl, RiskSummary, SceneRisk } from "./riskTypes";
-import { normalizeRiskLevel } from "./riskTypes";
+import { normalizeRiskLevel, normalizeReasonerStatus } from "./riskTypes";
 import { supabase } from "@/integrations/supabase/own-client";
 import { computeCoverCrop, isMobileViewport, MOBILE_VISUAL_ASPECT } from "./coverCrop";
 
@@ -184,6 +184,13 @@ export interface ParsedDetectRisk {
   degraded: boolean;
   degradationMode?: string;
   reasonerStatus?: string;
+  /**
+   * Original `reasoner_status` payload when the worker returned a structured
+   * object (e.g. `{ enabled: true, mode: "qwen_vl", state: "ready" }`).
+   * Preserved verbatim so the Reasoner Contract Probe can show worker-supplied
+   * fields like `mode` / `enabled` without re-interpreting them.
+   */
+  reasonerStatusRaw?: Record<string, unknown>;
   stageTimingsMs?: Record<string, number>;
   privacyBlurApplied?: boolean;
   warnings: string[];
@@ -216,12 +223,16 @@ export function hasRiskAwareData(resp: unknown): boolean {
     "risks",
     "scene_risks",
     "risk_summary",
+    "highest_risk_level",
     "risk_enabled",
     "tracking_enabled",
     "scene_graph_enabled",
     "degraded",
     "degradation_mode",
     "reasoner_status",
+    "temporal_reasoning",
+    "scene_context",
+    "semantic_corrections",
     "stage_timings_ms",
     "privacy_blur_applied",
     "warnings",
@@ -257,7 +268,11 @@ export function parseDetectRiskFields(resp: unknown): ParsedDetectRisk {
   if (typeof r.tracking_enabled === "boolean") out.trackingEnabled = r.tracking_enabled;
   if (typeof r.scene_graph_enabled === "boolean") out.sceneGraphEnabled = r.scene_graph_enabled;
   if (typeof r.degradation_mode === "string") out.degradationMode = r.degradation_mode;
-  if (typeof r.reasoner_status === "string") out.reasonerStatus = r.reasoner_status;
+  const normalizedReasoner = normalizeReasonerStatus(r.reasoner_status);
+  if (normalizedReasoner) out.reasonerStatus = normalizedReasoner;
+  if (r.reasoner_status && typeof r.reasoner_status === "object") {
+    out.reasonerStatusRaw = r.reasoner_status as Record<string, unknown>;
+  }
   if (r.stage_timings_ms && typeof r.stage_timings_ms === "object")
     out.stageTimingsMs = r.stage_timings_ms;
   if (typeof r.privacy_blur_applied === "boolean") out.privacyBlurApplied = r.privacy_blur_applied;
@@ -991,24 +1006,38 @@ export function summarizeDetectResponse(
   if (highestLabel == null && typeof summaryHigh === "string") {
     highestLabel = summaryHigh.toUpperCase();
   }
+  if (highestLabel == null && typeof r.highest_risk_level === "string") {
+    highestLabel = (r.highest_risk_level as string).toUpperCase();
+  }
+
+  // Reasoner: prefer parsed, fall back to raw response so the probe still
+  // surfaces reasoner-only payloads when parsed is null.
+  const rawReasonerNorm = normalizeReasonerStatus(r.reasoner_status);
+  const rawSceneCtx =
+    r.scene_context && typeof r.scene_context === "object" ? r.scene_context : null;
+  const rawSemCorr = Array.isArray(r.semantic_corrections)
+    ? (r.semantic_corrections as unknown[]).length
+    : 0;
+  const rawTempReasoning = r.temporal_reasoning;
 
   return {
     detection: { entities, poses, segments },
     risk: {
       risks: riskList.length,
       sceneRisks: sceneRisks.length,
-      hasRiskSummary: !!parsed?.riskSummary,
+      hasRiskSummary: !!parsed?.riskSummary || (r.risk_summary != null),
       highestLevel: highestLabel,
-      riskEngine: parsed?.riskEngine ?? null,
+      riskEngine: parsed?.riskEngine ?? (typeof r.risk_engine === "string" ? r.risk_engine : null),
       riskEnabled: parsed?.riskEnabled ?? null,
-      degraded: !!parsed?.degraded,
-      degradationMode: parsed?.degradationMode ?? null,
+      degraded: !!parsed?.degraded || r.degraded === true,
+      degradationMode:
+        parsed?.degradationMode ?? (typeof r.degradation_mode === "string" ? r.degradation_mode : null),
     },
     reasoner: {
-      reasonerStatus: parsed?.reasonerStatus ?? null,
-      sceneContextPresent: !!parsed?.sceneContext,
-      semanticCorrections: parsed?.semanticCorrections?.length ?? 0,
-      temporalReasoningPresent: parsed?.temporalReasoning != null,
+      reasonerStatus: parsed?.reasonerStatus ?? rawReasonerNorm ?? null,
+      sceneContextPresent: !!parsed?.sceneContext || !!rawSceneCtx,
+      semanticCorrections: parsed?.semanticCorrections?.length ?? rawSemCorr,
+      temporalReasoningPresent: parsed?.temporalReasoning != null || rawTempReasoning != null,
     },
     sources,
     linkability: link,
