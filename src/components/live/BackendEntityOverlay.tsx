@@ -79,7 +79,7 @@ export function BackendEntityOverlay({
       {visible.map((e, i) => {
         const b = e?.bbox ? mirrorBox(e.bbox, mirrored) : undefined;
         if (!b) return null;
-        const color = boxColorFor(e, riskAware || isHseRiskOnly);
+        const color = boxColorFor(e, riskAwareEffective);
         const label =
           boxLabelForEntity(e, riskAware, effMode) ??
           `${itemNameForEntity(e)} · ${Math.round((e.confidence ?? 0) * 100)}%`;
