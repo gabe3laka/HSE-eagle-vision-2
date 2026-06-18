@@ -374,9 +374,6 @@ export function CameraView({
                 <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-amber-300 backdrop-blur">
                   Risk-linked boxes: {riskLinkedEntityCount ?? backendEntities?.length ?? 0}
                 </span>
-                <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-fuchsia-300 backdrop-blur">
-                  Detected poses: {rawBackendPoseCount ?? backendPoses?.length ?? 0}
-                </span>
                 <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-amber-300 backdrop-blur">
                   Risk-linked poses: {riskLinkedPoseCount ?? backendPoses?.length ?? 0}
                 </span>
