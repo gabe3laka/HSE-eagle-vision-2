@@ -18,7 +18,12 @@ const isTest =
  * @lovable.dev/vite-tanstack-config at top-level so vitest doesn't cause Node
  * to attempt a require() on an ESM-only module and throw ERR_REQUIRE_ESM.
  */
-export default async (): Promise<UserConfig> => {
+export default async (
+  env: { command: "build" | "serve"; mode: string; isSsrBuild?: boolean; isPreview?: boolean } = {
+    command: "serve",
+    mode: "development",
+  },
+): Promise<UserConfig> => {
   if (isTest) {
     // Minimal config for vitest — skips the full plugin chain to avoid
     // ESM/CJS interop issues inside the test runner.
@@ -45,6 +50,9 @@ export default async (): Promise<UserConfig> => {
   });
 
   // defineConfig may return a config object, a promise, or a function — resolve it.
-  const resolved = typeof config === "function" ? await config() : await config;
+  const resolved =
+    typeof config === "function"
+      ? await (config as (e: typeof env) => UserConfig | Promise<UserConfig>)(env)
+      : await config;
   return resolved as UserConfig;
 };
