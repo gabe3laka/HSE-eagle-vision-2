@@ -1195,7 +1195,15 @@ export default function Live() {
                       {import.meta.env.DEV && appMode === "hse" && (
                         <ReasonerContractProbe
                           parsedRisk={risk}
-                          rawResp={(backendStatus as BackendStatus | null)?.lastRawResponse ?? null}
+                          rawResp={(() => {
+                            const raw = (backendStatus as BackendStatus | null)?.lastRawResponse;
+                            if (typeof raw !== "string" || !raw) return null;
+                            try {
+                              return JSON.parse(raw);
+                            } catch {
+                              return null;
+                            }
+                          })()}
                           status={(backendStatus as BackendStatus | null) ?? null}
                         />
                       )}
