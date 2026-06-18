@@ -1206,6 +1206,7 @@ export default function Live() {
                             }
                           })()}
                           status={(backendStatus as BackendStatus | null) ?? null}
+                          localAlertsEnabled={hseFlags.localAlertsEnabled}
                         />
                       )}
                       {showFrameTest && (
