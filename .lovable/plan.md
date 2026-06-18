@@ -1,87 +1,85 @@
-## Final Hardening — Normalize reasoner_status + broaden probe
+## Goal
 
-Scoped to the app only. No Cloudflare, RunPod, Build mode, or Plan mode changes. No new Vite env vars. Live HSE request body, Test Detect Frame HSE-awareness, and the Reasoner Contract Probe placement stay as-is.
+When `VITE_HSE_LOCAL_ALERTS_ENABLED=false` (default), Live HSE must show **zero** legacy/local warnings ("Worker near vehicle", "Possible unsafe posture", etc.). The only source of visible HSE truth is worker scene_risks via `hseLiveRiskViewModel`. Detector frames keep flowing to Cloudflare/RunPod. Worker scene_risks remain the only thing that colors boxes.
 
-### 1. Add `normalizeReasonerStatus` helper
+## Findings
 
-**`src/lib/detection/riskTypes.ts`** — widen the type and export the helper:
+Existing gating already covers `visibleTopAlert`, `WearableAlertOverlay` severity, `analyzeScene`, and a few HUD render sites. Remaining leak paths:
 
-```ts
-reasoner_status?: string | { state?: unknown; status?: unknown; reasoner_status?: unknown; [k: string]: unknown };
+1. `useHseMonitoring.ts` still calls `runHseRules(...)` + `managerRef.ingest(...)` + `setActiveAlerts(active)` even when `localAlertsEnabled=false`. Those `activeAlerts` are then fed into `useHseLiveRiskViewModel` as `localActiveAlerts`, which can still drive risk-colored UI.
+2. `useDetectionSession.ts` always runs `RiskEngine.update(...)`, sets `liveBoxes` from local observations, surfaces `alerts`, and bumps `stats.alerts`. In HSE mode that's the legacy local source.
+3. `Live.tsx` line 891-901 always renders `EagleVisionHUD` whenever `hseActive`, regardless of the flag.
+4. `Live.tsx` line 332 always passes `liveBoxes` into `useHseMonitoring`, even with local alerts off — those become HSE observations that produce the false rule candidates.
 
-export function normalizeReasonerStatus(value: unknown): string | null {
-  if (typeof value === "string" && value.trim()) return value.trim();
-  if (value && typeof value === "object") {
-    const r = value as Record<string, unknown>;
-    const s = r.state ?? r.status ?? r.reasoner_status;
-    if (typeof s === "string" && s.trim()) return s.trim();
+## Changes
+
+### 1. `src/features/hse-monitoring/hooks/useHseMonitoring.ts`
+In the HSE tick effect, when `localAlertsEnabled === false`:
+- still update `tracksRef` / `setTracks` (kept for debug counts), but
+- **do not** call `runHseRules`,
+- **do not** call `managerRef.ingest`,
+- ensure `activeAlerts` stays `[]` (early-return after `setTracks(live)`),
+- skip haptics, incidents, DeepSeek throttle entirely.
+
+Also force `mapToHseObservations` to receive `liveBoxes: []` when local alerts are off, so the legacy local boxes can never seed HSE observations even if a caller forgets to gate.
+
+### 2. `src/hooks/useDetectionSession.ts`
+Add option `suppressLocalRiskEngine?: boolean` (stored in a ref like `suppressIncidents`). In `cycle(...)` when true:
+- still call `det.detect(...)` (frames keep flowing to Cloudflare/RunPod),
+- still update `backendStatus` / `backendEntities` / `backendPoses` / `backendSegments` / `backendRisk`,
+- skip `engine.update(...)`, skip `setLiveBoxes` (leave as `[]`), skip alert/stat updates, skip notifications, skip detection/incident persistence.
+
+Frame count + perf metrics still tick.
+
+### 3. `src/pages/Live.tsx`
+- Pass `suppressLocalRiskEngine: appMode === "hse" && !hseFlags.localAlertsEnabled` into `useDetectionSession`.
+- Replace `liveBoxes` argument to `useHseMonitoring` with `hseFlags.localAlertsEnabled ? liveBoxes : []`.
+- Gate the HSE overlay block (lines 888-917):
+  ```tsx
+  hseOverlay={
+    hseActive && hseFlags.localAlertsEnabled ? (
+      <>
+        <WearableAlertOverlay ... />
+        <EagleVisionHUD ... />
+        {focusArmed && ...}
+      </>
+    ) : null
   }
-  return null;
-}
-```
+  ```
+- Still render the tap-to-focus button standalone if needed — but since focusArmed only matters with HUD, leave it inside the gated block.
+- The header `topRisk` already falls back to `hseRiskViewModel.priorityRisks[0]?.hazardLabel`, which is fed only by worker scene_risks (via `localAlertsEnabled` flag also passed in) — verify it does not surface local `hse.visibleTopAlert.title` when flag is off (`visibleTopAlert` is already null in that case, so OK).
 
-Also add an optional `reasonerStatusRaw?: Record<string, unknown>` field to `ParsedDetectRisk` so the probe can still display the structured object verbatim.
+### 4. Diagnostic label
+Add a one-line "Visible alert source" indicator in `ReasonerContractProbe.tsx` (or as a small badge near it in `Live.tsx`):
+- `worker_scene_risks` when `!localAlertsEnabled`,
+- `legacy_local_alerts` when `localAlertsEnabled`.
 
-### 2. Use the helper in `parseDetectRiskFields`
+This makes future leakage obvious.
 
-**`src/lib/detection/backendVisionHttpDetector.ts`** (~line 260): replace the string-only branch with:
+### 5. Tests — `src/__tests__/hseMonitoring.test.ts` (extend)
+Add cases verifying:
+- `localAlertsEnabled=false`: even with synthetic worker+vehicle entities that would trigger `worker_near_vehicle`, `hook.activeAlerts === []` and `visibleTopAlert === null`.
+- `localAlertsEnabled=false`: `liveBoxes` containing fake `worker_near_vehicle` boxes do not produce any HSE candidate (because they're filtered out of `mapToHseObservations`).
+- `localAlertsEnabled=true`: legacy path still produces `activeAlerts` for the same input (backcompat).
 
-```ts
-const normalized = normalizeReasonerStatus(r.reasoner_status);
-if (normalized) out.reasonerStatus = normalized;
-if (r.reasoner_status && typeof r.reasoner_status === "object") {
-  out.reasonerStatusRaw = r.reasoner_status as Record<string, unknown>;
-}
-```
+New file `src/__tests__/liveLocalAlertSuppression.test.ts` (light, no React render) verifies:
+- `useDetectionSession`-style logic: when `suppressLocalRiskEngine=true`, no alerts are emitted from a stubbed RiskEngine call and `liveBoxes` stays empty, while a stubbed detector's entities/poses still flow through.
 
-### 3. Broaden `hasRiskAwareData`
+Worker scene_risks → linked entity colouring is already covered by `hseLiveRiskViewModel.test.ts`; add one assertion that an unlinked `worker_near_vehicle` scene risk does not color any entity box.
 
-Same file (lines 211–228). Add to the key list so the probe surfaces reasoner-only responses:
+## Out of scope
 
-```
-"highest_risk_level", "temporal_reasoning", "scene_context", "semantic_corrections"
-```
+- No changes to `supabase/functions/*`, Cloudflare worker, RunPod worker.
+- No changes to Build mode or Plan mode code paths (gates are scoped to `appMode === "hse"`).
+- No new secrets, no Vite env changes beyond the existing `VITE_HSE_LOCAL_ALERTS_ENABLED`.
+- `CameraView` overlay wiring (`hse-risk-only`) untouched.
 
-Add `highest_risk_level?: string` to `RiskAwareFields` so the key list stays type-safe. It is not parsed into a dedicated field (callers derive highest level from `risk_summary` / `scene_risks`); it only matters for presence detection.
+## Files to change
 
-### 4. Probe reads raw fallback fields when `parsedRisk` is null
-
-**`src/components/live/ReasonerContractProbe.tsx`**:
-- Accept `rawResp` already (kept). When `parsedRisk` is `null` AND `rawResp` is an object containing any of `reasoner_status`, `scene_context`, `semantic_corrections`, `temporal_reasoning`, `risk_summary`, `highest_risk_level`, render those rows directly from `rawResp` using `normalizeReasonerStatus` and simple presence checks.
-- Strictly diagnostic: never construct fake risks, never feed `useHseMonitoring`.
-- Keep the "End-to-end working" verdict gated on real `scene_risks` (unchanged); add "Qwen contribution: detected" when `normalizeReasonerStatus(rawResp.reasoner_status)` is in the ready/running/queued set AND any of `scene_context` / `semantic_corrections` is present, even without `parsedRisk`.
-
-`summarizeDetectResponse` already pulls `reasonerStatus` from `parsed`; extend it to fall back to `normalizeReasonerStatus(r.reasoner_status)` on the raw response when `parsed` is null, and to read `sceneContextPresent`, `semanticCorrections`, `temporalReasoningPresent`, `highestLevel` from raw fallback fields.
-
-### 5. Strict Qwen badge in `hseLiveRiskViewModel.ts`
-
-`reasonerStatusBadge(parsedRisk)` (~line 456) already gates "Qwen: ready" to explicit ready/ok/done/completed/success tokens. Confirm and keep:
-- Unknown object that normalizes to an unrecognized string → `Qwen: unavailable — using rules only`.
-- Object normalizing to `running`/`processing`/`in_progress` → `Qwen: running`.
-- No change required beyond consuming the now-already-normalized `parsedRisk.reasonerStatus`.
-
-Also update `buildReasonerProbe` Qwen-from-context gate to use the same ready/running set explicitly (already does — keep).
-
-### 6. Tests
-
-**`src/__tests__/riskAware.test.ts`** — add:
-- `reasoner_status: "ready"` → `hasRiskAwareData` true; parsed `reasonerStatus === "ready"`.
-- `reasoner_status: { enabled: true, mode: "qwen_vl", state: "ready" }` → parsed `reasonerStatus === "ready"`, `reasonerStatusRaw.mode === "qwen_vl"`.
-- `reasoner_status: { foo: "bar" }` → parsed `reasonerStatus` is `undefined`/null; `reasonerStatusBadge` resolves to `Qwen: unavailable — using rules only` (import from view model).
-- Response with only `scene_context` → `hasRiskAwareData` true.
-- Response with only `semantic_corrections: [{...}]` → `hasRiskAwareData` true.
-- Response with only `temporal_reasoning: {...}` → `hasRiskAwareData` true.
-- Response with only `highest_risk_level: "RED"` → `hasRiskAwareData` true.
-
-**`src/__tests__/hseLiveRiskViewModel.test.ts`** — add: `buildReasonerProbe` returns `qwenDetected: true` when `parsedRisk` has `reasonerStatusRaw: { state: "ready" }` and `sceneContext` present, even with zero scene_risks.
-
-### Files changed
-- `src/lib/detection/riskTypes.ts`
-- `src/lib/detection/backendVisionHttpDetector.ts`
-- `src/components/live/ReasonerContractProbe.tsx`
-- `src/lib/detection/hseLiveRiskViewModel.ts` (minor — consume normalized status; no behavior change to badge logic)
-- `src/__tests__/riskAware.test.ts`
-- `src/__tests__/hseLiveRiskViewModel.test.ts`
-
-### Out of scope (unchanged)
-`supabase/functions/*`, Cloudflare worker, RunPod worker, Build mode (`src/features/build-mode/**`), Plan mode (`src/features/build-mode/lib/planReasoning.ts` and related), Vite env, Live HSE request body, Test Detect Frame HSE metadata path.
+- `src/features/hse-monitoring/hooks/useHseMonitoring.ts`
+- `src/hooks/useDetectionSession.ts`
+- `src/pages/Live.tsx`
+- `src/components/live/ReasonerContractProbe.tsx` (visible-source badge)
+- `src/__tests__/hseMonitoring.test.ts` (extend)
+- `src/__tests__/liveLocalAlertSuppression.test.ts` (new)
+- `src/__tests__/hseLiveRiskViewModel.test.ts` (extend with unlinked-risk assertion)
