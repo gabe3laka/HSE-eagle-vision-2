@@ -123,6 +123,8 @@ export function useDetectionSession({
   const zonesRef = useRef(zones);
   const suppressRef = useRef(!!suppressIncidents);
   suppressRef.current = !!suppressIncidents;
+  const suppressEngineRef = useRef(!!suppressLocalRiskEngine);
+  suppressEngineRef.current = !!suppressLocalRiskEngine;
 
   // scheduling / metrics state
   const lastMediaTimeRef = useRef(-1);
