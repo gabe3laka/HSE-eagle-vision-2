@@ -430,6 +430,8 @@ export class BackendVisionHttpDetector implements Detector {
     this.sessionPromise = null;
     this.tokenError = null;
     this.tokenErrorAt = 0;
+    this.sessionId = generateRandomId("hse-sess");
+    this.frameCounter = 0;
     this.status = freshStatus(this.detectUrl ? "loading" : "error");
     if (!this.detectUrl) {
       this.status.error = "detect_url_not_configured";
