@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   extractBackendWrists,
   extractDebugWrists,
