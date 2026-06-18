@@ -529,10 +529,10 @@ describe("hseLiveRiskViewModel — qwen candidate flags", () => {
     expect(vm.qwenCandidates.length).toBe(1);
   });
 
-  it("does not color any entity box when a worker_near_vehicle risk is unlinked", () => {
-    // Worker scene risk exists but has NO linkage fields (no ids, no bbox,
-    // no region) and NO label-spatial match — overlayEntities must stay empty
-    // so we never color a random box.
+  it("does not upgrade any entity to YELLOW+ when a worker_near_vehicle risk is unlinked", () => {
+    // Worker scene risk exists but has NO linkage fields. The two entities
+    // should still appear as GREEN safety-status boxes — but neither should
+    // be colored ORANGE since the risk is unlinked.
     const e1 = entity({ label: "person", bbox: { x: 0.05, y: 0.05, w: 0.1, h: 0.2 } });
     const e2 = entity({ label: "forklift", bbox: { x: 0.8, y: 0.8, w: 0.15, h: 0.15 } });
     const unlinked: SceneRisk = {
@@ -550,6 +550,103 @@ describe("hseLiveRiskViewModel — qwen candidate flags", () => {
       nowMs: NOW,
       localAlertsEnabled: false,
     });
-    expect(vm.overlayEntities.length).toBe(0);
+    expect(vm.overlayEntities.length).toBe(2);
+    expect(vm.activeRiskEntityCount).toBe(0);
+    expect(vm.safeEntityCount).toBe(2);
+    for (const oe of vm.overlayEntities) {
+      expect(oe.risk_level).toBe("GREEN");
+    }
+  });
+});
+
+describe("hseLiveRiskViewModel — hse-status overlay (one box per detection)", () => {
+  it("seeds every detector entity as GREEN when there are no risks", () => {
+    const es = [
+      entity({ label: "cup", track_id: "t1" }),
+      entity({ label: "laptop", track_id: "t2", bbox: { x: 0.4, y: 0.4, w: 0.2, h: 0.2 } }),
+      entity({ label: "can", track_id: "t3", bbox: { x: 0.7, y: 0.1, w: 0.1, h: 0.1 } }),
+    ];
+    const vm = buildHseLiveRiskViewModel({
+      entities: es,
+      poses: [],
+      parsedRisk: parsedRisk([]),
+      nowMs: NOW,
+    });
+    expect(vm.overlayEntities.length).toBe(3);
+    expect(vm.statusEntityCount).toBe(3);
+    expect(vm.safeEntityCount).toBe(3);
+    expect(vm.activeRiskEntityCount).toBe(0);
+    expect(vm.riskLinkedEntityCount).toBe(vm.activeRiskEntityCount);
+    expect(vm.priorityRisks.length).toBe(0);
+    for (const oe of vm.overlayEntities) {
+      expect(oe.risk_level).toBe("GREEN");
+    }
+    const labels = vm.overlayEntities.map((e) => e.label).sort();
+    expect(labels).toEqual(["can", "cup", "laptop"]);
+    // No duplicate entity keys (one box per detection).
+    const keys = new Set(vm.overlayEntities.map((e) => e.track_id ?? e.label));
+    expect(keys.size).toBe(vm.overlayEntities.length);
+  });
+
+  it("upgrades exactly the linked entity to YELLOW; others stay GREEN", () => {
+    const es = [
+      entity({ label: "cup", track_id: "tcup" }),
+      entity({ label: "laptop", track_id: "tlaptop", bbox: { x: 0.4, y: 0.4, w: 0.2, h: 0.2 } }),
+      entity({ label: "can", track_id: "tcan", bbox: { x: 0.7, y: 0.1, w: 0.1, h: 0.1 } }),
+    ];
+    const vm = buildHseLiveRiskViewModel({
+      entities: es,
+      poses: [],
+      parsedRisk: parsedRisk([
+        risk({ track_id: "tlaptop", hazard: "object_near_edge", risk_level: "YELLOW" }),
+      ]),
+      nowMs: NOW,
+    });
+    expect(vm.overlayEntities.length).toBe(3);
+    const yellow = vm.overlayEntities.filter((e) => e.risk_level === "YELLOW");
+    const green = vm.overlayEntities.filter((e) => e.risk_level === "GREEN");
+    expect(yellow.length).toBe(1);
+    expect(green.length).toBe(2);
+    expect(yellow[0].label).toBe("laptop");
+    expect(vm.activeRiskEntityCount).toBe(1);
+    expect(vm.safeEntityCount).toBe(2);
+    expect(vm.riskLinkedEntityCount).toBe(1);
+  });
+
+  it("linked RED overrides existing GREEN/YELLOW", () => {
+    const e = entity({ label: "cup", track_id: "t1", risk_level: "YELLOW" });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [e],
+      poses: [],
+      parsedRisk: parsedRisk([
+        risk({ track_id: "t1", risk_level: "RED", hazard: "falling_object" }),
+      ]),
+      nowMs: NOW,
+    });
+    expect(vm.overlayEntities.length).toBe(1);
+    expect(vm.overlayEntities[0].risk_level).toBe("RED");
+  });
+
+  it("entity-level ORANGE from worker upgrades default GREEN", () => {
+    const e = entity({
+      label: "forklift",
+      track_id: "tf",
+      risk_level: "ORANGE",
+      risk_color: "ORANGE",
+    });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [e],
+      poses: [],
+      parsedRisk: parsedRisk([]),
+      nowMs: NOW,
+    });
+    expect(vm.overlayEntities.length).toBe(1);
+    expect(vm.overlayEntities[0].risk_level).toBe("ORANGE");
+    expect(vm.activeRiskEntityCount).toBe(1);
+  });
+
+  it("preserves detector item names as labels in hse-status mode", () => {
+    const e = entity({ label: "laptop", track_id: "t", risk_level: "YELLOW" });
+    expect(boxLabelForEntity(e, true, "hse-status")).toBe("laptop");
   });
 });
