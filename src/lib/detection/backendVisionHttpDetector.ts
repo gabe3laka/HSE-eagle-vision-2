@@ -15,7 +15,7 @@ import {
 import { applyHseRequestToBody } from "./hseDetectProfile";
 import type { HSEDetectRequest } from "./hseTypes";
 import type { RiskAwareFields, RecommendedControl, RiskSummary, SceneRisk } from "./riskTypes";
-import { normalizeRiskLevel } from "./riskTypes";
+import { normalizeRiskLevel, normalizeReasonerStatus } from "./riskTypes";
 import { supabase } from "@/integrations/supabase/own-client";
 import { computeCoverCrop, isMobileViewport, MOBILE_VISUAL_ASPECT } from "./coverCrop";
 
