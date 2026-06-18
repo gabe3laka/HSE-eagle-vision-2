@@ -1092,33 +1092,36 @@ export default function Live() {
               )}
             </div>
 
-            {/* Mobile-only alerts trigger */}
-            <div className="xl:hidden">
-              <Sheet open={alertsOpen} onOpenChange={setAlertsOpen}>
-                <SheetTrigger asChild>
-                  <button
-                    type="button"
-                    className="console-panel flex w-full items-center justify-between px-4 py-3 text-sm font-medium transition-colors hover:border-cyan-300/20"
-                  >
-                    <span className="flex items-center gap-2">
-                      <BellRing className="h-4 w-4 text-primary" />
-                      Live alerts
-                    </span>
-                    <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">
-                      {alerts.length}
-                    </span>
-                  </button>
-                </SheetTrigger>
-                <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-4">
-                  <AlertFeed
-                    alerts={alerts}
-                    running={running}
-                    language={config.language}
-                    onDismiss={dismissAlert}
-                  />
-                </SheetContent>
-              </Sheet>
-            </div>
+            {/* Mobile-only alerts trigger — hidden in HSE mode unless legacy
+                local alerts are explicitly enabled. */}
+            {(appMode !== "hse" || hseFlags.localAlertsEnabled) && (
+              <div className="xl:hidden">
+                <Sheet open={alertsOpen} onOpenChange={setAlertsOpen}>
+                  <SheetTrigger asChild>
+                    <button
+                      type="button"
+                      className="console-panel flex w-full items-center justify-between px-4 py-3 text-sm font-medium transition-colors hover:border-cyan-300/20"
+                    >
+                      <span className="flex items-center gap-2">
+                        <BellRing className="h-4 w-4 text-primary" />
+                        Live alerts
+                      </span>
+                      <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">
+                        {alerts.length}
+                      </span>
+                    </button>
+                  </SheetTrigger>
+                  <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-4">
+                    <AlertFeed
+                      alerts={alerts}
+                      running={running}
+                      language={config.language}
+                      onDismiss={dismissAlert}
+                    />
+                  </SheetContent>
+                </Sheet>
+              </div>
+            )}
 
             {((import.meta.env.DEV && !!debug) || isBackendMode) && (
               <details className="console-panel group p-3">
@@ -1196,14 +1199,16 @@ export default function Live() {
                 </div>
               </details>
             )}
-            <div className="console-panel hidden h-[360px] p-4 xl:block">
-              <AlertFeed
-                alerts={alerts}
-                running={running}
-                language={config.language}
-                onDismiss={dismissAlert}
-              />
-            </div>
+            {(appMode !== "hse" || hseFlags.localAlertsEnabled) && (
+              <div className="console-panel hidden h-[360px] p-4 xl:block">
+                <AlertFeed
+                  alerts={alerts}
+                  running={running}
+                  language={config.language}
+                  onDismiss={dismissAlert}
+                />
+              </div>
+            )}
           </aside>
         </div>
       </div>
