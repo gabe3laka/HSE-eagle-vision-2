@@ -330,7 +330,7 @@ export default function Live() {
     backendEntities: backendEntities as BackendEntity[],
     backendPoses: backendPoses as BackendPose[],
     backendSegments: backendSegments as BackendSegment[],
-    liveBoxes,
+    liveBoxes: hseFlags.localAlertsEnabled ? liveBoxes : [],
     zones,
     backendName: (backendStatus as BackendStatus | null)?.backend ?? null,
     fallbackActive: !!(backendStatus as BackendStatus | null)?.fallbackUsed,
