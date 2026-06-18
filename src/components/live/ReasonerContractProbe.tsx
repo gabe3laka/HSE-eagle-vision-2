@@ -136,6 +136,13 @@ export function ReasonerContractProbe({
           <Row label="upstream_status" value={s.gateway.upstreamStatus ?? "—"} />
           <Row label="latency_ms" value={s.gateway.latencyMs ?? "—"} />
         </Section>
+        <Section title="Perception">
+          <Row label="backend" value={perceptionBackend ?? "—"} />
+          <Row label="model" value={perceptionModel ?? "—"} />
+          <Row label="detector_objects" value={s.detection.entities} />
+          <Row label="risk_linked_boxes" value={riskLinkedEntityCount ?? "—"} />
+          <Row label="risk_linked_poses" value={riskLinkedPoseCount ?? "—"} />
+        </Section>
         <Section title="Detection">
           <Row label="entities" value={s.detection.entities} />
           <Row label="poses" value={s.detection.poses} />
