@@ -395,7 +395,7 @@ export function linkedEntitiesForRisk(risk: SceneRisk, entities: BackendEntity[]
 function groupKey(r: SceneRisk): string {
   if (r.risk_id) return `id:${r.risk_id}`;
   if (r.source_risk_id) return `src:${r.source_risk_id}`;
-  const hazard = (r.hazard ?? "unknown").toLowerCase();
+  const hazard = riskHazard(r).toLowerCase();
   const tracks = r.involved_track_ids ?? (r.track_id ? [String(r.track_id)] : undefined);
   if (Array.isArray(tracks) && tracks.length > 0) {
     return `${hazard}|t:${[...tracks].sort().join(",")}`;
@@ -442,7 +442,7 @@ function hasVisualSupport(r: SceneRisk): boolean {
 }
 
 function isWeakEdgeRisk(r: SceneRisk): boolean {
-  const hazard = (r.hazard ?? "").toLowerCase();
+  const hazard = riskHazard(r).toLowerCase();
   if (hazard !== "object_near_edge") return false;
   return !hasVisualSupport(r);
 }
@@ -677,8 +677,8 @@ export function buildHseLiveRiskViewModel(
 
     groupedAll.push({
       key,
-      hazardType: rep.hazard ?? "unknown",
-      hazardLabel: friendlyHazardLabel(rep.hazard),
+      hazardType: riskHazard(rep),
+      hazardLabel: friendlyHazardLabel(riskHazard(rep)),
       level,
       source,
       why: pickRiskWhy(rep, parsedRisk),
@@ -819,22 +819,22 @@ export function buildHseLiveRiskViewModel(
     overlayPoses.push(p);
   }
 
-  const qwenCandidates: HseQwenCandidate[] = qwenCandidateLaneEnabled
-    ? qwenOnly.map((r, i) => ({
-        key: r.risk_id ?? `qwen-${i}`,
-        label: friendlyHazardLabel(r.hazard),
-        why: pickRiskWhy(r, parsedRisk),
-        level: normalizeRiskLevel(r.risk_level, r.risk_color),
-        raw: r,
-      }))
-    : [];
-  void showQwenCandidates;
+  const qwenCandidates: HseQwenCandidate[] =
+    qwenCandidateLaneEnabled && showQwenCandidates
+      ? qwenOnly.map((r, i) => ({
+          key: r.risk_id ?? `qwen-${i}`,
+          label: friendlyHazardLabel(riskHazard(r)),
+          why: pickRiskWhy(r, parsedRisk),
+          level: normalizeRiskLevel(r.risk_level, r.risk_color),
+          raw: r,
+        }))
+      : [];
 
   const debugRisks: HseDebugRisk[] = debug
     ? rawRisks.map((r) => ({
         key: groupKey(r),
         level: normalizeRiskLevel(r.risk_level, r.risk_color),
-        hazard: r.hazard,
+        hazard: riskHazard(r),
         reason: r.risk_reason ?? "",
         source: sourceFromRisk(r),
         raw: r,
