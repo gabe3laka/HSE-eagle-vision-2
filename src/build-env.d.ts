@@ -13,10 +13,17 @@ declare const __BUILD_TIME__: string | undefined;
 //   VITE_EDGECRAFT_STREAM_WS_URL — legacy stream override, still honored.
 //   VITE_BUILD_MODE_API_URL — optional Build Mode backend base URL. Absent =>
 //     the Build Mode client runs in local mock-blueprint mode.
+//   VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED — gate the Qwen candidate lane (default false).
+//   VITE_HSE_SHOW_QWEN_CANDIDATES — render Qwen-only advisory candidates (default false).
+//   VITE_HSE_LOCAL_ALERTS_ENABLED — re-enable legacy on-device HSE alerts /
+//     AlertFeed / haptics / incidents in HSE mode (default false).
 interface ImportMetaEnv {
   readonly VITE_VISION_HTTP_DETECT_URL?: string;
   readonly VITE_VISION_STREAM_WS_URL?: string;
   readonly VITE_EDGECRAFT_HTTP_DETECT_URL?: string;
   readonly VITE_EDGECRAFT_STREAM_WS_URL?: string;
   readonly VITE_BUILD_MODE_API_URL?: string;
+  readonly VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED?: string;
+  readonly VITE_HSE_SHOW_QWEN_CANDIDATES?: string;
+  readonly VITE_HSE_LOCAL_ALERTS_ENABLED?: string;
 }

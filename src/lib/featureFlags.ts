@@ -14,7 +14,10 @@ export type RiskFeatureFlag =
   | "VITE_RISK_DEBUG_PANEL"
   | "VITE_SHOW_CONTROL_HIERARCHY"
   | "VITE_SHOW_PROVENANCE"
-  | "VITE_CAMERA_PRIVACY_NOTICE";
+  | "VITE_CAMERA_PRIVACY_NOTICE"
+  | "VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED"
+  | "VITE_HSE_SHOW_QWEN_CANDIDATES"
+  | "VITE_HSE_LOCAL_ALERTS_ENABLED";
 
 /** PURE: read a single boolean flag from an env bag. Returns `true` for the
  *  string "true", `false` for the string "false", and `defaultValue` otherwise
