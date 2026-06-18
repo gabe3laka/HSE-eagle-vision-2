@@ -119,9 +119,12 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
       expect(body.scene_hint).toBe("indoor_demo");
       expect(body.site_context).toMatchObject({
         environment_type: "indoor",
-        mode: "demo",
+        mode: "live_hse_monitoring",
       });
-      expect(body.site_context.allowed_hazard_focus).toContain("object_near_edge");
+      expect(body.site_context.reasoning_policy).toBeDefined();
+      expect(Array.isArray(body.site_context.monitoring_focus)).toBe(true);
+      expect(body.site_context.monitoring_focus.length).toBeGreaterThan(0);
+      expect(body.site_context.allowed_hazard_focus).toBeUndefined();
       expect(body.camera_context).toMatchObject({
         camera_name: "browser-http",
         location_name: "live_camera",
@@ -131,6 +134,10 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
         prefer_low_latency: true,
         target_reasoning_interval_ms: 1500,
         max_candidate_age_ms: 1500,
+        require_visual_evidence: true,
+        allow_no_active_risk: true,
+        avoid_repeating_unconfirmed_risks: true,
+        verify_current_frame_before_reusing_cached_risk: true,
       });
 
       const st = det.getBackendStatus();
