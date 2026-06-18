@@ -95,11 +95,11 @@ export function useHseLiveRiskViewModel(input: BuildHseLiveRiskViewModelInput): 
     // Merge sticky entries back into overlayEntities so the box keeps showing
     // for at least MIN_VISIBLE_RISK_MS even if a single frame loses it.
     const overlayEntityIds = new Set(
-      base.overlayEntities.map((e) => e.track_id ?? (e as { id?: string }).id ?? ""),
+      base.overlayEntities.map((e) => e.track_id ?? (e as unknown as { id?: string }).id ?? ""),
     );
     const extra: BackendEntity[] = [];
     for (const entry of sticky.values()) {
-      const id = entry.entity.track_id ?? (entry.entity as { id?: string }).id ?? "";
+      const id = entry.entity.track_id ?? (entry.entity as unknown as { id?: string }).id ?? "";
       if (overlayEntityIds.has(id)) continue;
       // Only emit if still within minimum visible window.
       if (now - entry.firstVisibleMs < MIN_VISIBLE_RISK_MS || now - entry.lastSeenMs < MIN_VISIBLE_RISK_MS) {

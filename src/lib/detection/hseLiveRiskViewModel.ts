@@ -487,7 +487,7 @@ export function buildHseLiveRiskViewModel(
     }
 
     const linkedItem = [...linkedEntities, ...linkedTracks]
-      .map((id) => entities.find((e) => e.track_id === id || (e as { id?: string }).id === id))
+      .map((id) => entities.find((e) => e.track_id === id || (e as unknown as { id?: string }).id === id))
       .find((e) => e)?.label;
 
     const state = (rep as Record<string, unknown>).risk_state;
@@ -575,7 +575,7 @@ export function buildHseLiveRiskViewModel(
   }
   const overlayEntities = entities.filter((e) => {
     if (e.track_id && visibleTrackIds.has(e.track_id)) return true;
-    const id = (e as { id?: string }).id;
+    const id = (e as unknown as { id?: string }).id;
     if (typeof id === "string" && visibleEntityIds.has(id)) return true;
     const entLevel = normalizeRiskLevel(e.risk_level, e.risk_color);
     if (entLevel && riskLevelRank(entLevel) >= riskLevelRank("YELLOW")) return true;
