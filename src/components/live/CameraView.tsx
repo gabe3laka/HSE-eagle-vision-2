@@ -369,13 +369,16 @@ export function CameraView({
 
         {active && running && backendDryRun && (
           <div className="pointer-events-none absolute right-3 top-12 z-20 flex flex-col items-end gap-1">
-            {overlayMode === "hse-risk-only" ? (
+            {overlayMode === "hse-status" || overlayMode === "hse-risk-only" ? (
               <>
                 <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-teal-300 backdrop-blur">
                   Detected objects: {rawBackendEntityCount ?? backendEntities?.length ?? 0}
                 </span>
+                <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-emerald-300 backdrop-blur">
+                  Safety-status boxes: {statusEntityCount ?? backendEntities?.length ?? 0}
+                </span>
                 <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-amber-300 backdrop-blur">
-                  Risk-linked boxes: {riskLinkedEntityCount ?? backendEntities?.length ?? 0}
+                  Active risk boxes: {riskLinkedEntityCount ?? 0}
                 </span>
                 <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-amber-300 backdrop-blur">
                   Risk-linked poses: {riskLinkedPoseCount ?? backendPoses?.length ?? 0}
