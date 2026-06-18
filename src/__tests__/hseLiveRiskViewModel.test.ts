@@ -386,15 +386,16 @@ describe("HSE live risk view model", () => {
     expect(vm.overlayEntities).toHaveLength(1);
   });
 
-  it("calculates effective YELLOW for object_near_edge score 4 and latent risk", () => {
+  it("escalates strong edge risks but keeps weak latent edge risks GREEN", () => {
     expect(effectiveRiskLevel({ risk: risk({ risk_level: "GREEN", risk_score: 4 }) })).toBe(
       "YELLOW",
     );
+    // weak latent object_near_edge stays GREEN under the neutralized policy
     expect(
       effectiveRiskLevel({
         risk: risk({ risk_level: "GREEN", risk_score: 1, risk_state: "latent" }),
       }),
-    ).toBe("YELLOW");
+    ).toBe("GREEN");
   });
 
   it("does not let entity GREEN downgrade a linked active scene YELLOW", () => {
