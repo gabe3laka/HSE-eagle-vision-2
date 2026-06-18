@@ -256,8 +256,11 @@ export function useHseMonitoring({
     setProfileState("balanced");
   }, []);
 
-  /** Manual "Analyze scene" — force a reasoning pass now. */
+  /** Manual "Analyze scene" — force a reasoning pass now. No-op when local
+   *  alerts are disabled, so the legacy reasoning path can't leak even if a
+   *  caller bypasses the UI gate. */
   const analyzeScene = useCallback(() => {
+    if (!localAlertsEnabled) return;
     const candidates = runHseRules({
       tracks: tracksRef.current,
       observations: observationsRef.current,
@@ -265,7 +268,7 @@ export function useHseMonitoring({
       ppeRequired,
     });
     void runReasoning(candidates);
-  }, [zones, ppeRequired, runReasoning]);
+  }, [localAlertsEnabled, zones, ppeRequired, runReasoning]);
 
   const acknowledge = useCallback((key: string) => {
     managerRef.current.acknowledge(key);

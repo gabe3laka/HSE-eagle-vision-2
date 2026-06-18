@@ -36,6 +36,8 @@ export type SceneRisk = {
   entity_id?: string;
   detection_id?: string;
   hazard?: string;
+  /** Worker/Qwen may return `hazard_type` instead of `hazard`. */
+  hazard_type?: string;
   risk_level?: RiskLevel;
   risk_color?: string;
   risk_score?: number;

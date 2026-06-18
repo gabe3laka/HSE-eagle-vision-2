@@ -129,6 +129,16 @@ export function friendlyHazardLabel(raw: string | undefined): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+/**
+ * Resolve the hazard string regardless of whether the worker/Qwen returned it
+ * as `hazard` or `hazard_type`. Keeps grouping/labelling/weak-edge logic
+ * consistent across schema variants. Never invent a hazard string — the
+ * reasoning layer remains the source of truth.
+ */
+export function riskHazard(r: SceneRisk): string {
+  return r.hazard_type ?? r.hazard ?? "unknown";
+}
+
 // ── Item name helpers ───────────────────────────────────────────────────────
 
 export function itemNameForEntity(e: BackendEntity): string {
@@ -188,7 +198,7 @@ export function effectiveRiskLevel(input: {
   }
 
   const risk = input.risk;
-  const hazardKey = (risk?.hazard ?? "").toLowerCase();
+  const hazardKey = risk ? riskHazard(risk).toLowerCase() : "";
   if (hazardKey === "object_near_edge") {
     const hasEvidence = !!(
       (risk?.visual_evidence && risk.visual_evidence.length > 0) ||
@@ -303,6 +313,10 @@ export function entityMatchesRiskIds(risk: SceneRisk, entity: BackendEntity): bo
     risk.detection_id,
     risk.source_risk_id,
     risk.linked_risk_id,
+    // Worker may link risks back to detection ids instead of track ids; also
+    // allow the risk's own `risk_id` to match an entity's `linked_risk_id`.
+    risk.risk_id,
+    ...(Array.isArray(risk.involved_detection_ids) ? risk.involved_detection_ids : []),
   ];
   for (const id of riskEntityIds) {
     if (typeof id === "string" && id && entityIds.has(id)) return true;
@@ -381,7 +395,7 @@ export function linkedEntitiesForRisk(risk: SceneRisk, entities: BackendEntity[]
 function groupKey(r: SceneRisk): string {
   if (r.risk_id) return `id:${r.risk_id}`;
   if (r.source_risk_id) return `src:${r.source_risk_id}`;
-  const hazard = (r.hazard ?? "unknown").toLowerCase();
+  const hazard = riskHazard(r).toLowerCase();
   const tracks = r.involved_track_ids ?? (r.track_id ? [String(r.track_id)] : undefined);
   if (Array.isArray(tracks) && tracks.length > 0) {
     return `${hazard}|t:${[...tracks].sort().join(",")}`;
@@ -428,7 +442,7 @@ function hasVisualSupport(r: SceneRisk): boolean {
 }
 
 function isWeakEdgeRisk(r: SceneRisk): boolean {
-  const hazard = (r.hazard ?? "").toLowerCase();
+  const hazard = riskHazard(r).toLowerCase();
   if (hazard !== "object_near_edge") return false;
   return !hasVisualSupport(r);
 }
@@ -663,8 +677,8 @@ export function buildHseLiveRiskViewModel(
 
     groupedAll.push({
       key,
-      hazardType: rep.hazard ?? "unknown",
-      hazardLabel: friendlyHazardLabel(rep.hazard),
+      hazardType: riskHazard(rep),
+      hazardLabel: friendlyHazardLabel(riskHazard(rep)),
       level,
       source,
       why: pickRiskWhy(rep, parsedRisk),
@@ -805,22 +819,22 @@ export function buildHseLiveRiskViewModel(
     overlayPoses.push(p);
   }
 
-  const qwenCandidates: HseQwenCandidate[] = qwenCandidateLaneEnabled
-    ? qwenOnly.map((r, i) => ({
-        key: r.risk_id ?? `qwen-${i}`,
-        label: friendlyHazardLabel(r.hazard),
-        why: pickRiskWhy(r, parsedRisk),
-        level: normalizeRiskLevel(r.risk_level, r.risk_color),
-        raw: r,
-      }))
-    : [];
-  void showQwenCandidates;
+  const qwenCandidates: HseQwenCandidate[] =
+    qwenCandidateLaneEnabled && showQwenCandidates
+      ? qwenOnly.map((r, i) => ({
+          key: r.risk_id ?? `qwen-${i}`,
+          label: friendlyHazardLabel(riskHazard(r)),
+          why: pickRiskWhy(r, parsedRisk),
+          level: normalizeRiskLevel(r.risk_level, r.risk_color),
+          raw: r,
+        }))
+      : [];
 
   const debugRisks: HseDebugRisk[] = debug
     ? rawRisks.map((r) => ({
         key: groupKey(r),
         level: normalizeRiskLevel(r.risk_level, r.risk_color),
-        hazard: r.hazard,
+        hazard: riskHazard(r),
         reason: r.risk_reason ?? "",
         source: sourceFromRisk(r),
         raw: r,
