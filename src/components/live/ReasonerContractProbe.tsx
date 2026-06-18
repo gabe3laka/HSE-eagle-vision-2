@@ -188,6 +188,13 @@ export function ReasonerContractProbe({
           Qwen contribution:{" "}
           {probe.qwenDetected ? "detected" : "not detected in latest response"}
         </div>
+        <div className="text-muted-foreground">
+          Visible alert source: <span className="text-foreground">{visibleSource}</span>
+        </div>
+        <div className="text-muted-foreground">
+          Local alerts enabled:{" "}
+          <span className="text-foreground">{localAlertsEnabled ? "yes" : "no"}</span>
+        </div>
       </div>
     </div>
   );
