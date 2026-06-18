@@ -268,7 +268,11 @@ export function parseDetectRiskFields(resp: unknown): ParsedDetectRisk {
   if (typeof r.tracking_enabled === "boolean") out.trackingEnabled = r.tracking_enabled;
   if (typeof r.scene_graph_enabled === "boolean") out.sceneGraphEnabled = r.scene_graph_enabled;
   if (typeof r.degradation_mode === "string") out.degradationMode = r.degradation_mode;
-  if (typeof r.reasoner_status === "string") out.reasonerStatus = r.reasoner_status;
+  const normalizedReasoner = normalizeReasonerStatus(r.reasoner_status);
+  if (normalizedReasoner) out.reasonerStatus = normalizedReasoner;
+  if (r.reasoner_status && typeof r.reasoner_status === "object") {
+    out.reasonerStatusRaw = r.reasoner_status as Record<string, unknown>;
+  }
   if (r.stage_timings_ms && typeof r.stage_timings_ms === "object")
     out.stageTimingsMs = r.stage_timings_ms;
   if (typeof r.privacy_blur_applied === "boolean") out.privacyBlurApplied = r.privacy_blur_applied;
