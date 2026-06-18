@@ -17,8 +17,12 @@ import type { HSEActiveAlert } from "./hseTypes";
 /** Max grouped risks rendered in the Priority Scene Risks list. */
 export const HSE_PRIORITY_RISK_LIMIT = 10;
 
-/** How the overlays render boxes/poses. */
-export type HseOverlayMode = "normal" | "hse-risk-only" | "debug";
+/** How the overlays render boxes/poses.
+ *  - "hse-status": one box per detected object — GREEN by default, upgraded to
+ *    YELLOW/ORANGE/RED when the worker links a scene_risk to that object.
+ *  - "hse-risk-only": legacy — only YELLOW+ linked boxes render.
+ */
+export type HseOverlayMode = "normal" | "hse-status" | "hse-risk-only" | "debug";
 
 /** Where a grouped risk originated. */
 export type HseRiskSource = "Rules" | "Qwen" | "Rules + Qwen" | "Qwen Candidate" | "Local fallback";
@@ -98,9 +102,15 @@ export interface HseLiveRiskViewModel {
   hiddenPoseReasons: string[];
   hasWorkerSceneRisks: boolean;
   shouldUseLocalFallback: boolean;
-  /** Convenient counts for camera chips ("Risk-linked boxes/poses"). */
+  /** Convenient counts for camera chips. */
   riskLinkedEntityCount: number;
   riskLinkedPoseCount: number;
+  /** All safety-status boxes (GREEN + YELLOW+) rendered in HSE mode. */
+  statusEntityCount: number;
+  /** YELLOW+ status boxes only (= riskLinkedEntityCount). */
+  activeRiskEntityCount: number;
+  /** GREEN-only status boxes (safe/observed). */
+  safeEntityCount: number;
 }
 
 // ── Friendly labels ─────────────────────────────────────────────────────────
@@ -155,7 +165,7 @@ export function itemNameForEntity(e: BackendEntity): string {
 
 /**
  * Resolve the visible label for an entity box.
- * - hse-risk-only: ITEM NAME only — never risk words/stale/track ids.
+ * - hse-status / hse-risk-only: ITEM NAME only — never risk words/stale/track ids.
  * - normal: caller decides (returns null).
  * - debug: detailed label including risk + confidence.
  */
@@ -164,7 +174,7 @@ export function boxLabelForEntity(
   riskAware: boolean,
   overlayMode: HseOverlayMode = "normal",
 ): string | null {
-  if (overlayMode === "hse-risk-only") {
+  if (overlayMode === "hse-status" || overlayMode === "hse-risk-only") {
     return itemNameForEntity(e);
   }
   if (overlayMode === "debug") {
@@ -550,18 +560,39 @@ function poseHasNearbyPerson(pose: BackendPose, entities: BackendEntity[]): bool
 
 // ── Main builder ────────────────────────────────────────────────────────────
 
-/** Copy risk metadata onto a (shallow-cloned) entity for overlay rendering. */
-function entityWithRisk(entity: BackendEntity, level: RiskLevel, risk: SceneRisk): BackendEntity {
+/** Stable id used to dedupe overlay entities. */
+function entityOverlayKey(e: BackendEntity): string {
+  const r = e as unknown as Record<string, unknown>;
+  const id =
+    e.track_id ??
+    (typeof r.id === "string" ? (r.id as string) : undefined) ??
+    (typeof r.entity_id === "string" ? (r.entity_id as string) : undefined) ??
+    (typeof r.detection_id === "string" ? (r.detection_id as string) : undefined);
+  if (id) return String(id);
+  return `${e.label}|${e.bbox?.x ?? "-"}|${e.bbox?.y ?? "-"}|${e.bbox?.w ?? "-"}|${e.bbox?.h ?? "-"}`;
+}
+
+/**
+ * Copy safety status (and optional linked risk metadata) onto a shallow-cloned
+ * entity. Always stamps risk_level + risk_color so GREEN renders too.
+ */
+function entityWithSafetyStatus(
+  entity: BackendEntity,
+  level: RiskLevel,
+  risk?: SceneRisk,
+): BackendEntity {
   const clone: BackendEntity = { ...entity };
   clone.risk_level = level;
-  if (risk.risk_color) clone.risk_color = risk.risk_color;
-  if (typeof risk.risk_score === "number") clone.risk_score = risk.risk_score;
-  if (typeof risk.risk_reason === "string") clone.risk_reason = risk.risk_reason;
-  const action = pickRiskAction(risk);
-  if (action) clone.recommended_action = action;
-  if (typeof risk.produced_by === "string") clone.produced_by = risk.produced_by;
-  if (risk.risk_id) {
-    (clone as unknown as Record<string, unknown>).linked_risk_id = risk.risk_id;
+  clone.risk_color = level;
+  if (risk) {
+    if (typeof risk.risk_score === "number") clone.risk_score = risk.risk_score;
+    if (typeof risk.risk_reason === "string") clone.risk_reason = risk.risk_reason;
+    const action = pickRiskAction(risk);
+    if (action) clone.recommended_action = action;
+    if (typeof risk.produced_by === "string") clone.produced_by = risk.produced_by;
+    if (risk.risk_id) {
+      (clone as unknown as Record<string, unknown>).linked_risk_id = risk.risk_id;
+    }
   }
   return clone;
 }
@@ -751,32 +782,35 @@ export function buildHseLiveRiskViewModel(
   const priorityRisks = visibleGrouped.slice(0, HSE_PRIORITY_RISK_LIMIT);
   const hiddenGroupedRiskCount = Math.max(0, visibleGrouped.length - priorityRisks.length);
 
-  // Overlay entities: paint every linked entity (priority + linked weak edge).
-  // For each linked entity, copy effective risk metadata onto a clone.
+  // Overlay entities: one box per detected object. Seed every detector entity
+  // at GREEN, then upgrade for linked scene risks. This is the SINGLE source
+  // of entity overlay boxes in HSE mode — no duplicate raw detector layer.
   const overlayMap = new Map<string, BackendEntity>();
-  const stampEntity = (e: BackendEntity, level: RiskLevel, risk: SceneRisk) => {
-    const id =
-      e.track_id ?? (e as unknown as { id?: string }).id ?? `${e.label}|${e.bbox?.x}|${e.bbox?.y}`;
-    const existing = overlayMap.get(id);
-    if (
-      !existing ||
-      riskLevelRank(level) >
-        riskLevelRank(normalizeRiskLevel(existing.risk_level, existing.risk_color))
-    ) {
-      overlayMap.set(id, entityWithRisk(e, level, risk));
+
+  // Pass 0: seed every detector entity at GREEN (safe/observed).
+  for (const e of entities) {
+    overlayMap.set(entityOverlayKey(e), entityWithSafetyStatus(e, "GREEN"));
+  }
+
+  const upgradeEntity = (e: BackendEntity, level: RiskLevel, risk?: SceneRisk) => {
+    const key = entityOverlayKey(e);
+    const existing = overlayMap.get(key);
+    const existingLevel = normalizeRiskLevel(existing?.risk_level, existing?.risk_color) ?? "GREEN";
+    if (!existing || riskLevelRank(level) >= riskLevelRank(existingLevel)) {
+      overlayMap.set(key, entityWithSafetyStatus(e, level, risk));
     }
   };
 
-  // Pass 1: priority/grouped risks.
+  // Pass 1: priority/grouped risks upgrade their linked entities.
   for (const g of visibleGrouped) {
     for (const r of g.raw) {
       for (const e of linkMap.get(r) ?? []) {
-        stampEntity(e, g.level, r);
+        upgradeEntity(e, g.level, r);
       }
     }
   }
-  // Pass 2: weak edge risks that ARE linked spatially get a YELLOW box but stay
-  // out of the priority list. They never create haptics/incidents (UI-only).
+  // Pass 2: weak edge risks that ARE linked (ids or spatially) get YELLOW
+  // boxes but stay out of the priority list — UI-only, no haptics/incidents.
   for (const r of rawRisks) {
     if (!isWeakEdgeRisk(r)) continue;
     const linkedByIds =
@@ -786,22 +820,24 @@ export function buildHseLiveRiskViewModel(
     const linked = linkMap.get(r) ?? [];
     if (!linkedByIds && linked.length === 0) continue;
     for (const e of linked) {
-      stampEntity(e, "YELLOW", r);
+      upgradeEntity(e, "YELLOW", r);
     }
   }
-  // Also include any entity that already carries its own YELLOW+ level from the
-  // worker (defence in depth — never lose worker-painted boxes).
+  // Pass 3: entity-level worker risk levels (>= YELLOW) take precedence over
+  // the default GREEN if higher than what's been stamped so far.
   for (const e of entities) {
     const lvl = normalizeRiskLevel(e.risk_level, e.risk_color);
-    if (lvl && riskLevelRank(lvl) >= riskLevelRank("YELLOW")) {
-      const id =
-        e.track_id ??
-        (e as unknown as { id?: string }).id ??
-        `${e.label}|${e.bbox?.x}|${e.bbox?.y}`;
-      if (!overlayMap.has(id)) overlayMap.set(id, { ...e });
-    }
+    if (!lvl || riskLevelRank(lvl) < riskLevelRank("YELLOW")) continue;
+    upgradeEntity(e, lvl);
   }
   const overlayEntities = [...overlayMap.values()];
+  let activeRiskEntityCount = 0;
+  let safeEntityCount = 0;
+  for (const e of overlayEntities) {
+    const lvl = normalizeRiskLevel(e.risk_level, e.risk_color) ?? "GREEN";
+    if (riskLevelRank(lvl) >= riskLevelRank("YELLOW")) activeRiskEntityCount += 1;
+    else safeEntityCount += 1;
+  }
 
   // Overlay poses: only well-formed poses near a real person entity.
   const hiddenPoseReasons: string[] = [];
@@ -863,7 +899,10 @@ export function buildHseLiveRiskViewModel(
     hiddenPoseReasons,
     hasWorkerSceneRisks,
     shouldUseLocalFallback,
-    riskLinkedEntityCount: overlayEntities.length,
+    riskLinkedEntityCount: activeRiskEntityCount,
     riskLinkedPoseCount: overlayPoses.length,
+    statusEntityCount: overlayEntities.length,
+    activeRiskEntityCount,
+    safeEntityCount,
   };
 }

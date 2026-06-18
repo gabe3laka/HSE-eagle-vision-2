@@ -46,14 +46,16 @@ interface Props {
   backendDryRun?: boolean;
   /** Risk-aware box coloring (VITE_RISK_AWARE_OVERLAY). OFF → unchanged. */
   riskAwareOverlay?: boolean;
-  /** HSE overlay mode: "normal" | "hse-risk-only" | "debug". */
+  /** HSE overlay mode: "normal" | "hse-status" | "hse-risk-only" | "debug". */
   overlayMode?: HseOverlayMode;
   /** Raw detector counts (pre-filter) for the chip "Detected objects/poses". */
   rawBackendEntityCount?: number;
   rawBackendPoseCount?: number;
-  /** Filtered, risk-linked counts for the chip "Risk-linked boxes/poses". */
+  /** Active risk-linked counts (YELLOW+). */
   riskLinkedEntityCount?: number;
   riskLinkedPoseCount?: number;
+  /** All safety-status boxes (GREEN + YELLOW+) for the new chip. */
+  statusEntityCount?: number;
   /** Small privacy notice slot near the camera (VITE_CAMERA_PRIVACY_NOTICE). */
   privacyNotice?: React.ReactNode;
   zones?: DetectionZone[];
@@ -108,6 +110,7 @@ export function CameraView({
   rawBackendPoseCount,
   riskLinkedEntityCount,
   riskLinkedPoseCount,
+  statusEntityCount,
   privacyNotice,
   zones,
   editingZones,
@@ -310,7 +313,7 @@ export function CameraView({
                 riskAware={riskAwareOverlay}
                 overlayMode={overlayMode}
               />
-              {overlayMode !== "hse-risk-only" && (
+              {overlayMode !== "hse-risk-only" && overlayMode !== "hse-status" && (
                 <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
               )}
             </>
@@ -366,13 +369,16 @@ export function CameraView({
 
         {active && running && backendDryRun && (
           <div className="pointer-events-none absolute right-3 top-12 z-20 flex flex-col items-end gap-1">
-            {overlayMode === "hse-risk-only" ? (
+            {overlayMode === "hse-status" || overlayMode === "hse-risk-only" ? (
               <>
                 <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-teal-300 backdrop-blur">
                   Detected objects: {rawBackendEntityCount ?? backendEntities?.length ?? 0}
                 </span>
+                <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-emerald-300 backdrop-blur">
+                  Safety-status boxes: {statusEntityCount ?? backendEntities?.length ?? 0}
+                </span>
                 <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-amber-300 backdrop-blur">
-                  Risk-linked boxes: {riskLinkedEntityCount ?? backendEntities?.length ?? 0}
+                  Active risk boxes: {riskLinkedEntityCount ?? 0}
                 </span>
                 <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-amber-300 backdrop-blur">
                   Risk-linked poses: {riskLinkedPoseCount ?? backendPoses?.length ?? 0}

@@ -23,6 +23,9 @@ function boxColorFor(e: BackendEntity, riskAware: boolean): string {
  *
  * overlayMode:
  *  - "normal" (default): legacy behavior — label is "<class> · <conf>%".
+ *  - "hse-status": one box per detected object — GREEN by default, color
+ *    upgraded to YELLOW/ORANGE/RED for risk-linked entities. Caller has
+ *    already stamped risk_level/risk_color on every entity.
  *  - "hse-risk-only": only YELLOW/ORANGE/RED linked boxes (caller passes the
  *    pre-filtered `entities`); label is ITEM NAME only — no risk/level/stale
  *    words.
@@ -47,14 +50,20 @@ export function BackendEntityOverlay({
 }) {
   if (!entities || entities.length === 0) return null;
   const isHseRiskOnly = overlayMode === "hse-risk-only";
+  const isHseStatus = overlayMode === "hse-status";
 
   let visible = entities;
   if (isHseRiskOnly) {
-    // Hide neutral / GREEN-only boxes; only render risk-linked entities.
     visible = entities.filter((e) => {
       const lvl = normalizeRiskLevel(e.risk_level, e.risk_color);
       return lvl && riskLevelRank(lvl) >= riskLevelRank("YELLOW");
     });
+  } else if (isHseStatus) {
+    // Show ALL entities (GREEN-by-default seeded by the view model). Still
+    // drop person boxes covered by a pose to avoid double-drawing.
+    visible = entities.filter(
+      (e) => !e?.bbox || !isPersonLabel(e.label) || !poseCoversBox(e.bbox, poses),
+    );
   } else {
     visible = entities.filter(
       (e) => debug || !e?.bbox || !isPersonLabel(e.label) || !poseCoversBox(e.bbox, poses),
@@ -63,13 +72,14 @@ export function BackendEntityOverlay({
   if (visible.length === 0) return null;
 
   const effMode: HseOverlayMode = debug ? "debug" : overlayMode;
+  const riskAwareEffective = riskAware || isHseRiskOnly || isHseStatus;
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
       {visible.map((e, i) => {
         const b = e?.bbox ? mirrorBox(e.bbox, mirrored) : undefined;
         if (!b) return null;
-        const color = boxColorFor(e, riskAware || isHseRiskOnly);
+        const color = boxColorFor(e, riskAwareEffective);
         const label =
           boxLabelForEntity(e, riskAware, effMode) ??
           `${itemNameForEntity(e)} · ${Math.round((e.confidence ?? 0) * 100)}%`;
