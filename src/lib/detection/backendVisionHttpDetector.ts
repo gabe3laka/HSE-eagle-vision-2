@@ -189,6 +189,10 @@ export interface ParsedDetectRisk {
   warnings: string[];
   /** Non-blocking debug note when the schema_version is unknown to this client. */
   schemaWarning?: string;
+  /** Additive optional fields preserved verbatim for the panel / debug surfaces. */
+  temporalReasoning?: unknown;
+  sceneContext?: { summary?: string; scene_summary?: string } & Record<string, unknown>;
+  semanticCorrections?: Array<{ explanation?: string } & Record<string, unknown>>;
 }
 
 /** Schema versions this client recognises. An unknown version still renders the
@@ -254,6 +258,9 @@ export function parseDetectRiskFields(resp: unknown): ParsedDetectRisk {
   if (r.stage_timings_ms && typeof r.stage_timings_ms === "object")
     out.stageTimingsMs = r.stage_timings_ms;
   if (typeof r.privacy_blur_applied === "boolean") out.privacyBlurApplied = r.privacy_blur_applied;
+  if (r.temporal_reasoning !== undefined) out.temporalReasoning = r.temporal_reasoning;
+  if (r.scene_context && typeof r.scene_context === "object") out.sceneContext = r.scene_context;
+  if (Array.isArray(r.semantic_corrections)) out.semanticCorrections = r.semantic_corrections;
   // Unknown schema_version: keep rendering, surface only a debug-level note.
   if (out.schemaVersion != null && !KNOWN_SCHEMA_VERSIONS.has(String(out.schemaVersion))) {
     out.schemaWarning = `unknown schema_version: ${String(out.schemaVersion)}`;
