@@ -317,6 +317,7 @@ export default function Live() {
     zones,
     onIncidentSaved,
     suppressIncidents: buildModeOn,
+    suppressLocalRiskEngine: appMode === "hse" && !hseFlags.localAlertsEnabled,
   });
 
   // Eagle Vision HSE monitoring pipeline (HSE mode only) — backend detections →
@@ -329,7 +330,7 @@ export default function Live() {
     backendEntities: backendEntities as BackendEntity[],
     backendPoses: backendPoses as BackendPose[],
     backendSegments: backendSegments as BackendSegment[],
-    liveBoxes,
+    liveBoxes: hseFlags.localAlertsEnabled ? liveBoxes : [],
     zones,
     backendName: (backendStatus as BackendStatus | null)?.backend ?? null,
     fallbackActive: !!(backendStatus as BackendStatus | null)?.fallbackUsed,
@@ -886,7 +887,7 @@ export default function Live() {
           ) : null
         }
         hseOverlay={
-          hseActive ? (
+          hseActive && hseFlags.localAlertsEnabled ? (
             <>
               <WearableAlertOverlay severity={hse.visibleTopAlert?.severity ?? null} />
               <EagleVisionHUD
@@ -1205,6 +1206,7 @@ export default function Live() {
                             }
                           })()}
                           status={(backendStatus as BackendStatus | null) ?? null}
+                          localAlertsEnabled={hseFlags.localAlertsEnabled}
                         />
                       )}
                       {showFrameTest && (

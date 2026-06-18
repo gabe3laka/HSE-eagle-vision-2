@@ -164,11 +164,15 @@ export function useHseMonitoring({
   useEffect(() => {
     if (!enabled) return;
     const now = Date.now();
+    // When local alerts are off, never let legacy liveBoxes seed HSE
+    // observations — they're the same source as the false "Worker near
+    // vehicle" alerts and must not leak into the rule path even for tracking.
+    const safeLiveBoxes = localAlertsEnabled ? liveBoxes : [];
     const observations = mapToHseObservations({
       entities: backendEntities,
       poses: backendPoses,
       segments: backendSegments,
-      liveBoxes,
+      liveBoxes: safeLiveBoxes,
       timestampMs: now,
     });
     observationsRef.current = observations;
@@ -176,41 +180,44 @@ export function useHseMonitoring({
     tracksRef.current = live;
     setTracks(live);
 
+    // Legacy local alert path is the only visible source of "Worker near
+    // vehicle" et al. Default OFF — worker/Qwen scene risks are the single
+    // source of truth. Set VITE_HSE_LOCAL_ALERTS_ENABLED=true to re-enable.
+    if (!localAlertsEnabled) {
+      setActiveAlerts((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+
     const candidates = runHseRules({ tracks: live, observations, zones, ppeRequired });
     const { active, fired } = managerRef.current.ingest(candidates, now);
     setActiveAlerts(active);
 
-    // Legacy local path: haptics + incident persistence + throttled DeepSeek.
-    // Default OFF — worker/Qwen scene risks are the visible source of truth in
-    // Live HSE. Set VITE_HSE_LOCAL_ALERTS_ENABLED=true to re-enable.
-    if (localAlertsEnabled) {
-      for (const a of fired) {
-        if (haptics && a.wearablePattern !== "none") {
-          void wearableRef.current.send(
-            toWearableAlert({ id: a.id, severity: a.severity, spokenMessage: a.spokenMessage }),
-          );
-        }
-        persistIncident(a);
+    for (const a of fired) {
+      if (haptics && a.wearablePattern !== "none") {
+        void wearableRef.current.send(
+          toWearableAlert({ id: a.id, severity: a.severity, spokenMessage: a.spokenMessage }),
+        );
       }
+      persistIncident(a);
+    }
 
-      // Throttled DeepSeek: a fresh medium+ alert, or a stale-but-changed scene.
-      const sig = live
-        .filter((t) => t.stable)
-        .map((t) => t.category)
-        .sort()
-        .join(",");
-      const hasSignificant = candidates.some(
-        (c) => c.severity === "medium" || c.severity === "high" || c.severity === "critical",
-      );
-      const sinceReason = now - lastReasonAtRef.current;
-      const sceneChanged = sig !== lastSceneSigRef.current;
-      if (
-        (hasSignificant && sinceReason > REASON_MIN_GAP_MS) ||
-        (sceneChanged && sinceReason > REASON_IDLE_MS && candidates.length > 0)
-      ) {
-        lastSceneSigRef.current = sig;
-        void runReasoning(candidates);
-      }
+    // Throttled DeepSeek: a fresh medium+ alert, or a stale-but-changed scene.
+    const sig = live
+      .filter((t) => t.stable)
+      .map((t) => t.category)
+      .sort()
+      .join(",");
+    const hasSignificant = candidates.some(
+      (c) => c.severity === "medium" || c.severity === "high" || c.severity === "critical",
+    );
+    const sinceReason = now - lastReasonAtRef.current;
+    const sceneChanged = sig !== lastSceneSigRef.current;
+    if (
+      (hasSignificant && sinceReason > REASON_MIN_GAP_MS) ||
+      (sceneChanged && sinceReason > REASON_IDLE_MS && candidates.length > 0)
+    ) {
+      lastSceneSigRef.current = sig;
+      void runReasoning(candidates);
     }
   }, [
     enabled,

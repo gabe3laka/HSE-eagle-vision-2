@@ -528,4 +528,28 @@ describe("hseLiveRiskViewModel — qwen candidate flags", () => {
     });
     expect(vm.qwenCandidates.length).toBe(1);
   });
+
+  it("does not color any entity box when a worker_near_vehicle risk is unlinked", () => {
+    // Worker scene risk exists but has NO linkage fields (no ids, no bbox,
+    // no region) and NO label-spatial match — overlayEntities must stay empty
+    // so we never color a random box.
+    const e1 = entity({ label: "person", bbox: { x: 0.05, y: 0.05, w: 0.1, h: 0.2 } });
+    const e2 = entity({ label: "forklift", bbox: { x: 0.8, y: 0.8, w: 0.15, h: 0.15 } });
+    const unlinked: SceneRisk = {
+      hazard: "worker_near_vehicle",
+      risk_level: "ORANGE",
+      risk_score: 7,
+      produced_by: "vlm",
+      visual_evidence: ["worker walking past forklift"],
+      should_alert: true,
+    };
+    const vm = buildHseLiveRiskViewModel({
+      entities: [e1, e2],
+      poses: [],
+      parsedRisk: parsedRisk([unlinked]),
+      nowMs: NOW,
+      localAlertsEnabled: false,
+    });
+    expect(vm.overlayEntities.length).toBe(0);
+  });
 });
