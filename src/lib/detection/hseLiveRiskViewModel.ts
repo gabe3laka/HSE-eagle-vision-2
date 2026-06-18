@@ -24,12 +24,7 @@ export const HSE_PRIORITY_RISK_LIMIT = 10;
 export type HseOverlayMode = "normal" | "hse-risk-only" | "debug";
 
 /** Where a grouped risk originated. */
-export type HseRiskSource =
-  | "Rules"
-  | "Qwen"
-  | "Rules + Qwen"
-  | "Qwen Candidate"
-  | "Local fallback";
+export type HseRiskSource = "Rules" | "Qwen" | "Rules + Qwen" | "Qwen Candidate" | "Local fallback";
 
 /** A friendly, grouped risk row ready for rendering. */
 export interface HseGroupedRisk {
@@ -256,8 +251,7 @@ function groupKey(r: SceneRisk): string {
   if (typeof sourceId === "string" && sourceId) return `src:${sourceId}`;
   const hazard = (r.hazard ?? "unknown").toLowerCase();
   const tracks =
-    (r as Record<string, unknown>).involved_track_ids ??
-    (r.track_id ? [r.track_id] : undefined);
+    (r as Record<string, unknown>).involved_track_ids ?? (r.track_id ? [r.track_id] : undefined);
   if (Array.isArray(tracks) && tracks.length > 0) {
     return `${hazard}|t:${[...tracks].sort().join(",")}`;
   }
@@ -487,7 +481,9 @@ export function buildHseLiveRiskViewModel(
     }
 
     const linkedItem = [...linkedEntities, ...linkedTracks]
-      .map((id) => entities.find((e) => e.track_id === id || (e as unknown as { id?: string }).id === id))
+      .map((id) =>
+        entities.find((e) => e.track_id === id || (e as unknown as { id?: string }).id === id),
+      )
       .find((e) => e)?.label;
 
     const state = (rep as Record<string, unknown>).risk_state;
@@ -523,7 +519,13 @@ export function buildHseLiveRiskViewModel(
       if (a.state === "resolved") continue;
       const sev = a.severity;
       const level: RiskLevel =
-        sev === "critical" ? "RED" : sev === "high" ? "ORANGE" : sev === "medium" ? "YELLOW" : "GREEN";
+        sev === "critical"
+          ? "RED"
+          : sev === "high"
+            ? "ORANGE"
+            : sev === "medium"
+              ? "YELLOW"
+              : "GREEN";
       groupedAll.push({
         key: `local:${a.key}`,
         hazardType: a.category,

@@ -3,10 +3,7 @@ import { Button } from "@/components/ui/button";
 import { HSE_PROFILES } from "@/lib/detection/hseDetectProfile";
 import type { HSEDetectionProfile } from "@/lib/detection/hseTypes";
 import type { HseMonitoring } from "@/features/hse-monitoring/hooks/useHseMonitoring";
-import type {
-  HseLiveRiskViewModel,
-  HseGroupedRisk,
-} from "@/lib/detection/hseLiveRiskViewModel";
+import type { HseLiveRiskViewModel, HseGroupedRisk } from "@/lib/detection/hseLiveRiskViewModel";
 import { HSE_PRIORITY_RISK_LIMIT } from "@/lib/detection/hseLiveRiskViewModel";
 import { riskLevelColor } from "@/lib/detection/riskTypes";
 

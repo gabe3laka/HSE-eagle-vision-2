@@ -155,4 +155,3 @@ export function applyHseRequestToBody(
     reasoning_preferences: NEUTRAL_HSE_REASONING_PREFERENCES,
   };
 }
-

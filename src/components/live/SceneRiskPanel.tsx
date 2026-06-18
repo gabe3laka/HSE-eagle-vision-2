@@ -1,10 +1,7 @@
 import { AlertTriangle, ShieldAlert, Sparkles } from "lucide-react";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import { riskLevelColor, riskLevelRank } from "@/lib/detection/riskTypes";
-import type {
-  HseLiveRiskViewModel,
-  HseGroupedRisk,
-} from "@/lib/detection/hseLiveRiskViewModel";
+import type { HseLiveRiskViewModel, HseGroupedRisk } from "@/lib/detection/hseLiveRiskViewModel";
 
 /**
  * Scene Risk Overview — driven by the shared HseLiveRiskViewModel so the box
