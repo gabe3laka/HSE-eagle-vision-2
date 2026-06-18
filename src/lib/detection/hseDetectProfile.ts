@@ -76,10 +76,15 @@ export function buildHseDetectRequest(
 ): HSEDetectRequest {
   const spec = HSE_PROFILES[profile] ?? HSE_PROFILES[DEFAULT_HSE_PROFILE];
   const normRoi = normalizeRoi(roi);
+  // Merge profile tasks with the canonical HSE reasoning task set so the
+  // worker/Qwen always sees that scene reasoning is requested. Dedupe.
+  const tasks = Array.from(
+    new Set([...spec.tasks, "detect", "track", "risk", "scene_reasoning"]),
+  );
   return {
     mode: "hse-monitoring",
     profile,
-    tasks: spec.tasks,
+    tasks,
     quality: spec.quality,
     ...(normRoi ? { roi: normRoi } : {}),
     requestReason,
@@ -88,14 +93,8 @@ export function buildHseDetectRequest(
 
 /**
  * Neutral, scene-first HSE monitoring context attached to the /detect body when
- * monitoring mode is active. Replaces any older edge-biased `allowed_hazard_focus`
- * wording. The Cloudflare worker forwards these fields verbatim to the reasoner;
- * a worker that ignores them keeps working exactly as before.
- *
- * Goals:
- *  - Qwen reasons from the visible frame first, not a hazard template.
- *  - Qwen may say "no active scene risk" instead of inventing one.
- *  - Cached risk must be re-verified against the current frame.
+ * monitoring mode is active. The Cloudflare worker forwards these fields
+ * verbatim to the reasoner; a worker that ignores them keeps working as before.
  */
 export const NEUTRAL_HSE_SITE_CONTEXT = {
   environment_type: "indoor",
@@ -106,6 +105,7 @@ export const NEUTRAL_HSE_SITE_CONTEXT = {
     prefer_scene_observation_over_hazard_template: true,
     require_visual_evidence_for_scene_risk: true,
     avoid_assuming_edge_risk_from_object_presence: true,
+    verify_current_frame_before_reusing_cached_risk: true,
   },
   monitoring_focus: [
     "visible slip/trip hazards",
@@ -127,22 +127,30 @@ export const NEUTRAL_HSE_REASONING_PREFERENCES = {
   allow_no_active_risk: true,
   avoid_repeating_unconfirmed_risks: true,
   verify_current_frame_before_reusing_cached_risk: true,
+  return_scene_risks: true,
+  return_linked_entities: true,
+  return_reasoner_status: true,
+  return_scene_context: true,
+  return_semantic_corrections: true,
 } as const;
 
 /**
- * Merge the HSE request metadata into a base /detect body. The base fields stay
- * (back-compat); profile-derived `conf`/`img_size` override the defaults so the
- * worker that DOES read top-level conf/img_size also benefits. Neutral
- * `site_context` and `reasoning_preferences` are attached when monitoring is
- * active so the worker/Qwen reasoner is not biased toward edge/danger templates.
+ * Merge the HSE request metadata into a base /detect body. Adds `frame_b64`
+ * (mirror of image_b64 — the detector may use image_b64 while a VLM/temporal
+ * reasoner may use frame_b64), `scene_hint`, and `camera_context` so the
+ * worker can route HSE-mode frames. Build/Plan mode pass req=null and get the
+ * legacy body verbatim.
  */
 export function applyHseRequestToBody(
   base: Record<string, unknown>,
   req: HSEDetectRequest | null,
 ): Record<string, unknown> {
   if (!req) return base;
+  const imageB64 = typeof base.image_b64 === "string" ? (base.image_b64 as string) : undefined;
   return {
     ...base,
+    ...(imageB64 ? { frame_b64: imageB64 } : {}),
+    scene_hint: "live_hse_monitoring",
     conf: req.quality.conf,
     img_size: req.quality.imgSize,
     mode: req.mode,
@@ -153,5 +161,10 @@ export function applyHseRequestToBody(
     requestReason: req.requestReason,
     site_context: NEUTRAL_HSE_SITE_CONTEXT,
     reasoning_preferences: NEUTRAL_HSE_REASONING_PREFERENCES,
+    camera_context: {
+      source: "browser-live-camera",
+      mode: "hse",
+      capture_ts: Date.now(),
+    },
   };
 }

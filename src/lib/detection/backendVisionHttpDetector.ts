@@ -193,6 +193,9 @@ export interface ParsedDetectRisk {
   temporalReasoning?: unknown;
   sceneContext?: { summary?: string; scene_summary?: string } & Record<string, unknown>;
   semanticCorrections?: Array<{ explanation?: string } & Record<string, unknown>>;
+  /** Passthrough: worker-emitted tracks / scene graph (never re-derived). */
+  tracks?: unknown;
+  sceneGraph?: unknown;
 }
 
 /** Schema versions this client recognises. An unknown version still renders the
@@ -261,6 +264,8 @@ export function parseDetectRiskFields(resp: unknown): ParsedDetectRisk {
   if (r.temporal_reasoning !== undefined) out.temporalReasoning = r.temporal_reasoning;
   if (r.scene_context && typeof r.scene_context === "object") out.sceneContext = r.scene_context;
   if (Array.isArray(r.semantic_corrections)) out.semanticCorrections = r.semantic_corrections;
+  if (r.tracks !== undefined) out.tracks = r.tracks;
+  if (r.scene_graph !== undefined) out.sceneGraph = r.scene_graph;
   // Unknown schema_version: keep rendering, surface only a debug-level note.
   if (out.schemaVersion != null && !KNOWN_SCHEMA_VERSIONS.has(String(out.schemaVersion))) {
     out.schemaWarning = `unknown schema_version: ${String(out.schemaVersion)}`;
@@ -393,6 +398,10 @@ export class BackendVisionHttpDetector implements Detector {
   // Optional HSE-monitoring request metadata (profile / quality / ROI). When
   // null the /detect body is exactly the legacy shape — the contract is intact.
   private monitoringRequest: HSEDetectRequest | null = null;
+  // Stable per-detector-instance session id; reused for every frame this
+  // detector submits until stop(). Generated on start().
+  private sessionId: string | null = null;
+  private frameCounter = 0;
 
   constructor(opts?: {
     detectUrl?: string | null;
@@ -421,6 +430,8 @@ export class BackendVisionHttpDetector implements Detector {
     this.sessionPromise = null;
     this.tokenError = null;
     this.tokenErrorAt = 0;
+    this.sessionId = generateRandomId("hse-sess");
+    this.frameCounter = 0;
     this.status = freshStatus(this.detectUrl ? "loading" : "error");
     if (!this.detectUrl) {
       this.status.error = "detect_url_not_configured";
@@ -595,7 +606,15 @@ export class BackendVisionHttpDetector implements Detector {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(
             applyHseRequestToBody(
-              { image_b64, conf: DRY_RUN_CONF, img_size: 640, classes: null },
+              {
+                image_b64,
+                conf: DRY_RUN_CONF,
+                img_size: 640,
+                classes: null,
+                session_id: this.sessionId ?? undefined,
+                frame_id: `${this.sessionId ?? "f"}-${++this.frameCounter}`,
+                camera_id: this.cameraId,
+              },
               this.monitoringRequest,
             ),
           ),
@@ -795,34 +814,68 @@ async function safeText(res: Response): Promise<string> {
   }
 }
 
+/** Generate a stable-ish random id. Uses crypto.randomUUID when available. */
+function generateRandomId(prefix = "id"): string {
+  try {
+    const g = globalThis as { crypto?: { randomUUID?: () => string } };
+    if (g.crypto?.randomUUID) return `${prefix}-${g.crypto.randomUUID()}`;
+  } catch {
+    /* ignore */
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 /**
  * One-shot helper for the dev/debug single-frame test button: POST a captured
  * frame to the Cloudflare `/detect` Worker (with a fresh `?token=`) and return
  * the parsed response (or an `{ error }` object). Dry-run only — never enters
  * the risk engine.
+ *
+ * When `monitoringRequest` is provided, the body is routed through
+ * `applyHseRequestToBody` so the test frame carries the SAME HSE context the
+ * live stream sends (`frame_b64`, `scene_hint`, `site_context`,
+ * `reasoning_preferences`, `camera_context`). When null, the body is the
+ * detection-only legacy shape — Build/Plan mode behaviour is unchanged.
  */
 export async function postDetectFrame(
   image_b64: string,
-  opts?: { conf?: number; imgSize?: number; cameraId?: string },
+  opts?: {
+    conf?: number;
+    imgSize?: number;
+    cameraId?: string;
+    sessionId?: string;
+    frameId?: string;
+    monitoringRequest?: HSEDetectRequest | null;
+  },
 ): Promise<unknown> {
   const detectUrl = readDetectUrl();
   if (!detectUrl) return { error: "detect_url_not_configured" };
+  const cameraId = opts?.cameraId ?? CAMERA_ID;
   let token: string;
   try {
-    const s = await fetchDetectSession(opts?.cameraId ?? CAMERA_ID);
+    const s = await fetchDetectSession(cameraId);
     token = s.token;
   } catch (e) {
     return { error: e instanceof DetectAuthError ? "not_authenticated" : "token_failed" };
   }
+  const sessionId = opts?.sessionId ?? generateRandomId("hse-test");
+  const frameId = opts?.frameId ?? `${sessionId}-1`;
+  const base: Record<string, unknown> = {
+    image_b64,
+    conf: opts?.conf ?? DRY_RUN_CONF,
+    img_size: opts?.imgSize ?? 640,
+    classes: null,
+    session_id: sessionId,
+    frame_id: frameId,
+    camera_id: cameraId,
+  };
+  const body = opts?.monitoringRequest
+    ? applyHseRequestToBody(base, opts.monitoringRequest)
+    : base;
   const res = await fetch(withToken(detectUrl, token), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      image_b64,
-      conf: opts?.conf ?? DRY_RUN_CONF,
-      img_size: opts?.imgSize ?? 640,
-      classes: null,
-    }),
+    body: JSON.stringify(body),
   });
   const text = await res.text();
   let parsed: unknown;
@@ -833,4 +886,168 @@ export async function postDetectFrame(
   }
   if (!res.ok) return { error: `http_${res.status}`, status: res.status, body: parsed };
   return parsed;
+}
+
+/**
+ * PURE: structured summary of a /detect response for the Reasoner Contract Probe
+ * and the "Test detect frame" output. Never throws; missing fields collapse to
+ * sensible defaults so the probe is honest even on legacy responses.
+ */
+export interface DetectResponseSummary {
+  detection: { entities: number; poses: number; segments: number };
+  risk: {
+    risks: number;
+    sceneRisks: number;
+    hasRiskSummary: boolean;
+    highestLevel: string | null;
+    riskEngine: string | null;
+    riskEnabled: boolean | null;
+    degraded: boolean;
+    degradationMode: string | null;
+  };
+  reasoner: {
+    reasonerStatus: string | null;
+    sceneContextPresent: boolean;
+    semanticCorrections: number;
+    temporalReasoningPresent: boolean;
+  };
+  sources: { rules: number; qwen: number; rulesAndQwen: number; unknown: number };
+  linkability: {
+    withLinkedEntityId: number;
+    withInvolvedDetectionIds: number;
+    withInvolvedTrackIds: number;
+    withBboxOrRegion: number;
+    unlinked: number;
+  };
+  gateway: {
+    proxy: string | null;
+    transport: string | null;
+    upstreamStatus: number | null;
+    latencyMs: number | null;
+    model: string | null;
+    backend: string | null;
+  };
+}
+
+export function summarizeDetectResponse(
+  resp: unknown,
+  parsed: ParsedDetectRisk | null,
+  ctx: { latencyMs?: number | null; proxy?: string | null; transport?: string | null } = {},
+): DetectResponseSummary {
+  const r = (resp && typeof resp === "object" ? resp : {}) as Record<string, unknown>;
+  const entities = Array.isArray(r.entities) ? (r.entities as unknown[]).length : 0;
+  const poses = Array.isArray(r.poses) ? (r.poses as unknown[]).length : 0;
+  const segments = Array.isArray(r.segments) ? (r.segments as unknown[]).length : 0;
+  const sceneRisks = parsed?.sceneRisks ?? [];
+  const riskList = Array.isArray(r.risks) ? (r.risks as unknown[]) : [];
+
+  const sources = { rules: 0, qwen: 0, rulesAndQwen: 0, unknown: 0 };
+  const link = {
+    withLinkedEntityId: 0,
+    withInvolvedDetectionIds: 0,
+    withInvolvedTrackIds: 0,
+    withBboxOrRegion: 0,
+    unlinked: 0,
+  };
+  let highest: number = -1;
+  const RANK: Record<string, number> = { GREEN: 0, YELLOW: 1, ORANGE: 2, RED: 3 };
+  let highestLabel: string | null = null;
+  for (const risk of sceneRisks) {
+    const p = (risk.produced_by ?? "").toLowerCase();
+    if (p.includes("vlm") || p.includes("qwen")) {
+      if (p.includes("rules")) sources.rulesAndQwen += 1;
+      else sources.qwen += 1;
+    } else if (p.includes("rules")) {
+      sources.rules += 1;
+    } else {
+      sources.unknown += 1;
+    }
+    const lvl = (risk.risk_level ?? risk.risk_color ?? "").toString().toUpperCase();
+    if (lvl in RANK && RANK[lvl] > highest) {
+      highest = RANK[lvl];
+      highestLabel = lvl;
+    }
+    const hasEntity = !!(risk.linked_entity_id || risk.entity_id || risk.detection_id);
+    const hasDetIds = Array.isArray(risk.involved_detection_ids) &&
+      risk.involved_detection_ids.length > 0;
+    const hasTrackIds =
+      !!risk.track_id ||
+      (Array.isArray(risk.involved_track_ids) && risk.involved_track_ids.length > 0);
+    const hasRegion = !!(
+      risk.bbox ||
+      risk.box ||
+      risk.approximate_region ||
+      risk.region ||
+      risk.visual_region ||
+      risk.location_box
+    );
+    if (hasEntity) link.withLinkedEntityId += 1;
+    if (hasDetIds) link.withInvolvedDetectionIds += 1;
+    if (hasTrackIds) link.withInvolvedTrackIds += 1;
+    if (hasRegion) link.withBboxOrRegion += 1;
+    if (!hasEntity && !hasDetIds && !hasTrackIds && !hasRegion) link.unlinked += 1;
+  }
+  const summaryHigh = parsed?.riskSummary?.highest_level;
+  if (highestLabel == null && typeof summaryHigh === "string") {
+    highestLabel = summaryHigh.toUpperCase();
+  }
+
+  return {
+    detection: { entities, poses, segments },
+    risk: {
+      risks: riskList.length,
+      sceneRisks: sceneRisks.length,
+      hasRiskSummary: !!parsed?.riskSummary,
+      highestLevel: highestLabel,
+      riskEngine: parsed?.riskEngine ?? null,
+      riskEnabled: parsed?.riskEnabled ?? null,
+      degraded: !!parsed?.degraded,
+      degradationMode: parsed?.degradationMode ?? null,
+    },
+    reasoner: {
+      reasonerStatus: parsed?.reasonerStatus ?? null,
+      sceneContextPresent: !!parsed?.sceneContext,
+      semanticCorrections: parsed?.semanticCorrections?.length ?? 0,
+      temporalReasoningPresent: parsed?.temporalReasoning != null,
+    },
+    sources,
+    linkability: link,
+    gateway: {
+      proxy: ctx.proxy ?? null,
+      transport: ctx.transport ?? null,
+      upstreamStatus: typeof r.upstream_status === "number" ? (r.upstream_status as number) : null,
+      latencyMs: ctx.latencyMs ?? null,
+      model: typeof r.model === "string" ? (r.model as string) : null,
+      backend: typeof r.backend === "string" ? (r.backend as string) : null,
+    },
+  };
+}
+
+/** Format a DetectResponseSummary as a multi-line plain-text block for the
+ *  Test Detect Frame readout. */
+export function formatDetectSummary(s: DetectResponseSummary): string {
+  const lines: string[] = [];
+  lines.push("Detection:");
+  lines.push(`  entities: ${s.detection.entities}`);
+  lines.push(`  poses: ${s.detection.poses}`);
+  lines.push(`  segments: ${s.detection.segments}`);
+  lines.push("");
+  lines.push("Risk:");
+  lines.push(`  risks: ${s.risk.risks}`);
+  lines.push(`  scene_risks: ${s.risk.sceneRisks}`);
+  lines.push(`  risk_summary: ${s.risk.hasRiskSummary ? "yes" : "no"}`);
+  lines.push(`  highest_level: ${s.risk.highestLevel ?? "missing"}`);
+  lines.push(`  reasoner_status: ${s.reasoner.reasonerStatus ?? "missing"}`);
+  lines.push(`  scene_context: ${s.reasoner.sceneContextPresent ? "yes" : "no"}`);
+  lines.push(`  semantic_corrections: ${s.reasoner.semanticCorrections}`);
+  lines.push(`  temporal_reasoning: ${s.reasoner.temporalReasoningPresent ? "yes" : "no"}`);
+  lines.push("");
+  lines.push("Gateway:");
+  lines.push(`  proxy: ${s.gateway.proxy ?? "—"}`);
+  lines.push(`  transport: ${s.gateway.transport ?? "—"}`);
+  lines.push(`  upstream_status: ${s.gateway.upstreamStatus ?? "—"}`);
+  lines.push(`  latency_ms: ${s.gateway.latencyMs ?? "—"}`);
+  lines.push(`  model: ${s.gateway.model ?? "—"}`);
+  lines.push(`  backend: ${s.gateway.backend ?? "—"}`);
+  return lines.join("\n");
 }

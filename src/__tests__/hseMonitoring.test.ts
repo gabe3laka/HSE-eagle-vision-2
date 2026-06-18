@@ -260,4 +260,25 @@ describe("HSE detection profiles + ROI metadata", () => {
     expect(withReq.mode).toBe("hse-monitoring");
     expect(withReq.profile).toBe("balanced");
   });
+
+  it("HSE body mirrors image_b64 as frame_b64 and attaches scene_hint + camera_context", () => {
+    const base = { image_b64: "FRAME", conf: 0.2, img_size: 640, classes: null };
+    const out = applyHseRequestToBody(base, buildHseDetectRequest("balanced"));
+    expect(out.frame_b64).toBe("FRAME");
+    expect(out.scene_hint).toBe("live_hse_monitoring");
+    expect(out.camera_context).toMatchObject({
+      source: "browser-live-camera",
+      mode: "hse",
+    });
+    expect(out.site_context).toBeTruthy();
+    expect(out.reasoning_preferences).toMatchObject({ return_scene_risks: true });
+  });
+
+  it("buildHseDetectRequest tasks include the canonical reasoning set", () => {
+    const req = buildHseDetectRequest("balanced");
+    for (const t of ["detect", "track", "risk", "scene_reasoning"]) {
+      expect(req.tasks).toContain(t);
+    }
+  });
 });
+
