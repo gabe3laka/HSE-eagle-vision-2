@@ -16,7 +16,14 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.1.38
+
+      - name: Debug environment
+        run: |
+          echo "Runner: $RUNNER_OS"
+          bun --version || true
+          node --version || true
+          bunx --version || true
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -25,7 +32,7 @@ jobs:
         run: bun run lint
 
       - name: Typecheck
-        run: bunx tsc --noEmit
+        run: bunx tsc --noEmit --pretty false
 
       - name: Test
         run: bun run test

@@ -1,20 +1,35 @@
-# Fix CI Node.js 20 deprecation warnings
+# Pin Bun + Add CI Debug Step
 
-The screenshot shows two `Node.js 20 is deprecated` warnings from GitHub Actions:
-- `actions/checkout@v4` (used in both `build-and-test` and `gitleaks` jobs)
-- `gitleaks/gitleaks-action@v2`
+## Problem
 
-GitHub-hosted runners are forcing these onto Node 24. Both action versions still pin Node 20 internally, so the warning persists until we move to versions that ship a Node-24 runtime.
+`build-and-test` is failing with exit code 1, but the YAML itself is valid. The job uses `bun-version: latest`, so any breaking Bun release on the runner can fail Typecheck / Test / Build without any code change in the repo. The `gitleaks` / Node 20 messages in the screenshot are deprecation warnings, not the failure.
 
-## Plan
+## Changes (single file: `.github/workflows/ci.yml`)
 
-Update `.github/workflows/ci.yml`:
-- `actions/checkout@v4` → `actions/checkout@v5` (Node 24 runtime, drop-in replacement, same inputs).
-- `oven-sh/setup-bun@v2` — already Node-24 compatible, no change.
-- `gitleaks/gitleaks-action@v2` → `gitleaks/gitleaks-action@v2.3.9` pin. The `@v2` tag still resolves to the Node-20 release; the latest `v2.x` published with Node-24 support is `v2.3.9`. If that release is not yet Node-24, fall back to keeping `@v2` and the warning is benign (non-blocking). The `build-and-test` exit-code-1 error was the stale tests, already fixed in the previous turn — this plan only addresses the deprecation warnings.
+1. **Pin Bun to a known-good version** in the `Setup Bun` step:
+   - Replace `bun-version: latest` with a fixed version (proposed: `1.1.38` — the most recent stable line we've been using; can be swapped to whatever your last green run shows).
 
-No application code, no test changes.
+2. **Add a non-invasive debug step** right after `Setup Bun` so failing runs show environment info up front:
+   ```yaml
+   - name: Debug environment
+     run: |
+       echo "Runner: $RUNNER_OS"
+       bun --version || true
+       node --version || true
+       bunx --version || true
+   ```
 
-## Files changed
+3. **Make Typecheck output easier to read in CI logs**:
+   - Change `bunx tsc --noEmit` → `bunx tsc --noEmit --pretty false`.
 
-- `.github/workflows/ci.yml`
+No other steps, jobs, scripts, or app code are touched. Lint / Test / Build commands and the `gitleaks` job stay exactly as they are.
+
+## Out of scope
+
+- No application code changes.
+- No changes to test files, package.json scripts, or `HSE_PRIORITY_RISK_LIMIT`.
+- No removal of the audit step or gitleaks job.
+
+## Confirm before I build
+
+Do you want me to pin Bun to **`1.1.38`**, or do you have a specific version from your last green run you'd rather pin to?
