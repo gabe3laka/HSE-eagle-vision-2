@@ -23,8 +23,10 @@ import {
 import {
   boxColorFor,
   boxLabelForEntity,
+  itemNameForEntity,
   shouldRenderEntityBox,
 } from "../components/live/BackendEntityOverlay";
+import { shouldRunLegacyAnalyzeScene, shouldShowLegacyAlertFeed } from "../lib/hseLegacyGates";
 import type { ParsedDetectRisk } from "../lib/detection/backendVisionHttpDetector";
 import type { BackendEntity, BackendPose, BBox } from "../lib/detection/types";
 import type { HSEActiveAlert } from "../lib/detection/hseTypes";
@@ -386,13 +388,34 @@ describe("HSE live risk view model", () => {
     expect(vm.overlayEntities).toHaveLength(1);
   });
 
-  it("calculates effective YELLOW for object_near_edge score 4 and latent risk", () => {
+  it("requires evidence or confirmation before latent object_near_edge becomes YELLOW", () => {
     expect(effectiveRiskLevel({ risk: risk({ risk_level: "GREEN", risk_score: 4 }) })).toBe(
       "YELLOW",
     );
     expect(
       effectiveRiskLevel({
         risk: risk({ risk_level: "GREEN", risk_score: 1, risk_state: "latent" }),
+      }),
+    ).toBe("GREEN");
+    expect(
+      effectiveRiskLevel({
+        risk: risk({
+          risk_level: "GREEN",
+          risk_score: 1,
+          risk_state: "latent",
+          produced_by: "vlm_reasoner",
+          reasoner_model: "qwen_vl",
+        }),
+      }),
+    ).toBe("YELLOW");
+    expect(
+      effectiveRiskLevel({
+        risk: risk({
+          risk_level: "GREEN",
+          risk_score: 1,
+          risk_state: "latent",
+          visual_evidence: ["object visibly overhangs the table edge"],
+        }),
       }),
     ).toBe("YELLOW");
   });
@@ -497,13 +520,40 @@ describe("HSE live risk view model", () => {
     expect(filterOverlayEntities([...manyNeutral, risky], [])).toHaveLength(1);
 
     const label = boxLabelForEntity(
-      { ...risky, risk_stale: true, risk_resolving: true },
+      {
+        ...risky,
+        label: "generic",
+        semantic_label: "cup",
+        risk_stale: true,
+        risk_resolving: true,
+      },
       true,
       "hse-risk-only",
     );
-    expect(label).toBeNull();
+    expect(label).toBe("cup");
+    expect(label).not.toMatch(/GREEN|YELLOW|ORANGE|RED|stale|resolving/i);
+    expect(itemNameForEntity({ ...risky, label: "", semantic_label: undefined })).toBe(
+      "detected item",
+    );
     expect(boxLabelForEntity(risky, true, "debug")).toContain("YELLOW");
     expect(boxColorFor(risky, true)).toContain("251,191,36");
+  });
+
+  it("gates legacy local alert feed and analyze scene in default HSE mode", () => {
+    expect(
+      shouldShowLegacyAlertFeed({ hseActive: true, localAlertsEnabled: false, debug: false }),
+    ).toBe(false);
+    expect(
+      shouldShowLegacyAlertFeed({ hseActive: true, localAlertsEnabled: true, debug: false }),
+    ).toBe(true);
+    expect(
+      shouldShowLegacyAlertFeed({ hseActive: true, localAlertsEnabled: false, debug: true }),
+    ).toBe(true);
+    expect(
+      shouldShowLegacyAlertFeed({ hseActive: false, localAlertsEnabled: false, debug: false }),
+    ).toBe(true);
+    expect(shouldRunLegacyAnalyzeScene(false)).toBe(false);
+    expect(shouldRunLegacyAnalyzeScene(true)).toBe(true);
   });
 
   it("filters purple pose candidates unless a real person entity is confirmed", () => {

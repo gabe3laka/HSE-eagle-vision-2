@@ -24,6 +24,7 @@ import { buildHseReasoningPayload } from "../lib/hseRiskReasoning";
 import { requestHseReasoning } from "../api/hseRiskReasoningClient";
 import { mapHseAlertToIncidentRow, shouldPersistHseAlert } from "../lib/hseIncidents";
 import { BrowserVibrationAdapter, toWearableAlert } from "@/lib/wearable/wearableAlerts";
+import { shouldRunLegacyAnalyzeScene } from "@/lib/hseLegacyGates";
 
 /**
  * Eagle Vision HSE monitoring orchestrator. Runs the wearable-ready pipeline
@@ -248,8 +249,9 @@ export function useHseMonitoring({
     setProfileState("balanced");
   }, []);
 
-  /** Manual "Analyze scene" — force a reasoning pass now. */
+  /** Manual "Analyze scene" — force a legacy local reasoning pass only when enabled. */
   const analyzeScene = useCallback(() => {
+    if (!shouldRunLegacyAnalyzeScene(localAlertsEnabled)) return;
     const candidates = runHseRules({
       tracks: tracksRef.current,
       observations: observationsRef.current,
@@ -257,7 +259,7 @@ export function useHseMonitoring({
       ppeRequired,
     });
     void runReasoning(candidates);
-  }, [zones, ppeRequired, runReasoning]);
+  }, [localAlertsEnabled, zones, ppeRequired, runReasoning]);
 
   const acknowledge = useCallback((key: string) => {
     managerRef.current.acknowledge(key);
@@ -298,6 +300,7 @@ export function useHseMonitoring({
     backendName: backendName ?? null,
     fallbackActive: !!fallbackActive,
     localAlertsEnabled,
+    canAnalyzeSceneLocally: shouldRunLegacyAnalyzeScene(localAlertsEnabled),
   };
 }
 

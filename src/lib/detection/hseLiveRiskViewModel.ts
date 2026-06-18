@@ -396,8 +396,25 @@ export function effectiveRiskLevel(input: {
     best = summaryHighest;
   }
 
-  if (lower(risk?.risk_state) === "latent" && (!best || best === "GREEN")) {
-    best = hazard === "object_near_edge" ? "YELLOW" : best;
+  if (hazard === "object_near_edge" && (!best || best === "GREEN")) {
+    const record = (risk ?? {}) as Record<string, unknown>;
+    const hasStrongVisualEvidence =
+      Array.isArray(risk?.visual_evidence) &&
+      risk.visual_evidence.some((value) => typeof value === "string" && value.trim().length > 0);
+    const riskState = lower(risk?.risk_state);
+    const explicitlyConfirmed =
+      risk?.should_alert === true ||
+      riskState === "active" ||
+      lower(record.active) === "true" ||
+      lower(record.confirmed) === "true" ||
+      record.active === true ||
+      record.confirmed === true ||
+      lower(risk?.risk_anchor_status) === "active";
+    const qwenConfirmed = risk ? riskLooksQwen(risk) : false;
+    const linkedConfirmed = riskLevelRank(linkedHighest) >= riskLevelRank("YELLOW");
+    if (qwenConfirmed || hasStrongVisualEvidence || explicitlyConfirmed || linkedConfirmed) {
+      best = "YELLOW";
+    }
   }
 
   return best ?? null;
