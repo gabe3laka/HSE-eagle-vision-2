@@ -54,8 +54,15 @@ export function buildReasonerProbe(
   // back to the summary (which itself reads raw response fields) so the probe
   // still reports Qwen presence when `parsed` is null.
   const READY_RUNNING = new Set([
-    "ready", "ok", "done", "completed", "success",
-    "running", "processing", "in_progress", "busy",
+    "ready",
+    "ok",
+    "done",
+    "completed",
+    "success",
+    "running",
+    "processing",
+    "in_progress",
+    "busy",
   ]);
   const status_ = (summary.reasoner.reasonerStatus ?? "").toLowerCase();
   const qwenFromRisks = risks.some((r) => {
@@ -64,8 +71,7 @@ export function buildReasonerProbe(
     return p.includes("qwen") || p.includes("vlm") || m.includes("qwen");
   });
   const qwenFromCorrections = summary.reasoner.semanticCorrections > 0;
-  const qwenFromContext =
-    summary.reasoner.sceneContextPresent && READY_RUNNING.has(status_);
+  const qwenFromContext = summary.reasoner.sceneContextPresent && READY_RUNNING.has(status_);
   const qwenDetected = qwenFromRisks || qwenFromCorrections || qwenFromContext;
 
   return { summary, endToEndWorking, qwenDetected };
@@ -109,9 +115,8 @@ export function ReasonerContractProbe({
   const probe = buildReasonerProbe(parsedRisk, rawResp, status);
   const s = probe.summary;
   const visibleSource = localAlertsEnabled ? "legacy_local_alerts" : "worker_scene_risks";
-  const perceptionBackend =
-    s.gateway.backend ?? (status?.backend ?? null);
-  const perceptionModel = s.gateway.model ?? (status?.model ?? null);
+  const perceptionBackend = s.gateway.backend ?? status?.backend ?? null;
+  const perceptionModel = s.gateway.model ?? status?.model ?? null;
   return (
     <div className="rounded-xl border border-violet-300/30 bg-violet-400/[0.04] p-3 font-mono text-[11px] leading-relaxed">
       <div className="mb-2 flex items-center gap-2">
@@ -154,13 +159,18 @@ export function ReasonerContractProbe({
           <Row label="highest_level" value={s.risk.highestLevel ?? "—"} />
           <Row label="risk_engine" value={s.risk.riskEngine ?? "—"} />
           <Row label="degraded" value={String(s.risk.degraded)} />
-          {s.risk.degradationMode && <Row label="degradation_mode" value={s.risk.degradationMode} />}
+          {s.risk.degradationMode && (
+            <Row label="degradation_mode" value={s.risk.degradationMode} />
+          )}
         </Section>
         <Section title="Reasoner">
           <Row label="reasoner_status" value={s.reasoner.reasonerStatus ?? "missing"} />
           <Row label="scene_context" value={s.reasoner.sceneContextPresent ? "yes" : "no"} />
           <Row label="semantic_corrections" value={s.reasoner.semanticCorrections} />
-          <Row label="temporal_reasoning" value={s.reasoner.temporalReasoningPresent ? "yes" : "no"} />
+          <Row
+            label="temporal_reasoning"
+            value={s.reasoner.temporalReasoningPresent ? "yes" : "no"}
+          />
         </Section>
         <Section title="Sources">
           <Row label="Rules" value={s.sources.rules} />
@@ -177,16 +187,11 @@ export function ReasonerContractProbe({
         </Section>
       </div>
       <div className="mt-3 space-y-1 border-t border-violet-300/20 pt-2 text-[11px]">
-        <div
-          className={
-            probe.endToEndWorking ? "text-emerald-300" : "text-muted-foreground"
-          }
-        >
+        <div className={probe.endToEndWorking ? "text-emerald-300" : "text-muted-foreground"}>
           End-to-end scene reasoning: {probe.endToEndWorking ? "working" : "not confirmed"}
         </div>
         <div className={probe.qwenDetected ? "text-emerald-300" : "text-muted-foreground"}>
-          Qwen contribution:{" "}
-          {probe.qwenDetected ? "detected" : "not detected in latest response"}
+          Qwen contribution: {probe.qwenDetected ? "detected" : "not detected in latest response"}
         </div>
         <div className="text-muted-foreground">
           Visible alert source: <span className="text-foreground">{visibleSource}</span>
