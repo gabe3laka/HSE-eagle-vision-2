@@ -1189,6 +1189,15 @@ export default function Live() {
                       {/* Risk-aware diagnostics (degradation_mode, privacy blur,
                           reasoner availability, schema warnings) — flag-gated. */}
                       {riskFlags.riskDebugPanel && risk && <RiskDebugPanel risk={risk} />}
+                      {/* Reasoner Contract Probe — dev-only, HSE mode only.
+                          Diagnostic only: never creates alerts/boxes/incidents. */}
+                      {import.meta.env.DEV && appMode === "hse" && (
+                        <ReasonerContractProbe
+                          parsedRisk={risk}
+                          rawResp={(backendStatus as BackendStatus | null)?.lastRawResponse ?? null}
+                          status={(backendStatus as BackendStatus | null) ?? null}
+                        />
+                      )}
                       {showFrameTest && (
                         <div className="rounded-xl border border-border bg-background/40 p-3">
                           <div className="flex items-center justify-between">
