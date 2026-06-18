@@ -236,3 +236,174 @@ describe("hseLiveRiskViewModel — builder", () => {
     expect(vm.reasonerBadge.label).toMatch(/Qwen/);
   });
 });
+
+describe("hseLiveRiskViewModel — linking", () => {
+  it("entityMatchesRiskIds matches by track_id", () => {
+    const e = entity({ track_id: "t9" });
+    expect(entityMatchesRiskIds({ track_id: "t9" }, e)).toBe(true);
+    expect(entityMatchesRiskIds({ track_id: "tX" }, e)).toBe(false);
+  });
+
+  it("entityMatchesRiskIds matches involved_track_ids", () => {
+    const e = entity({ track_id: "t1" });
+    expect(entityMatchesRiskIds({ involved_track_ids: ["t1", "t2"] }, e)).toBe(true);
+  });
+
+  it("riskRegionFor falls through bbox -> approximate_region", () => {
+    expect(riskRegionFor({ bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } })).toEqual({
+      x: 0.1, y: 0.1, w: 0.2, h: 0.2,
+    });
+    expect(
+      riskRegionFor({ approximate_region: { x: 0.5, y: 0.5, w: 0.1, h: 0.1 } }),
+    ).toEqual({ x: 0.5, y: 0.5, w: 0.1, h: 0.1 });
+    expect(riskRegionFor({ hazard: "x" })).toBeNull();
+  });
+
+  it("spatialMatchRiskToEntity picks the overlapping entity", () => {
+    const can = entity({ label: "can", bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } });
+    const chair = entity({ label: "chair", bbox: { x: 0.7, y: 0.7, w: 0.2, h: 0.2 } });
+    const match = spatialMatchRiskToEntity(
+      { bbox: { x: 0.11, y: 0.11, w: 0.18, h: 0.18 } },
+      [chair, can],
+    );
+    expect(match?.label).toBe("can");
+  });
+
+  it("linkedEntitiesForRisk: id wins; spatial fallback when no id", () => {
+    const can = entity({ label: "can", track_id: "t-can", bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } });
+    const cup = entity({ label: "cup", bbox: { x: 0.5, y: 0.5, w: 0.1, h: 0.1 } });
+    expect(linkedEntitiesForRisk({ track_id: "t-can" }, [can, cup])[0].label).toBe("can");
+    expect(
+      linkedEntitiesForRisk(
+        { bbox: { x: 0.51, y: 0.51, w: 0.08, h: 0.08 } },
+        [can, cup],
+      )[0].label,
+    ).toBe("cup");
+    expect(linkedEntitiesForRisk({ hazard: "x" }, [can, cup])).toEqual([]);
+  });
+
+  it("colors a linked entity YELLOW even when worker entity has no risk_level", () => {
+    const can = entity({ label: "can", track_id: "tc", bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [can],
+      poses: [],
+      parsedRisk: parsedRisk([
+        risk({ track_id: "tc", hazard: "object_near_edge", risk_level: "YELLOW" }),
+      ]),
+      nowMs: NOW,
+    });
+    expect(vm.overlayEntities.length).toBe(1);
+    expect(vm.overlayEntities[0].risk_level).toBe("YELLOW");
+    expect(vm.overlayEntities[0].label).toBe("can");
+    expect(vm.priorityRisks.length).toBe(1);
+    expect(vm.riskLinkedEntityCount).toBe(1);
+  });
+
+  it("weak edge risk linked spatially colors the box but stays out of priority", () => {
+    const can = entity({ label: "can", bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } });
+    const weak: SceneRisk = {
+      hazard: "object_near_edge",
+      risk_level: "YELLOW",
+      produced_by: "rules",
+      risk_score: 1,
+      bbox: { x: 0.11, y: 0.11, w: 0.18, h: 0.18 },
+    };
+    const vm = buildHseLiveRiskViewModel({
+      entities: [can],
+      poses: [],
+      parsedRisk: parsedRisk([weak]),
+      nowMs: NOW,
+    });
+    expect(vm.priorityRisks.length).toBe(0);
+    expect(vm.overlayEntities.length).toBe(1);
+    expect(vm.overlayEntities[0].risk_level).toBe("YELLOW");
+  });
+});
+
+describe("hseLiveRiskViewModel — wording", () => {
+  it("pickRiskWhy falls through risk_reason -> visual_evidence -> evidence -> trigger -> observation -> description", () => {
+    expect(pickRiskWhy({ risk_reason: "a" })).toBe("a");
+    expect(pickRiskWhy({ visual_evidence: ["b"] })).toBe("b");
+    expect(pickRiskWhy({ evidence: ["c"] })).toBe("c");
+    expect(pickRiskWhy({ trigger_condition: "d" })).toBe("d");
+    expect(pickRiskWhy({ observation: "e" })).toBe("e");
+    expect(pickRiskWhy({ description: "f" })).toBe("f");
+    expect(pickRiskWhy({})).toBeUndefined();
+  });
+
+  it("pickRiskAction falls through full chain", () => {
+    expect(pickRiskAction({ recommended_action: "a" })).toBe("a");
+    expect(pickRiskAction({ recommended_controls: [{ action: "b" }] })).toBe("b");
+    expect(pickRiskAction({ primary_action: "c" })).toBe("c");
+    expect(pickRiskAction({ next_action: "d" })).toBe("d");
+    expect(pickRiskAction({ control_recommendation: "e" })).toBe("e");
+    expect(pickRiskAction({})).toBeUndefined();
+  });
+
+  it("pickRiskWhy reads scene_context from parsedRisk as last fallback", () => {
+    const pr: ParsedDetectRisk = {
+      sceneRisks: [],
+      degraded: false,
+      warnings: [],
+      sceneContext: { summary: "scene summary text" },
+    };
+    expect(pickRiskWhy({}, pr)).toBe("scene summary text");
+  });
+});
+
+describe("hseLiveRiskViewModel — Qwen badge", () => {
+  function badge(status: string | undefined) {
+    return buildHseLiveRiskViewModel({
+      entities: [],
+      poses: [],
+      parsedRisk: { sceneRisks: [], degraded: false, warnings: [], reasonerStatus: status as string },
+      nowMs: NOW,
+    }).reasonerBadge;
+  }
+  it("ok/ready/done -> ready", () => {
+    expect(badge("ok").state).toBe("ready");
+    expect(badge("READY").state).toBe("ready");
+    expect(badge("done").state).toBe("ready");
+  });
+  it("running/busy -> running", () => {
+    expect(badge("running").state).toBe("running");
+    expect(badge("busy").state).toBe("running");
+  });
+  it("queued/pending -> queued", () => {
+    expect(badge("queued").state).toBe("queued");
+    expect(badge("pending").state).toBe("queued");
+  });
+  it("unavailable/timeout/missing -> unavailable", () => {
+    expect(badge("unavailable").state).toBe("unavailable");
+    expect(badge("timeout").state).toBe("unavailable");
+    expect(badge("missing").state).toBe("unavailable");
+  });
+  it("unknown non-empty status -> unavailable (never silently ready)", () => {
+    expect(badge("zzz_unknown_state").state).toBe("unavailable");
+    expect(badge("something_else").label).toMatch(/unavailable/);
+  });
+  it("disabled / not_run -> disabled", () => {
+    expect(badge("disabled").state).toBe("disabled");
+    expect(badge("not_run").state).toBe("disabled");
+  });
+  it("null parsedRisk -> disabled", () => {
+    const vm = buildHseLiveRiskViewModel({
+      entities: [], poses: [], parsedRisk: null, nowMs: NOW,
+    });
+    expect(vm.reasonerBadge.state).toBe("disabled");
+  });
+});
+
+describe("hseLiveRiskViewModel — box label safety", () => {
+  it("hse-risk-only label never contains risk/level/track words", () => {
+    const e = entity({
+      label: "can",
+      risk_level: "YELLOW",
+      track_id: "t1",
+      state: "stale",
+    });
+    const label = boxLabelForEntity(e, true, "hse-risk-only") ?? "";
+    expect(label).toBe("can");
+    expect(label).not.toMatch(/YELLOW|GREEN|ORANGE|RED|stale|resolving|track|risk_id|anchor_carryover/i);
+  });
+});
