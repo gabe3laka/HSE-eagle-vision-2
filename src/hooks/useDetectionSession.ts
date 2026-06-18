@@ -227,55 +227,65 @@ export function useDetectionSession({
           ? clamp(detMs * 1.3, MIN_INTERVAL_MS, MAX_INTERVAL_MS)
           : Math.max(MIN_INTERVAL_MS, intervalRef.current * 0.9);
 
-      setLiveBoxes(
-        obs.map((o) => ({
-          hazardType: o.hazardType,
-          severity: engine.currentSeverity(o.hazardType, o.trackKey) ?? "low",
-          confidence: o.confidence,
-          bbox: o.bbox,
-        })),
-      );
+      if (suppressEngineRef.current) {
+        // HSE mode w/ local alerts off: keep frames flowing to the backend, but
+        // do not surface ANY legacy RiskEngine state. liveBoxes / alerts / stat
+        // counters are left untouched (liveBoxes stays []).
+        setStats((s) => ({ ...s, frames: framesRef.current }));
+      } else {
+        setLiveBoxes(
+          obs.map((o) => ({
+            hazardType: o.hazardType,
+            severity: engine.currentSeverity(o.hazardType, o.trackKey) ?? "low",
+            confidence: o.confidence,
+            bbox: o.bbox,
+          })),
+        );
 
-      const newAlerts = engine.update(obs, now);
-      if (newAlerts.length) {
-        const surfaced = newAlerts.filter((a) => !a.silent);
-        if (surfaced.length) setAlerts((prev) => [...surfaced, ...prev].slice(0, 40));
-        setStats((s) => ({
-          frames: framesRef.current,
-          alerts: s.alerts + surfaced.length,
-          incidents: s.incidents + surfaced.filter((a) => a.isIncident).length,
-        }));
-        // Browser "supervisor" notification for high/critical (visual — not voice).
-        if (
-          cfg.notificationsEnabled &&
-          typeof Notification !== "undefined" &&
-          Notification.permission === "granted"
-        ) {
-          for (const alert of surfaced) {
-            if (alert.severity === "high" || alert.severity === "critical") {
-              try {
-                new Notification(
-                  `${SEVERITY_META[alert.severity].label}: ${HAZARDS[alert.hazardType].label}`,
-                  { body: localizedMessage(alert.hazardType, cfg.language), tag: alert.hazardType },
-                );
-              } catch {
-                /* notifications are best-effort */
+        const newAlerts = engine.update(obs, now);
+        if (newAlerts.length) {
+          const surfaced = newAlerts.filter((a) => !a.silent);
+          if (surfaced.length) setAlerts((prev) => [...surfaced, ...prev].slice(0, 40));
+          setStats((s) => ({
+            frames: framesRef.current,
+            alerts: s.alerts + surfaced.length,
+            incidents: s.incidents + surfaced.filter((a) => a.isIncident).length,
+          }));
+          // Browser "supervisor" notification for high/critical (visual — not voice).
+          if (
+            cfg.notificationsEnabled &&
+            typeof Notification !== "undefined" &&
+            Notification.permission === "granted"
+          ) {
+            for (const alert of surfaced) {
+              if (alert.severity === "high" || alert.severity === "critical") {
+                try {
+                  new Notification(
+                    `${SEVERITY_META[alert.severity].label}: ${HAZARDS[alert.hazardType].label}`,
+                    {
+                      body: localizedMessage(alert.hazardType, cfg.language),
+                      tag: alert.hazardType,
+                    },
+                  );
+                } catch {
+                  /* notifications are best-effort */
+                }
               }
             }
           }
+          // persistence is fire-and-forget so it never stalls the detection loop.
+          // Build Mode suppresses it: no detections/incidents are written.
+          if (!suppressRef.current) {
+            void (async () => {
+              for (const alert of newAlerts) {
+                const detId = await persistDetection(alert);
+                if (alert.isIncident) await persistIncident(alert, detId);
+              }
+            })();
+          }
+        } else {
+          setStats((s) => ({ ...s, frames: framesRef.current }));
         }
-        // persistence is fire-and-forget so it never stalls the detection loop.
-        // Build Mode suppresses it: no detections/incidents are written.
-        if (!suppressRef.current) {
-          void (async () => {
-            for (const alert of newAlerts) {
-              const detId = await persistDetection(alert);
-              if (alert.isIncident) await persistIncident(alert, detId);
-            }
-          })();
-        }
-      } else {
-        setStats((s) => ({ ...s, frames: framesRef.current }));
       }
 
       // status + perf + dev debug, throttled to ~4/s to limit re-renders
