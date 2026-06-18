@@ -696,7 +696,7 @@ export default function Live() {
         error={error}
         boxes={liveBoxes}
         running={running}
-        topAlert={topAlert}
+        topAlert={appMode === "hse" && !hseFlags.localAlertsEnabled ? null : topAlert}
         language={config.language}
         facing={facing}
         onEnable={() => startCamera()}
@@ -711,6 +711,18 @@ export default function Live() {
         }
         backendPoses={
           appMode === "hse" ? hseRiskViewModel.overlayPoses : (backendPoses as BackendPose[])
+        }
+        rawBackendEntityCount={
+          appMode === "hse" ? (backendEntities as BackendEntity[]).length : undefined
+        }
+        rawBackendPoseCount={
+          appMode === "hse" ? (backendPoses as BackendPose[]).length : undefined
+        }
+        riskLinkedEntityCount={
+          appMode === "hse" ? hseRiskViewModel.riskLinkedEntityCount : undefined
+        }
+        riskLinkedPoseCount={
+          appMode === "hse" ? hseRiskViewModel.riskLinkedPoseCount : undefined
         }
         // Dry-run debug overlays (raw entity boxes, the fuchsia pose skeleton
         // and the entity/pose count chip) belong to HSE monitoring only. In
@@ -855,11 +867,11 @@ export default function Live() {
         hseOverlay={
           hseActive ? (
             <>
-              <WearableAlertOverlay severity={hse.topAlert?.severity ?? null} />
+              <WearableAlertOverlay severity={hse.visibleTopAlert?.severity ?? null} />
               <EagleVisionHUD
                 tracks={hse.tracks}
                 poses={backendPoses as BackendPose[]}
-                topAlert={hse.topAlert}
+                topAlert={hse.visibleTopAlert}
                 status={hse.status}
                 objectCount={hse.objectCount}
                 stableCount={hse.stableCount}
@@ -897,7 +909,11 @@ export default function Live() {
         fallbackActive={fallbackActive}
         objectCount={appMode === "hse" ? hse.objectCount : candidates.length}
         alertCount={alerts.length}
-        topRisk={appMode === "hse" ? (hse.topAlert?.title ?? null) : null}
+        topRisk={
+          appMode === "hse"
+            ? (hse.visibleTopAlert?.title ?? hseRiskViewModel.priorityRisks[0]?.hazardLabel ?? null)
+            : null
+        }
       />
 
       <div
