@@ -1,208 +1,190 @@
-# Reapply HSE Live Monitoring Fix — App-Only
 
-Scope: frontend HSE-mode behavior only. Build mode, Plan mode, Cloudflare Worker, RunPod, and the signed session-token flow are untouched. No secrets added to Vite.
+# HSE Live: Fix Risk Linking + Local Alert Leak (app-only)
 
-## 1. Env & flags (public VITE\_\* only)
-
-Add to `.env.example` and `src/build-env.d.ts` (`ImportMetaEnv`):
-
-- `VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED=false`
-- `VITE_HSE_SHOW_QWEN_CANDIDATES=false`
-- `VITE_HSE_LOCAL_ALERTS_ENABLED=false`
-
-Extend `src/lib/featureFlags.ts` with a `readHseFeatureFlags()` returning
-`{ qwenCandidateLaneEnabled, showQwenCandidates, localAlertsEnabled }`, all
-default `false`. Existing risk-aware flags untouched.
-
-Confirm no server secrets land in Vite. The existing signed-token request in
-`backendVisionHttpDetector.ts` and any Supabase Edge function that mints the
-token are left intact — we only change the JSON body fields the app sends.
-
-> Note on "make Vite vars an edge function": these three flags are pure UI
-> toggles read at module init across many components. Moving them to an edge
-> function would require an async fetch on every render path and a global
-> store. Recommendation: keep as `VITE_*` (they are non-secret booleans). Flag
-> this as a follow-up if the user wants runtime-controlled flags.
-
-## 2. Neutralize detect request context
-
-File: `src/lib/detection/backendVisionHttpDetector.ts`
-
-- Remove any hard-coded `allowed_hazard_focus` edge-biased list.
-- Send neutral `site_context` (environment_type, mode `live_hse_monitoring`,
-  `reasoning_policy`, `monitoring_focus`) and balanced `reasoning_preferences`
-  (`force_reason:false`, `prefer_low_latency:true`, evidence-required, allow
-  no-risk, verify-current-frame) — per spec body.
-- Preserve `session_id`, `frame_id`, `camera_id`, `camera_context`,
-  `scene_hint`, existing auth/session token plumbing.
-
-## 3. New shared HSE Live Risk View Model
-
-New file: `src/lib/detection/hseLiveRiskViewModel.ts`
-
-Exports:
-
-- `HSE_PRIORITY_RISK_LIMIT = 10`
-- `HseOverlayMode = "normal" | "hse-risk-only" | "debug"`
-- types `BuildHseLiveRiskViewModelInput`, `HseLiveRiskViewModel`,
-  `HseGroupedRisk`, `HseDebugRisk`, `HseQwenCandidate`, `HseReasonerBadge`
-- `buildHseLiveRiskViewModel(input)` — single selector that:
-  - filters/sorts grouped risks (dedupe by risk_id / source_risk_id /
-    hazard_type+track_ids / hazard_type+linked_entity / hazard_type+action)
-  - rank order RED→YELLOW, active→stale, non-resolving→resolving,
-    Rules+Qwen→Qwen→Rules, score desc, link-count desc, recency
-  - picks `overlayEntities` (only those tied to YELLOW+ linked risks in
-    hse-risk-only mode), `overlayPoses` (filtered by pose rules in §9)
-  - computes `reasonerBadge`, `highestLevel`, counts, `hasWorkerSceneRisks`,
-    `shouldUseLocalFallback`
-- `effectiveRiskLevel({risk, entity, riskSummaryHighest, linkedSceneHighest})`
-  with the promotion/demotion rules from §6 (never downgrade linked
-  YELLOW+; weak generic `object_near_edge` stays out of priority view).
-- `itemNameForEntity(e)` and `boxLabelForEntity(e, riskAware, overlayMode)`
-  per spec — labels are item names only in hse-risk-only mode, no
-  GREEN/YELLOW/stale/resolving/track/risk words.
-
-New hook: `src/features/hse-monitoring/hooks/useHseLiveRiskViewModel.ts`
-
-- Wraps `buildHseLiveRiskViewModel` with stickiness:
-  `MIN_VISIBLE_RISK_MS=1000`, `YELLOW_RESOLVING_MS=500`,
-  `YELLOW_HARD_MAX_MS=2000`, `RED_STALE_MAX_MS=4500`.
-- Stores only `{ riskKey, entity, firstVisibleMs, lastSeenMs, level, bbox }`.
-
-## 4. Worker/Qwen risks become source of truth
-
-Default (`VITE_HSE_LOCAL_ALERTS_ENABLED=false`):
-
-- Local `hse.activeAlerts` no longer feed main cards, AlertFeed,
-  wearable top alerts, haptics, or incidents in HSE mode.
-- View model derives priority/grouped risks from worker
-  `risks` + `scene_risks` + `parsedRisk` + linked entity risks.
-- When flag is true, current local fallback path is preserved.
-
-## 5. HseMonitoringPanel — Priority Scene Risks
-
-File: `src/components/live/HseMonitoringPanel.tsx`
-
-- Replace "Priority Alerts" list with "Priority Scene Risks" rendering
-  `viewModel.priorityRisks` (max 10).
-- Empty state: "No active scene risks."
-- Overflow: "Showing top 10 of N grouped scene risks".
-- Each card uses friendly hazard labels (`object_near_edge` →
-  "Object near edge", etc.), linked item, why, action, source chip
-  (Rules / Qwen / Rules + Qwen / Qwen Candidate / Local fallback).
-- "Analyze scene" button (§12): hidden by default; when local alerts flag
-  is off, render disabled text "Legacy local analysis disabled; worker/Qwen
-  scene risks are active."
-
-## 6. SceneRiskPanel cleanup
-
-File: `src/components/live/SceneRiskPanel.tsx`
-
-- Drive from same `viewModel`.
-- Hide by default: raw temporal JSON, session_id, risk id, track IDs,
-  anchor details, full hierarchy-of-controls list (gate behind existing
-  `VITE_SHOW_CONTROL_HIERARCHY`/`VITE_SHOW_PROVENANCE` debug flags).
-- Render Qwen reasoner chip: queued / running / ready / unavailable —
-  using rules only / error — using rules only / disabled.
-
-## 7. Overlays — HSE risk-only with item-name labels
-
-Files: `src/components/live/CameraView.tsx`,
-`BackendEntityOverlay.tsx`, `BackendPoseOverlay.tsx`.
-
-- Add `overlayMode: HseOverlayMode` prop (default `"normal"`).
-- In `hse-risk-only`:
-  - Render only YELLOW/ORANGE/RED linked entities supplied via
-    `overlayEntities`.
-  - Box border color follows risk level; label uses
-    `itemNameForEntity` (semantic_label → display_label → label →
-    class_name → "detected item").
-  - No risk/level/stale text on the box.
-- `normal` and `debug` paths unchanged.
-
-## 8. Pose false-positive filtering (HSE only)
-
-In `hse-risk-only` mode, only emit a pose when:
-
-- nearby person entity conf ≥ 0.45
-- keypoint score ≥ 0.45, ≥ 8 visible keypoints
-- torso/shoulder/hip/head structure present; hand-only poses dropped.
-
-Filtering lives in the view model (`overlayPoses` + `hiddenPoseReasons`);
-overlay just renders what it gets. Build/Plan pose behavior unchanged.
-
-## 9. Qwen candidate lane (disabled by default)
-
-- Surface `qwenCandidates` from view model but only render when both
-  `VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED` and
-  `VITE_HSE_SHOW_QWEN_CANDIDATES` are true.
-- Never create boxes/haptics/incidents from Qwen-only unlinked candidates.
-- When a Qwen candidate matches a detector entity later, the detector
-  entity gets colored via normal linked-risk path.
-
-## 10. Live.tsx wiring
-
-File: `src/pages/Live.tsx`
-
-- Build view model only when `appMode === "hse"`, via the new hook.
-- Pass `overlayEntities`/`overlayPoses`/`overlayMode="hse-risk-only"` to
-  `CameraView`; pass `viewModel` to `HseMonitoringPanel` and
-  `SceneRiskPanel`.
-- Hide `AlertFeed` in HSE mode unless `VITE_HSE_LOCAL_ALERTS_ENABLED=true`
-  or debug.
-- Build mode and Plan mode keep their existing entities, overlays, plan
-  console, blueprint layers, extraction overlays, ghost layers — no
-  changes to those code paths.
-
-## 11. Gate local reasoning hook
-
-File: `src/features/hse-monitoring/hooks/useHseMonitoring.ts`
-
-- When `localAlertsEnabled` is false: skip local DeepSeek/analyze path,
-  do not synthesize active alerts, no haptics/incidents.
-- When true: preserve current behavior.
-
-## 12. Tests
-
-Add `src/__tests__/hseLiveRiskViewModel.test.ts` covering:
-
-- dedupe + ranking + 10-item cap
-- `effectiveRiskLevel` promotion rules and weak-edge suppression
-- `itemNameForEntity` / `boxLabelForEntity` label rules
-- view-model behavior with `localAlertsEnabled` on/off and Qwen flags
-- pose filtering thresholds
-
-Existing `hseMonitoring.test.ts`, `hseReasoning.test.ts`,
-`riskAware.test.ts` are updated only where they assert removed
-"Priority Alerts" labels.
+App-side fixes based on the prior audit. No worker, Cloudflare, Build, or Plan changes. Signed session-token flow and Vite secrets untouched.
 
 ## Files touched
 
-New:
+- `src/lib/detection/riskTypes.ts` — additive fields on `SceneRisk` / `RiskAwareFields`
+- `src/lib/detection/backendVisionHttpDetector.ts` — preserve new optional fields in `ParsedDetectRisk`
+- `src/lib/detection/hseLiveRiskViewModel.ts` — linking, wording, weak-edge split, Qwen badge
+- `src/lib/detection/hseRiskRules.ts` — stricter person gate for posture rule
+- `src/lib/detection/hseEntityMapper.ts` — confirm pose-only persons cannot satisfy posture rule
+- `src/features/hse-monitoring/hooks/useHseMonitoring.ts` — expose `localAlertsEnabled`; no UI-visible `topAlert` when off
+- `src/pages/Live.tsx` — gate HUD / Wearable / Header `topAlert`, pass raw + linked counts
+- `src/components/live/CameraView.tsx` — accept raw + risk-linked count props, relabel chips
+- `src/components/live/BackendEntityOverlay.tsx` — item-name-only labels confirmed for hse-risk-only
+- `src/components/live/HseMonitoringPanel.tsx` / `SceneRiskPanel.tsx` — render new wording fields
+- `src/components/live/EagleVisionHUD.tsx` / `WearableAlertOverlay.tsx` / `LiveModeHeader.tsx` — accept `null` topAlert and no-op
+- `src/__tests__/hseLiveRiskViewModel.test.ts` — new cases for linking, wording, weak-edge split, badge
 
-- `src/lib/detection/hseLiveRiskViewModel.ts`
-- `src/features/hse-monitoring/hooks/useHseLiveRiskViewModel.ts`
-- `src/__tests__/hseLiveRiskViewModel.test.ts`
+## 1. Risk-to-entity linking (priority chain)
 
-Edited:
+In `hseLiveRiskViewModel.ts`, add pure helpers:
 
-- `.env.example`, `src/build-env.d.ts`, `src/lib/featureFlags.ts`
-- `src/lib/detection/backendVisionHttpDetector.ts`
-- `src/components/live/HseMonitoringPanel.tsx`
-- `src/components/live/SceneRiskPanel.tsx`
-- `src/components/live/CameraView.tsx`
-- `src/components/live/BackendEntityOverlay.tsx`
-- `src/components/live/BackendPoseOverlay.tsx`
-- `src/features/hse-monitoring/hooks/useHseMonitoring.ts`
-- `src/pages/Live.tsx`
+```ts
+riskRegionFor(risk): BBox | null
+  // tries: risk.bbox, risk.box, risk.approximate_region,
+  //        risk.region, risk.visual_region, risk.location_box
+entityMatchesRiskIds(risk, entity): boolean
+  // exact match on linked_entity_id | entity_id | detection_id
+  //                 | track_id | involved_track_ids
+  //                 | source_risk_id | linked_risk_id
+spatialMatchRiskToEntity(risk, entities): BackendEntity | null
+  // IoU >= 0.2 OR center-distance < 0.12 (normalized); pick best score
+linkedEntitiesForRisk(risk, entities): BackendEntity[]
+  // applies priority: ids -> spatial -> nearest if region present -> []
+```
 
-Untouched: `supabase/functions/*` Worker code, RunPod, Build mode files
-(`src/features/build-mode/**`), Plan reasoning, `client.ts`, signed-token
-flow, any service-role/RunPod/Worker secrets.
+Linking priority used by the group builder:
+1. `linked_entity_id` / `entity_id` / `detection_id`
+2. `track_id` / `involved_track_ids`
+3. `source_risk_id` / `linked_risk_id` on the entity side
+4. IoU spatial match against `riskRegionFor(risk)`
+5. Nearest-center entity inside region if region present
+6. No match → risk stays unlinked; never colors a random box, never creates haptics/incidents.
 
-## Acceptance check before finishing
+`SceneRisk` (riskTypes.ts) gains additive optional fields:
+`bbox?`, `box?`, `approximate_region?`, `region?`, `visual_region?`, `location_box?`,
+`linked_entity_id?`, `entity_id?`, `detection_id?`, `involved_track_ids?`,
+`source_risk_id?`, `linked_risk_id?`, `trigger_condition?`, `observation?`,
+`description?`, `risk_state?`, `primary_action?`, `next_action?`, `control_recommendation?`,
+`scene_context_ref?`. All optional; legacy responses parse unchanged.
 
-Run `bunx vitest run` on the new + adjusted tests; spot-check `/live` in
-HSE mode (priority scene risks list, colored boxes labeled with item names,
-no AlertFeed, Qwen chip visible) and confirm `/build` + `/plan` render
-unchanged.
+`RiskAwareFields` gains `temporal_reasoning?`, `scene_context?`, `semantic_corrections?` (typed as loose objects). `parseDetectRiskFields` preserves them into a new `ParsedDetectRisk.temporalReasoning?`, `sceneContext?`, `semanticCorrections?`.
+
+## 2. Color boxes from linked risks
+
+`overlayEntities` is rebuilt from `linkedEntitiesForRisk(risk, entities)`. For each linked entity we **copy**:
+- `risk_level` ← `effectiveRiskLevel({ risk, entity, ... })`
+- `risk_reason`, `recommended_action`, `produced_by`, `risk_score`
+- `linked_risk_id ← risk.risk_id`
+- Never downgrade a YELLOW+ scene-risk-derived level to GREEN.
+
+Preserves: `label`, `semantic_label`, `bbox`, `confidence`, `track_id`, `id`.
+
+Result: "can near edge" → linked can entity is YELLOW; chair/table without a linked risk stays hidden in hse-risk-only.
+
+## 3. Weak-edge split
+
+Split visibility:
+
+| Channel | Rule |
+|---|---|
+| `priorityRisks` | evidence-supported risks only (`hasVisualSupport` OR linked Qwen/VLM source) |
+| `overlayEntities` | evidence-supported risks **plus** weak edge risks that link to a real entity via ids OR spatial region OR score≥4 OR Qwen/VLM produced OR `should_alert`/`confirmed`/`active` |
+| `debugRisks` | every raw risk |
+
+So a rules-only `object_near_edge` with a linked can entity colors the can YELLOW but does not flood the priority list.
+
+## 4. Richer wording fallback
+
+In the group builder (and re-exported helpers `pickRiskWhy` / `pickRiskAction`):
+
+```
+why = risk.risk_reason
+   ?? risk.visual_evidence[0]
+   ?? risk.evidence[0]
+   ?? risk.trigger_condition
+   ?? risk.observation
+   ?? risk.description
+   ?? parsedRisk.sceneContext?.summary
+   ?? parsedRisk.sceneContext?.scene_summary
+   ?? parsedRisk.semanticCorrections?.[0]?.explanation
+   ?? generic
+
+action = risk.recommended_action
+      ?? risk.recommended_controls?.[0]?.action
+      ?? risk.primary_action
+      ?? risk.next_action
+      ?? risk.control_recommendation
+      ?? generic
+```
+
+`SceneRiskPanel` and `HseMonitoringPanel` already render `risk.why`/`risk.action` — no new props.
+
+## 5. Local HUD / topAlert gating
+
+`useHseMonitoring` returns `localAlertsEnabled` and a new `visibleTopAlert = localAlertsEnabled ? topAlert : null`.
+
+`Live.tsx`:
+- `EagleVisionHUD topAlert={hse.visibleTopAlert}`
+- `WearableAlertOverlay severity={hse.visibleTopAlert?.severity ?? null}`
+- `LiveModeHeader topRisk={appMode === "hse" ? (hse.visibleTopAlert?.title ?? hseRiskViewModel.priorityRisks[0]?.hazardLabel ?? null) : ...}`
+- `CameraView topAlert={appMode === "hse" && !hseFlags.localAlertsEnabled ? null : topAlert}`
+
+When `VITE_HSE_LOCAL_ALERTS_ENABLED=false`:
+- No posture/position warning visible
+- No wearable overlay
+- No local top-card in header
+- No haptics / incidents / local DeepSeek (already gated)
+
+## 6. Posture rule person gate
+
+`hseRiskRules.ts` rule 6 already requires `stablePersons`. Tighten:
+- person must have `category === "person"` AND `confidence >= 0.45`
+- pose must be near the person (IoU > 0.3 against the person bbox — already there) AND have torso/head/lower-body structure (reuse `poseHasStructure` from the view model file or duplicate locally)
+- `hseEntityMapper`: do not promote a pose-only observation into a synthetic person for the purpose of this rule; mark synthetic persons with `syntheticFromPose` and skip them in the posture rule.
+
+Even if local alerts are off (default), this prevents a stale local alert from being generated.
+
+## 7. Qwen badge mapping
+
+`reasonerBadge` rewritten with exhaustive sets:
+
+```
+ready:        ready | ok | done | completed | success
+running:      running | busy | processing | in_progress
+queued:       queued | pending | scheduled
+unavailable:  unavailable | timeout | missing | not_available
+              | error | schema_error | unknown | "" with parsedRisk present
+disabled:     disabled | not_run
+```
+
+Unknown / unexpected → **unavailable** (never silently `ready`). When `parsedRisk == null`, badge is `disabled`.
+
+## 8. Camera chips
+
+Option B (preferred). `CameraView` gains:
+- `rawBackendEntityCount?: number`
+- `rawBackendPoseCount?: number`
+- `riskLinkedEntityCount?: number`
+- `riskLinkedPoseCount?: number`
+
+In HSE mode, `Live.tsx` passes raw counts from the detector and linked counts from `hseRiskViewModel`. Chips render:
+
+```
+Detected objects: 29
+Risk-linked boxes: 0
+Detected poses: 0
+Risk-linked poses: 0
+```
+
+In Build/Plan, only the legacy single-line "EdgeCrafter entities/poses" chips remain (raw counts).
+
+## 9. Box label safety
+
+`BackendEntityOverlay` in `hse-risk-only` already uses `boxLabelForEntity` → `itemNameForEntity`. Add a regression test asserting the label never contains `GREEN|YELLOW|ORANGE|RED|stale|resolving|track|risk_id|anchor_carryover` for hse-risk-only.
+
+## 10. Build / Plan isolation
+
+- View model is mounted only when `appMode === "hse"`.
+- `BackendEntityOverlay` defaults `overlayMode="normal"` and `riskAware=false`.
+- `Live.tsx` continues to pass **raw** `backendEntities` / `backendPoses` for Build/Plan (no change to lines 707–714 outside the HSE branch).
+- No edits under `src/features/build-mode/**`.
+
+## Tests
+
+Extend `src/__tests__/hseLiveRiskViewModel.test.ts`:
+- linkedEntitiesForRisk: id-only, spatial-only, both, neither
+- weak edge risk: not in priority but colors linked entity when spatially matched
+- effectiveRiskLevel: linked YELLOW never downgrades to GREEN
+- pickRiskWhy / pickRiskAction full fallback chain
+- reasonerBadge: each status bucket + unknown → unavailable
+- box label: hse-risk-only label contains no risk/level/track words
+
+Run the full vitest suite at the end; all existing tests must still pass.
+
+## Acceptance check (mapped to the user's list)
+
+All 16 acceptance bullets are satisfied by the changes above. Worker / Cloudflare / RunPod / Build / Plan / signed-token / Vite secrets remain untouched.
