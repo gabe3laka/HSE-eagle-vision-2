@@ -198,7 +198,7 @@ export function effectiveRiskLevel(input: {
   }
 
   const risk = input.risk;
-  const hazardKey = (risk?.hazard ?? "").toLowerCase();
+  const hazardKey = risk ? riskHazard(risk).toLowerCase() : "";
   if (hazardKey === "object_near_edge") {
     const hasEvidence = !!(
       (risk?.visual_evidence && risk.visual_evidence.length > 0) ||
