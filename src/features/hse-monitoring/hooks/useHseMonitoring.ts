@@ -52,6 +52,12 @@ interface Options {
   fallbackActive?: boolean;
   haptics?: boolean;
   setMonitoringRequest: (req: unknown) => void;
+  /**
+   * Gate the legacy local alert path (haptics, incidents, throttled DeepSeek
+   * "Analyze scene"). When false (default), worker/Qwen scene risks are the
+   * single source of truth for visible Live HSE alerts.
+   */
+  localAlertsEnabled?: boolean;
 }
 
 export function useHseMonitoring({
@@ -65,6 +71,7 @@ export function useHseMonitoring({
   fallbackActive,
   haptics = true,
   setMonitoringRequest,
+  localAlertsEnabled = false,
 }: Options) {
   const { user } = useAuth();
   const trackerRef = useRef(new HSETracker());
@@ -173,33 +180,37 @@ export function useHseMonitoring({
     const { active, fired } = managerRef.current.ingest(candidates, now);
     setActiveAlerts(active);
 
-    // Wearable haptics + incident persistence for newly-fired alerts.
-    for (const a of fired) {
-      if (haptics && a.wearablePattern !== "none") {
-        void wearableRef.current.send(
-          toWearableAlert({ id: a.id, severity: a.severity, spokenMessage: a.spokenMessage }),
-        );
+    // Legacy local path: haptics + incident persistence + throttled DeepSeek.
+    // Default OFF — worker/Qwen scene risks are the visible source of truth in
+    // Live HSE. Set VITE_HSE_LOCAL_ALERTS_ENABLED=true to re-enable.
+    if (localAlertsEnabled) {
+      for (const a of fired) {
+        if (haptics && a.wearablePattern !== "none") {
+          void wearableRef.current.send(
+            toWearableAlert({ id: a.id, severity: a.severity, spokenMessage: a.spokenMessage }),
+          );
+        }
+        persistIncident(a);
       }
-      persistIncident(a);
-    }
 
-    // Throttled DeepSeek: a fresh medium+ alert, or a stale-but-changed scene.
-    const sig = live
-      .filter((t) => t.stable)
-      .map((t) => t.category)
-      .sort()
-      .join(",");
-    const hasSignificant = candidates.some(
-      (c) => c.severity === "medium" || c.severity === "high" || c.severity === "critical",
-    );
-    const sinceReason = now - lastReasonAtRef.current;
-    const sceneChanged = sig !== lastSceneSigRef.current;
-    if (
-      (hasSignificant && sinceReason > REASON_MIN_GAP_MS) ||
-      (sceneChanged && sinceReason > REASON_IDLE_MS && candidates.length > 0)
-    ) {
-      lastSceneSigRef.current = sig;
-      void runReasoning(candidates);
+      // Throttled DeepSeek: a fresh medium+ alert, or a stale-but-changed scene.
+      const sig = live
+        .filter((t) => t.stable)
+        .map((t) => t.category)
+        .sort()
+        .join(",");
+      const hasSignificant = candidates.some(
+        (c) => c.severity === "medium" || c.severity === "high" || c.severity === "critical",
+      );
+      const sinceReason = now - lastReasonAtRef.current;
+      const sceneChanged = sig !== lastSceneSigRef.current;
+      if (
+        (hasSignificant && sinceReason > REASON_MIN_GAP_MS) ||
+        (sceneChanged && sinceReason > REASON_IDLE_MS && candidates.length > 0)
+      ) {
+        lastSceneSigRef.current = sig;
+        void runReasoning(candidates);
+      }
     }
   }, [
     enabled,
@@ -212,6 +223,7 @@ export function useHseMonitoring({
     ppeRequired,
     persistIncident,
     runReasoning,
+    localAlertsEnabled,
   ]);
 
   // ── Controls ──────────────────────────────────────────────────────────────
