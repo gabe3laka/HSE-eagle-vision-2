@@ -1006,24 +1006,38 @@ export function summarizeDetectResponse(
   if (highestLabel == null && typeof summaryHigh === "string") {
     highestLabel = summaryHigh.toUpperCase();
   }
+  if (highestLabel == null && typeof r.highest_risk_level === "string") {
+    highestLabel = (r.highest_risk_level as string).toUpperCase();
+  }
+
+  // Reasoner: prefer parsed, fall back to raw response so the probe still
+  // surfaces reasoner-only payloads when parsed is null.
+  const rawReasonerNorm = normalizeReasonerStatus(r.reasoner_status);
+  const rawSceneCtx =
+    r.scene_context && typeof r.scene_context === "object" ? r.scene_context : null;
+  const rawSemCorr = Array.isArray(r.semantic_corrections)
+    ? (r.semantic_corrections as unknown[]).length
+    : 0;
+  const rawTempReasoning = r.temporal_reasoning;
 
   return {
     detection: { entities, poses, segments },
     risk: {
       risks: riskList.length,
       sceneRisks: sceneRisks.length,
-      hasRiskSummary: !!parsed?.riskSummary,
+      hasRiskSummary: !!parsed?.riskSummary || (r.risk_summary != null),
       highestLevel: highestLabel,
-      riskEngine: parsed?.riskEngine ?? null,
+      riskEngine: parsed?.riskEngine ?? (typeof r.risk_engine === "string" ? r.risk_engine : null),
       riskEnabled: parsed?.riskEnabled ?? null,
-      degraded: !!parsed?.degraded,
-      degradationMode: parsed?.degradationMode ?? null,
+      degraded: !!parsed?.degraded || r.degraded === true,
+      degradationMode:
+        parsed?.degradationMode ?? (typeof r.degradation_mode === "string" ? r.degradation_mode : null),
     },
     reasoner: {
-      reasonerStatus: parsed?.reasonerStatus ?? null,
-      sceneContextPresent: !!parsed?.sceneContext,
-      semanticCorrections: parsed?.semanticCorrections?.length ?? 0,
-      temporalReasoningPresent: parsed?.temporalReasoning != null,
+      reasonerStatus: parsed?.reasonerStatus ?? rawReasonerNorm ?? null,
+      sceneContextPresent: !!parsed?.sceneContext || !!rawSceneCtx,
+      semanticCorrections: parsed?.semanticCorrections?.length ?? rawSemCorr,
+      temporalReasoningPresent: parsed?.temporalReasoning != null || rawTempReasoning != null,
     },
     sources,
     linkability: link,
