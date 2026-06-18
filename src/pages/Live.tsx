@@ -317,6 +317,7 @@ export default function Live() {
     zones,
     onIncidentSaved,
     suppressIncidents: buildModeOn,
+    suppressLocalRiskEngine: appMode === "hse" && !readHseFeatureFlags().localAlertsEnabled,
   });
 
   // Eagle Vision HSE monitoring pipeline (HSE mode only) — backend detections →
