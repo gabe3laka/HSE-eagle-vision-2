@@ -298,8 +298,14 @@ export function CameraView({
                 debug={showSkeleton}
                 mirrored={mirrored}
                 riskAware={riskAwareOverlay}
+                overlayMode={overlayMode}
               />
-              <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
+              {overlayMode !== "hse-risk-only" && (
+                <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
+              )}
+              {overlayMode === "hse-risk-only" && (backendPoses?.length ?? 0) > 0 && (
+                <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
+              )}
             </>
           )}
 
