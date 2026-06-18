@@ -52,6 +52,7 @@ import {
   CameraPrivacyNotice,
 } from "@/components/live/SceneRiskPanel";
 import { readRiskFeatureFlags } from "@/lib/featureFlags";
+import { shouldShowLegacyAlertFeed } from "@/lib/hseLegacyGates";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import { WearableAlertOverlay } from "@/components/live/WearableAlertOverlay";
 import { HseMonitoringPanel } from "@/components/live/HseMonitoringPanel";
@@ -646,6 +647,11 @@ export default function Live() {
     : (backendPoses as BackendPose[]);
   const cameraOverlayMode = hseActive ? "hse-risk-only" : "normal";
   const hseTopAlert = riskFlags.hseLocalAlertsEnabled ? hse.topAlert : null;
+  const showLegacyAlertFeed = shouldShowLegacyAlertFeed({
+    hseActive,
+    localAlertsEnabled: riskFlags.hseLocalAlertsEnabled,
+    debug,
+  });
 
   const handleStart = useCallback(async () => {
     if (!active) await startCamera();
@@ -1108,32 +1114,34 @@ export default function Live() {
             </div>
 
             {/* Mobile-only alerts trigger */}
-            <div className="xl:hidden">
-              <Sheet open={alertsOpen} onOpenChange={setAlertsOpen}>
-                <SheetTrigger asChild>
-                  <button
-                    type="button"
-                    className="console-panel flex w-full items-center justify-between px-4 py-3 text-sm font-medium transition-colors hover:border-cyan-300/20"
-                  >
-                    <span className="flex items-center gap-2">
-                      <BellRing className="h-4 w-4 text-primary" />
-                      Live alerts
-                    </span>
-                    <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">
-                      {alerts.length}
-                    </span>
-                  </button>
-                </SheetTrigger>
-                <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-4">
-                  <AlertFeed
-                    alerts={alerts}
-                    running={running}
-                    language={config.language}
-                    onDismiss={dismissAlert}
-                  />
-                </SheetContent>
-              </Sheet>
-            </div>
+            {showLegacyAlertFeed && (
+              <div className="xl:hidden">
+                <Sheet open={alertsOpen} onOpenChange={setAlertsOpen}>
+                  <SheetTrigger asChild>
+                    <button
+                      type="button"
+                      className="console-panel flex w-full items-center justify-between px-4 py-3 text-sm font-medium transition-colors hover:border-cyan-300/20"
+                    >
+                      <span className="flex items-center gap-2">
+                        <BellRing className="h-4 w-4 text-primary" />
+                        Live alerts
+                      </span>
+                      <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">
+                        {alerts.length}
+                      </span>
+                    </button>
+                  </SheetTrigger>
+                  <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-4">
+                    <AlertFeed
+                      alerts={alerts}
+                      running={running}
+                      language={config.language}
+                      onDismiss={dismissAlert}
+                    />
+                  </SheetContent>
+                </Sheet>
+              </div>
+            )}
 
             {((import.meta.env.DEV && !!debug) || isBackendMode) && (
               <details className="console-panel group p-3">
@@ -1211,14 +1219,16 @@ export default function Live() {
                 </div>
               </details>
             )}
-            <div className="console-panel hidden h-[360px] p-4 xl:block">
-              <AlertFeed
-                alerts={alerts}
-                running={running}
-                language={config.language}
-                onDismiss={dismissAlert}
-              />
-            </div>
+            {showLegacyAlertFeed && (
+              <div className="console-panel hidden h-[360px] p-4 xl:block">
+                <AlertFeed
+                  alerts={alerts}
+                  running={running}
+                  language={config.language}
+                  onDismiss={dismissAlert}
+                />
+              </div>
+            )}
           </aside>
         </div>
       </div>

@@ -160,10 +160,12 @@ export function HseMonitoringPanel({
             Clear focus
           </Button>
         )}
-        <Button size="sm" variant="secondary" className="min-h-9" onClick={hse.analyzeScene}>
-          <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
-          Analyze scene
-        </Button>
+        {hse.canAnalyzeSceneLocally && (
+          <Button size="sm" variant="secondary" className="min-h-9" onClick={hse.analyzeScene}>
+            <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
+            Analyze scene
+          </Button>
+        )}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-white/5 pt-3 text-[10px] text-muted-foreground">

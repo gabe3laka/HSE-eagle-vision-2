@@ -19,12 +19,24 @@ export function boxColorFor(e: BackendEntity, riskAware: boolean): string {
   return level ? riskLevelColor(level) : BOX_COLOR;
 }
 
+export function itemNameForEntity(e: BackendEntity): string {
+  const record = e as Record<string, unknown>;
+  const candidates = [
+    e.semantic_label,
+    typeof record.display_label === "string" ? record.display_label : undefined,
+    e.label,
+    typeof record.class_name === "string" ? record.class_name : undefined,
+  ];
+  const name = candidates.find((value) => typeof value === "string" && value.trim().length > 0);
+  return name?.trim() || "detected item";
+}
+
 export function boxLabelForEntity(
   e: BackendEntity,
   riskAware: boolean,
   overlayMode: HseOverlayMode = "normal",
 ): string | null {
-  if (overlayMode === "hse-risk-only") return null;
+  if (overlayMode === "hse-risk-only") return itemNameForEntity(e);
   const pct = `${Math.round((e.confidence ?? 0) * 100)}%`;
   if (!riskAware) return `${e.label} - ${pct}`;
   if (overlayMode !== "debug") {
