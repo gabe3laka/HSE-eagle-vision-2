@@ -96,15 +96,22 @@ export function ReasonerContractProbe({
   rawResp,
   status,
   localAlertsEnabled,
+  riskLinkedEntityCount,
+  riskLinkedPoseCount,
 }: {
   parsedRisk: ParsedDetectRisk | null;
   rawResp: unknown;
   status: BackendStatus | null;
   localAlertsEnabled?: boolean;
+  riskLinkedEntityCount?: number;
+  riskLinkedPoseCount?: number;
 }) {
   const probe = buildReasonerProbe(parsedRisk, rawResp, status);
   const s = probe.summary;
   const visibleSource = localAlertsEnabled ? "legacy_local_alerts" : "worker_scene_risks";
+  const perceptionBackend =
+    s.gateway.backend ?? (status?.backend ?? null);
+  const perceptionModel = s.gateway.model ?? (status?.model ?? null);
   return (
     <div className="rounded-xl border border-violet-300/30 bg-violet-400/[0.04] p-3 font-mono text-[11px] leading-relaxed">
       <div className="mb-2 flex items-center gap-2">
