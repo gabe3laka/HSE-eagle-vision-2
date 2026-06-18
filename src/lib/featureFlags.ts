@@ -57,6 +57,29 @@ export function readRiskFeatureFlags(env: Record<string, unknown> = safeEnv()): 
   };
 }
 
+/**
+ * HSE Live monitoring feature flags. All default OFF — the cleaned-up Live HSE
+ * surface treats worker/Qwen scene risks as the visible source of truth and
+ * keeps legacy on-device alerts / Qwen advisory candidates out of the way.
+ */
+export interface HseFeatureFlags {
+  /** Surface Qwen candidate lane in the view model (does NOT auto-render UI). */
+  qwenCandidateLaneEnabled: boolean;
+  /** Render Qwen-only advisory candidates in the visible UI. */
+  showQwenCandidates: boolean;
+  /** Re-enable legacy local HSE alerts (haptics, incidents, AlertFeed in HSE,
+   *  "Analyze scene" local reasoning). */
+  localAlertsEnabled: boolean;
+}
+
+export function readHseFeatureFlags(env: Record<string, unknown> = safeEnv()): HseFeatureFlags {
+  return {
+    qwenCandidateLaneEnabled: readFlag("VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED", env, false),
+    showQwenCandidates: readFlag("VITE_HSE_SHOW_QWEN_CANDIDATES", env, false),
+    localAlertsEnabled: readFlag("VITE_HSE_LOCAL_ALERTS_ENABLED", env, false),
+  };
+}
+
 function safeEnv(): Record<string, unknown> {
   try {
     return import.meta.env as unknown as Record<string, unknown>;
@@ -64,3 +87,4 @@ function safeEnv(): Record<string, unknown> {
     return {};
   }
 }
+
