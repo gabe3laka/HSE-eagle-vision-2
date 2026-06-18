@@ -95,20 +95,31 @@ export function ReasonerContractProbe({
   parsedRisk,
   rawResp,
   status,
+  localAlertsEnabled,
 }: {
   parsedRisk: ParsedDetectRisk | null;
   rawResp: unknown;
   status: BackendStatus | null;
+  localAlertsEnabled?: boolean;
 }) {
   const probe = buildReasonerProbe(parsedRisk, rawResp, status);
   const s = probe.summary;
+  const visibleSource = localAlertsEnabled ? "legacy_local_alerts" : "worker_scene_risks";
   return (
     <div className="rounded-xl border border-violet-300/30 bg-violet-400/[0.04] p-3 font-mono text-[11px] leading-relaxed">
       <div className="mb-2 flex items-center gap-2">
         <Sparkles className="h-3.5 w-3.5 text-violet-300" />
         <span className="font-semibold text-violet-100">Reasoner Contract Probe</span>
-        <span className="ml-auto text-[9px] uppercase tracking-wider text-muted-foreground">
-          diagnostic
+        <span
+          className={
+            "ml-auto rounded px-1.5 py-0.5 text-[9px] uppercase tracking-wider " +
+            (localAlertsEnabled
+              ? "bg-amber-400/15 text-amber-200"
+              : "bg-emerald-400/15 text-emerald-200")
+          }
+          title="Visible alert source"
+        >
+          src: {visibleSource}
         </span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
