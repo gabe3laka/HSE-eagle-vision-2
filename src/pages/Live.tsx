@@ -1125,12 +1125,14 @@ export default function Live() {
                   </button>
                 </SheetTrigger>
                 <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-4">
-                  <AlertFeed
-                    alerts={alerts}
-                    running={running}
-                    language={config.language}
-                    onDismiss={dismissAlert}
-                  />
+                  {(appMode !== "hse" || riskFlags.hseLocalAlertsEnabled || !!debug) && (
+                    <AlertFeed
+                      alerts={alerts}
+                      running={running}
+                      language={config.language}
+                      onDismiss={dismissAlert}
+                    />
+                  )}
                 </SheetContent>
               </Sheet>
             </div>
@@ -1211,14 +1213,16 @@ export default function Live() {
                 </div>
               </details>
             )}
-            <div className="console-panel hidden h-[360px] p-4 xl:block">
-              <AlertFeed
-                alerts={alerts}
-                running={running}
-                language={config.language}
-                onDismiss={dismissAlert}
-              />
-            </div>
+            {(appMode !== "hse" || riskFlags.hseLocalAlertsEnabled || !!debug) && (
+              <div className="console-panel hidden h-[360px] p-4 xl:block">
+                <AlertFeed
+                  alerts={alerts}
+                  running={running}
+                  language={config.language}
+                  onDismiss={dismissAlert}
+                />
+              </div>
+            )}
           </aside>
         </div>
       </div>
