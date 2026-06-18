@@ -715,15 +715,11 @@ export default function Live() {
         rawBackendEntityCount={
           appMode === "hse" ? (backendEntities as BackendEntity[]).length : undefined
         }
-        rawBackendPoseCount={
-          appMode === "hse" ? (backendPoses as BackendPose[]).length : undefined
-        }
+        rawBackendPoseCount={appMode === "hse" ? (backendPoses as BackendPose[]).length : undefined}
         riskLinkedEntityCount={
           appMode === "hse" ? hseRiskViewModel.riskLinkedEntityCount : undefined
         }
-        riskLinkedPoseCount={
-          appMode === "hse" ? hseRiskViewModel.riskLinkedPoseCount : undefined
-        }
+        riskLinkedPoseCount={appMode === "hse" ? hseRiskViewModel.riskLinkedPoseCount : undefined}
         // Dry-run debug overlays (raw entity boxes, the fuchsia pose skeleton
         // and the entity/pose count chip) belong to HSE monitoring only. In
         // Build/Plan they just clutter the camera on top of the clean

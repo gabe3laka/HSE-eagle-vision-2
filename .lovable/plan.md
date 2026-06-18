@@ -1,4 +1,3 @@
-
 # HSE Live: Fix Risk Linking + Local Alert Leak (app-only)
 
 App-side fixes based on the prior audit. No worker, Cloudflare, Build, or Plan changes. Signed session-token flow and Vite secrets untouched.
@@ -37,6 +36,7 @@ linkedEntitiesForRisk(risk, entities): BackendEntity[]
 ```
 
 Linking priority used by the group builder:
+
 1. `linked_entity_id` / `entity_id` / `detection_id`
 2. `track_id` / `involved_track_ids`
 3. `source_risk_id` / `linked_risk_id` on the entity side
@@ -56,6 +56,7 @@ Linking priority used by the group builder:
 ## 2. Color boxes from linked risks
 
 `overlayEntities` is rebuilt from `linkedEntitiesForRisk(risk, entities)`. For each linked entity we **copy**:
+
 - `risk_level` ← `effectiveRiskLevel({ risk, entity, ... })`
 - `risk_reason`, `recommended_action`, `produced_by`, `risk_score`
 - `linked_risk_id ← risk.risk_id`
@@ -69,11 +70,11 @@ Result: "can near edge" → linked can entity is YELLOW; chair/table without a l
 
 Split visibility:
 
-| Channel | Rule |
-|---|---|
-| `priorityRisks` | evidence-supported risks only (`hasVisualSupport` OR linked Qwen/VLM source) |
+| Channel           | Rule                                                                                                                                                                          |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `priorityRisks`   | evidence-supported risks only (`hasVisualSupport` OR linked Qwen/VLM source)                                                                                                  |
 | `overlayEntities` | evidence-supported risks **plus** weak edge risks that link to a real entity via ids OR spatial region OR score≥4 OR Qwen/VLM produced OR `should_alert`/`confirmed`/`active` |
-| `debugRisks` | every raw risk |
+| `debugRisks`      | every raw risk                                                                                                                                                                |
 
 So a rules-only `object_near_edge` with a linked can entity colors the can YELLOW but does not flood the priority list.
 
@@ -108,12 +109,14 @@ action = risk.recommended_action
 `useHseMonitoring` returns `localAlertsEnabled` and a new `visibleTopAlert = localAlertsEnabled ? topAlert : null`.
 
 `Live.tsx`:
+
 - `EagleVisionHUD topAlert={hse.visibleTopAlert}`
 - `WearableAlertOverlay severity={hse.visibleTopAlert?.severity ?? null}`
 - `LiveModeHeader topRisk={appMode === "hse" ? (hse.visibleTopAlert?.title ?? hseRiskViewModel.priorityRisks[0]?.hazardLabel ?? null) : ...}`
 - `CameraView topAlert={appMode === "hse" && !hseFlags.localAlertsEnabled ? null : topAlert}`
 
 When `VITE_HSE_LOCAL_ALERTS_ENABLED=false`:
+
 - No posture/position warning visible
 - No wearable overlay
 - No local top-card in header
@@ -122,6 +125,7 @@ When `VITE_HSE_LOCAL_ALERTS_ENABLED=false`:
 ## 6. Posture rule person gate
 
 `hseRiskRules.ts` rule 6 already requires `stablePersons`. Tighten:
+
 - person must have `category === "person"` AND `confidence >= 0.45`
 - pose must be near the person (IoU > 0.3 against the person bbox — already there) AND have torso/head/lower-body structure (reuse `poseHasStructure` from the view model file or duplicate locally)
 - `hseEntityMapper`: do not promote a pose-only observation into a synthetic person for the purpose of this rule; mark synthetic persons with `syntheticFromPose` and skip them in the posture rule.
@@ -146,6 +150,7 @@ Unknown / unexpected → **unavailable** (never silently `ready`). When `parsedR
 ## 8. Camera chips
 
 Option B (preferred). `CameraView` gains:
+
 - `rawBackendEntityCount?: number`
 - `rawBackendPoseCount?: number`
 - `riskLinkedEntityCount?: number`
@@ -176,6 +181,7 @@ In Build/Plan, only the legacy single-line "EdgeCrafter entities/poses" chips re
 ## Tests
 
 Extend `src/__tests__/hseLiveRiskViewModel.test.ts`:
+
 - linkedEntitiesForRisk: id-only, spatial-only, both, neither
 - weak edge risk: not in priority but colors linked entity when spatially matched
 - effectiveRiskLevel: linked YELLOW never downgrades to GREEN

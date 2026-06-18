@@ -206,11 +206,7 @@ export function runHseRules(input: HseRulesInput): HSEAlertCandidate[] {
   for (const person of stablePersons) {
     if (person.confidence < PERSON_MIN_CONF) continue;
     const obs = observations.find(
-      (o) =>
-        o.pose &&
-        o.bbox &&
-        o.category === "person" &&
-        iou(o.bbox, person.bbox) > 0.3,
+      (o) => o.pose && o.bbox && o.category === "person" && iou(o.bbox, person.bbox) > 0.3,
     );
     if (!obs?.pose) continue;
     const pose = obs.pose;

@@ -251,33 +251,40 @@ describe("hseLiveRiskViewModel — linking", () => {
 
   it("riskRegionFor falls through bbox -> approximate_region", () => {
     expect(riskRegionFor({ bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } })).toEqual({
-      x: 0.1, y: 0.1, w: 0.2, h: 0.2,
+      x: 0.1,
+      y: 0.1,
+      w: 0.2,
+      h: 0.2,
     });
-    expect(
-      riskRegionFor({ approximate_region: { x: 0.5, y: 0.5, w: 0.1, h: 0.1 } }),
-    ).toEqual({ x: 0.5, y: 0.5, w: 0.1, h: 0.1 });
+    expect(riskRegionFor({ approximate_region: { x: 0.5, y: 0.5, w: 0.1, h: 0.1 } })).toEqual({
+      x: 0.5,
+      y: 0.5,
+      w: 0.1,
+      h: 0.1,
+    });
     expect(riskRegionFor({ hazard: "x" })).toBeNull();
   });
 
   it("spatialMatchRiskToEntity picks the overlapping entity", () => {
     const can = entity({ label: "can", bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } });
     const chair = entity({ label: "chair", bbox: { x: 0.7, y: 0.7, w: 0.2, h: 0.2 } });
-    const match = spatialMatchRiskToEntity(
-      { bbox: { x: 0.11, y: 0.11, w: 0.18, h: 0.18 } },
-      [chair, can],
-    );
+    const match = spatialMatchRiskToEntity({ bbox: { x: 0.11, y: 0.11, w: 0.18, h: 0.18 } }, [
+      chair,
+      can,
+    ]);
     expect(match?.label).toBe("can");
   });
 
   it("linkedEntitiesForRisk: id wins; spatial fallback when no id", () => {
-    const can = entity({ label: "can", track_id: "t-can", bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } });
+    const can = entity({
+      label: "can",
+      track_id: "t-can",
+      bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    });
     const cup = entity({ label: "cup", bbox: { x: 0.5, y: 0.5, w: 0.1, h: 0.1 } });
     expect(linkedEntitiesForRisk({ track_id: "t-can" }, [can, cup])[0].label).toBe("can");
     expect(
-      linkedEntitiesForRisk(
-        { bbox: { x: 0.51, y: 0.51, w: 0.08, h: 0.08 } },
-        [can, cup],
-      )[0].label,
+      linkedEntitiesForRisk({ bbox: { x: 0.51, y: 0.51, w: 0.08, h: 0.08 } }, [can, cup])[0].label,
     ).toBe("cup");
     expect(linkedEntitiesForRisk({ hazard: "x" }, [can, cup])).toEqual([]);
   });
@@ -356,7 +363,12 @@ describe("hseLiveRiskViewModel — Qwen badge", () => {
     return buildHseLiveRiskViewModel({
       entities: [],
       poses: [],
-      parsedRisk: { sceneRisks: [], degraded: false, warnings: [], reasonerStatus: status as string },
+      parsedRisk: {
+        sceneRisks: [],
+        degraded: false,
+        warnings: [],
+        reasonerStatus: status as string,
+      },
       nowMs: NOW,
     }).reasonerBadge;
   }
@@ -388,7 +400,10 @@ describe("hseLiveRiskViewModel — Qwen badge", () => {
   });
   it("null parsedRisk -> disabled", () => {
     const vm = buildHseLiveRiskViewModel({
-      entities: [], poses: [], parsedRisk: null, nowMs: NOW,
+      entities: [],
+      poses: [],
+      parsedRisk: null,
+      nowMs: NOW,
     });
     expect(vm.reasonerBadge.state).toBe("disabled");
   });
@@ -404,6 +419,8 @@ describe("hseLiveRiskViewModel — box label safety", () => {
     });
     const label = boxLabelForEntity(e, true, "hse-risk-only") ?? "";
     expect(label).toBe("can");
-    expect(label).not.toMatch(/YELLOW|GREEN|ORANGE|RED|stale|resolving|track|risk_id|anchor_carryover/i);
+    expect(label).not.toMatch(
+      /YELLOW|GREEN|ORANGE|RED|stale|resolving|track|risk_id|anchor_carryover/i,
+    );
   });
 });

@@ -366,10 +366,7 @@ export function spatialMatchRiskToEntity(
  * Resolve all entities a risk should color. Priority:
  *   ids → spatial IoU/center → no match (empty array).
  */
-export function linkedEntitiesForRisk(
-  risk: SceneRisk,
-  entities: BackendEntity[],
-): BackendEntity[] {
+export function linkedEntitiesForRisk(risk: SceneRisk, entities: BackendEntity[]): BackendEntity[] {
   const byId: BackendEntity[] = [];
   for (const e of entities) {
     if (entityMatchesRiskIds(risk, e)) byId.push(e);
@@ -385,8 +382,7 @@ function groupKey(r: SceneRisk): string {
   if (r.risk_id) return `id:${r.risk_id}`;
   if (r.source_risk_id) return `src:${r.source_risk_id}`;
   const hazard = (r.hazard ?? "unknown").toLowerCase();
-  const tracks =
-    r.involved_track_ids ?? (r.track_id ? [String(r.track_id)] : undefined);
+  const tracks = r.involved_track_ids ?? (r.track_id ? [String(r.track_id)] : undefined);
   if (Array.isArray(tracks) && tracks.length > 0) {
     return `${hazard}|t:${[...tracks].sort().join(",")}`;
   }
@@ -541,11 +537,7 @@ function poseHasNearbyPerson(pose: BackendPose, entities: BackendEntity[]): bool
 // ── Main builder ────────────────────────────────────────────────────────────
 
 /** Copy risk metadata onto a (shallow-cloned) entity for overlay rendering. */
-function entityWithRisk(
-  entity: BackendEntity,
-  level: RiskLevel,
-  risk: SceneRisk,
-): BackendEntity {
+function entityWithRisk(entity: BackendEntity, level: RiskLevel, risk: SceneRisk): BackendEntity {
   const clone: BackendEntity = { ...entity };
   clone.risk_level = level;
   if (risk.risk_color) clone.risk_color = risk.risk_color;
@@ -677,7 +669,9 @@ export function buildHseLiveRiskViewModel(
       source,
       why: pickRiskWhy(rep, parsedRisk),
       action: pickRiskAction(rep),
-      linkedItem: linkedItem ? itemNameForEntity({ label: linkedItem } as BackendEntity) : undefined,
+      linkedItem: linkedItem
+        ? itemNameForEntity({ label: linkedItem } as BackendEntity)
+        : undefined,
       linkedTrackIds: [...linkedTracks],
       linkedEntityIds: [...linkedEntities],
       riskScore: rep.risk_score ?? 0,
@@ -747,11 +741,13 @@ export function buildHseLiveRiskViewModel(
   // For each linked entity, copy effective risk metadata onto a clone.
   const overlayMap = new Map<string, BackendEntity>();
   const stampEntity = (e: BackendEntity, level: RiskLevel, risk: SceneRisk) => {
-    const id = e.track_id ?? (e as unknown as { id?: string }).id ?? `${e.label}|${e.bbox?.x}|${e.bbox?.y}`;
+    const id =
+      e.track_id ?? (e as unknown as { id?: string }).id ?? `${e.label}|${e.bbox?.x}|${e.bbox?.y}`;
     const existing = overlayMap.get(id);
     if (
       !existing ||
-      riskLevelRank(level) > riskLevelRank(normalizeRiskLevel(existing.risk_level, existing.risk_color))
+      riskLevelRank(level) >
+        riskLevelRank(normalizeRiskLevel(existing.risk_level, existing.risk_color))
     ) {
       overlayMap.set(id, entityWithRisk(e, level, risk));
     }
@@ -785,7 +781,9 @@ export function buildHseLiveRiskViewModel(
     const lvl = normalizeRiskLevel(e.risk_level, e.risk_color);
     if (lvl && riskLevelRank(lvl) >= riskLevelRank("YELLOW")) {
       const id =
-        e.track_id ?? (e as unknown as { id?: string }).id ?? `${e.label}|${e.bbox?.x}|${e.bbox?.y}`;
+        e.track_id ??
+        (e as unknown as { id?: string }).id ??
+        `${e.label}|${e.bbox?.x}|${e.bbox?.y}`;
       if (!overlayMap.has(id)) overlayMap.set(id, { ...e });
     }
   }
