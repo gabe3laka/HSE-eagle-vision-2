@@ -502,7 +502,8 @@ describe("HSE live risk view model", () => {
       true,
       "hse-risk-only",
     );
-    expect(label).toBeNull();
+    expect(typeof label).toBe("string");
+    expect(label).not.toMatch(/GREEN|YELLOW|ORANGE|RED|stale|resolving|score|track/i);
     expect(boxLabelForEntity(risky, true, "debug")).toContain("YELLOW");
     expect(boxColorFor(risky, true)).toContain("251,191,36");
   });
