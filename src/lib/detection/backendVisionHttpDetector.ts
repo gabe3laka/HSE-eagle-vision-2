@@ -264,6 +264,8 @@ export function parseDetectRiskFields(resp: unknown): ParsedDetectRisk {
   if (r.temporal_reasoning !== undefined) out.temporalReasoning = r.temporal_reasoning;
   if (r.scene_context && typeof r.scene_context === "object") out.sceneContext = r.scene_context;
   if (Array.isArray(r.semantic_corrections)) out.semanticCorrections = r.semantic_corrections;
+  if (r.tracks !== undefined) out.tracks = r.tracks;
+  if (r.scene_graph !== undefined) out.sceneGraph = r.scene_graph;
   // Unknown schema_version: keep rendering, surface only a debug-level note.
   if (out.schemaVersion != null && !KNOWN_SCHEMA_VERSIONS.has(String(out.schemaVersion))) {
     out.schemaWarning = `unknown schema_version: ${String(out.schemaVersion)}`;
