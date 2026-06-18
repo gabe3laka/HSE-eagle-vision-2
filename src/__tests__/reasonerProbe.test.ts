@@ -40,3 +40,43 @@ describe("buildReasonerProbe — structured reasoner_status + scene_context", ()
     expect(probe.qwenDetected).toBe(true);
   });
 });
+
+describe("buildReasonerDiagnostic — detection vs Qwen state messages", () => {
+  it("detection working + qwen unavailable → 'not available' message", () => {
+    const resp = {
+      entities: [{ label: "cup", bbox: { x: 0, y: 0, w: 0.1, h: 0.1 }, confidence: 0.9 }],
+      reasoner_status: "unavailable",
+    };
+    const parsed = parseDetectRiskFields(resp);
+    const diag = buildReasonerDiagnostic(buildReasonerProbe(parsed, resp, null));
+    expect(diag.detectionOk).toBe(true);
+    expect(diag.qwenState).toBe("unavailable");
+    expect(diag.message).toMatch(/Detection is working.*Qwen reasoning is not available/);
+  });
+
+  it("detection working + qwen queued → 'queued/throttled' message", () => {
+    const resp = {
+      entities: [{ label: "cup", bbox: { x: 0, y: 0, w: 0.1, h: 0.1 }, confidence: 0.9 }],
+      reasoner_status: "queued",
+    };
+    const parsed = parseDetectRiskFields(resp);
+    const diag = buildReasonerDiagnostic(buildReasonerProbe(parsed, resp, null));
+    expect(diag.detectionOk).toBe(true);
+    expect(diag.qwenState).toBe("queued");
+    expect(diag.message).toMatch(/queued\/throttled/);
+  });
+
+  it("detection working + qwen ready + 0 scene_risks → 'no active scene risks' message", () => {
+    const resp = {
+      entities: [{ label: "cup", bbox: { x: 0, y: 0, w: 0.1, h: 0.1 }, confidence: 0.9 }],
+      reasoner_status: "ready",
+      scene_context: { summary: "desk scene" },
+    };
+    const parsed = parseDetectRiskFields(resp);
+    const diag = buildReasonerDiagnostic(buildReasonerProbe(parsed, resp, null));
+    expect(diag.detectionOk).toBe(true);
+    expect(diag.qwenState).toBe("ready");
+    expect(diag.sceneRisks).toBe(0);
+    expect(diag.message).toMatch(/no active scene risks/i);
+  });
+});
