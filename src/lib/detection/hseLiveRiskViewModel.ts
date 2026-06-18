@@ -783,32 +783,36 @@ export function buildHseLiveRiskViewModel(
   const priorityRisks = visibleGrouped.slice(0, HSE_PRIORITY_RISK_LIMIT);
   const hiddenGroupedRiskCount = Math.max(0, visibleGrouped.length - priorityRisks.length);
 
-  // Overlay entities: paint every linked entity (priority + linked weak edge).
-  // For each linked entity, copy effective risk metadata onto a clone.
+  // Overlay entities: one box per detected object. Seed every detector entity
+  // at GREEN, then upgrade for linked scene risks. This is the SINGLE source
+  // of entity overlay boxes in HSE mode — no duplicate raw detector layer.
   const overlayMap = new Map<string, BackendEntity>();
-  const stampEntity = (e: BackendEntity, level: RiskLevel, risk: SceneRisk) => {
-    const id =
-      e.track_id ?? (e as unknown as { id?: string }).id ?? `${e.label}|${e.bbox?.x}|${e.bbox?.y}`;
-    const existing = overlayMap.get(id);
-    if (
-      !existing ||
-      riskLevelRank(level) >
-        riskLevelRank(normalizeRiskLevel(existing.risk_level, existing.risk_color))
-    ) {
-      overlayMap.set(id, entityWithRisk(e, level, risk));
+
+  // Pass 0: seed every detector entity at GREEN (safe/observed).
+  for (const e of entities) {
+    overlayMap.set(entityOverlayKey(e), entityWithSafetyStatus(e, "GREEN"));
+  }
+
+  const upgradeEntity = (e: BackendEntity, level: RiskLevel, risk?: SceneRisk) => {
+    const key = entityOverlayKey(e);
+    const existing = overlayMap.get(key);
+    const existingLevel =
+      normalizeRiskLevel(existing?.risk_level, existing?.risk_color) ?? "GREEN";
+    if (!existing || riskLevelRank(level) >= riskLevelRank(existingLevel)) {
+      overlayMap.set(key, entityWithSafetyStatus(e, level, risk));
     }
   };
 
-  // Pass 1: priority/grouped risks.
+  // Pass 1: priority/grouped risks upgrade their linked entities.
   for (const g of visibleGrouped) {
     for (const r of g.raw) {
       for (const e of linkMap.get(r) ?? []) {
-        stampEntity(e, g.level, r);
+        upgradeEntity(e, g.level, r);
       }
     }
   }
-  // Pass 2: weak edge risks that ARE linked spatially get a YELLOW box but stay
-  // out of the priority list. They never create haptics/incidents (UI-only).
+  // Pass 2: weak edge risks that ARE linked (ids or spatially) get YELLOW
+  // boxes but stay out of the priority list — UI-only, no haptics/incidents.
   for (const r of rawRisks) {
     if (!isWeakEdgeRisk(r)) continue;
     const linkedByIds =
@@ -818,22 +822,24 @@ export function buildHseLiveRiskViewModel(
     const linked = linkMap.get(r) ?? [];
     if (!linkedByIds && linked.length === 0) continue;
     for (const e of linked) {
-      stampEntity(e, "YELLOW", r);
+      upgradeEntity(e, "YELLOW", r);
     }
   }
-  // Also include any entity that already carries its own YELLOW+ level from the
-  // worker (defence in depth — never lose worker-painted boxes).
+  // Pass 3: entity-level worker risk levels (>= YELLOW) take precedence over
+  // the default GREEN if higher than what's been stamped so far.
   for (const e of entities) {
     const lvl = normalizeRiskLevel(e.risk_level, e.risk_color);
-    if (lvl && riskLevelRank(lvl) >= riskLevelRank("YELLOW")) {
-      const id =
-        e.track_id ??
-        (e as unknown as { id?: string }).id ??
-        `${e.label}|${e.bbox?.x}|${e.bbox?.y}`;
-      if (!overlayMap.has(id)) overlayMap.set(id, { ...e });
-    }
+    if (!lvl || riskLevelRank(lvl) < riskLevelRank("YELLOW")) continue;
+    upgradeEntity(e, lvl);
   }
   const overlayEntities = [...overlayMap.values()];
+  let activeRiskEntityCount = 0;
+  let safeEntityCount = 0;
+  for (const e of overlayEntities) {
+    const lvl = normalizeRiskLevel(e.risk_level, e.risk_color) ?? "GREEN";
+    if (riskLevelRank(lvl) >= riskLevelRank("YELLOW")) activeRiskEntityCount += 1;
+    else safeEntityCount += 1;
+  }
 
   // Overlay poses: only well-formed poses near a real person entity.
   const hiddenPoseReasons: string[] = [];
