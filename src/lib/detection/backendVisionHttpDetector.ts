@@ -184,6 +184,13 @@ export interface ParsedDetectRisk {
   degraded: boolean;
   degradationMode?: string;
   reasonerStatus?: string;
+  /**
+   * Original `reasoner_status` payload when the worker returned a structured
+   * object (e.g. `{ enabled: true, mode: "qwen_vl", state: "ready" }`).
+   * Preserved verbatim so the Reasoner Contract Probe can show worker-supplied
+   * fields like `mode` / `enabled` without re-interpreting them.
+   */
+  reasonerStatusRaw?: Record<string, unknown>;
   stageTimingsMs?: Record<string, number>;
   privacyBlurApplied?: boolean;
   warnings: string[];
