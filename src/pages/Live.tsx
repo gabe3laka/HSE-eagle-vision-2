@@ -615,7 +615,9 @@ export default function Live() {
   // Only consumed when a risk-aware flag is on — otherwise it's inert.
   const risk = (backendRisk as ParsedDetectRisk | null) ?? null;
   const showSceneRiskPanel =
-    riskFlags.workerSceneRisks && !!risk && (risk.sceneRisks.length > 0 || !!risk.riskSummary);
+    appMode === "hse" &&
+    riskFlags.workerSceneRisks &&
+    (hseRiskViewModel.priorityRisks.length > 0 || !!risk?.riskSummary);
   const showDegradedBanner = riskFlags.workerSceneRisks && !!risk && risk.degraded;
 
   // All EdgeCrafter modes share the same dry-run overlays + debug panel. The
