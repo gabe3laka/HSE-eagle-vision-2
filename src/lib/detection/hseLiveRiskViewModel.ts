@@ -17,8 +17,12 @@ import type { HSEActiveAlert } from "./hseTypes";
 /** Max grouped risks rendered in the Priority Scene Risks list. */
 export const HSE_PRIORITY_RISK_LIMIT = 10;
 
-/** How the overlays render boxes/poses. */
-export type HseOverlayMode = "normal" | "hse-risk-only" | "debug";
+/** How the overlays render boxes/poses.
+ *  - "hse-status": one box per detected object — GREEN by default, upgraded to
+ *    YELLOW/ORANGE/RED when the worker links a scene_risk to that object.
+ *  - "hse-risk-only": legacy — only YELLOW+ linked boxes render.
+ */
+export type HseOverlayMode = "normal" | "hse-status" | "hse-risk-only" | "debug";
 
 /** Where a grouped risk originated. */
 export type HseRiskSource = "Rules" | "Qwen" | "Rules + Qwen" | "Qwen Candidate" | "Local fallback";
