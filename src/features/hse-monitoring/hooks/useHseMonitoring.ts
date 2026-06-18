@@ -184,7 +184,7 @@ export function useHseMonitoring({
     // vehicle" et al. Default OFF — worker/Qwen scene risks are the single
     // source of truth. Set VITE_HSE_LOCAL_ALERTS_ENABLED=true to re-enable.
     if (!localAlertsEnabled) {
-      if (activeAlerts.length !== 0) setActiveAlerts([]);
+      setActiveAlerts((prev) => (prev.length === 0 ? prev : []));
       return;
     }
 
