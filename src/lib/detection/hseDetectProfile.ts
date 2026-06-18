@@ -65,6 +65,25 @@ export function normalizeRoi(roi?: Partial<HSERoi> | null): HSERoi | undefined {
 }
 
 /**
+ * Public, browser-safe flag — default OFF. When false, the Live HSE /detect
+ * request omits the "pose" task even when the active profile (balanced /
+ * inspection) lists it. The active worker now runs YOLO continuous detection
+ * with Qwen event-driven scene reasoning; raw pose keypoints hallucinate on
+ * furniture, plants, reflections, and clutter, so they are opt-in only.
+ */
+function readHseRequestPoseFlag(env?: Record<string, unknown>): boolean {
+  try {
+    const bag = (env ?? (import.meta as unknown as { env?: Record<string, unknown> }).env ?? {}) as Record<
+      string,
+      unknown
+    >;
+    return String(bag.VITE_HSE_REQUEST_POSE ?? "false").toLowerCase() === "true";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Build the optional HSE detect-request metadata for a profile (+ optional ROI).
  * Returned object is spread onto the /detect POST body alongside the existing
  * `image_b64` / `conf` / `img_size` fields.
@@ -76,10 +95,14 @@ export function buildHseDetectRequest(
 ): HSEDetectRequest {
   const spec = HSE_PROFILES[profile] ?? HSE_PROFILES[DEFAULT_HSE_PROFILE];
   const normRoi = normalizeRoi(roi);
-  // Merge profile tasks with the canonical HSE reasoning task set so the
-  // worker/Qwen always sees that scene reasoning is requested. Dedupe.
+  const requestPose = readHseRequestPoseFlag();
+  // Filter "pose" out of the profile's task list unless the operator opted in
+  // via VITE_HSE_REQUEST_POSE=true. Then merge with the canonical HSE
+  // reasoning task set so the worker/Qwen always sees that scene reasoning is
+  // requested. Dedupe.
+  const filteredProfileTasks = spec.tasks.filter((task) => task !== "pose" || requestPose);
   const tasks = Array.from(
-    new Set([...spec.tasks, "detect", "track", "risk", "scene_reasoning"]),
+    new Set([...filteredProfileTasks, "detect", "track", "risk", "scene_reasoning"]),
   );
   return {
     mode: "hse-monitoring",
