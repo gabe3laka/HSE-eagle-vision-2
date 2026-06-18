@@ -328,6 +328,22 @@ export default function Live() {
     backendName: (backendStatus as BackendStatus | null)?.backend ?? null,
     fallbackActive: !!(backendStatus as BackendStatus | null)?.fallbackUsed,
     setMonitoringRequest,
+    localAlertsEnabled: hseFlags.localAlertsEnabled,
+  });
+
+  // HSE Live Risk View Model — single selector for what the HSE UI shows
+  // (priority list, scene panel, overlay entities/poses, Qwen badge). Only
+  // built in HSE mode so Build/Plan are byte-for-byte unchanged.
+  const parsedRiskForVm = (backendRisk as ParsedDetectRisk | null) ?? null;
+  const hseRiskViewModel = useHseLiveRiskViewModel({
+    entities: backendEntities as BackendEntity[],
+    poses: backendPoses as BackendPose[],
+    parsedRisk: parsedRiskForVm,
+    localActiveAlerts: hse.activeAlerts,
+    nowMs: Date.now(),
+    qwenCandidateLaneEnabled: hseFlags.qwenCandidateLaneEnabled,
+    showQwenCandidates: hseFlags.showQwenCandidates,
+    localAlertsEnabled: hseFlags.localAlertsEnabled,
   });
 
   // Finger-level hand tracking (MediaPipe Hand Landmarker) — Build Mode only,
