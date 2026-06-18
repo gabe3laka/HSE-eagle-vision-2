@@ -72,6 +72,12 @@ interface Options {
   onIncidentSaved?: () => void;
   /** Build Mode: skip persisting detections/incidents (alerts still surface). */
   suppressIncidents?: boolean;
+  /**
+   * HSE mode w/ local alerts off: skip the legacy RiskEngine entirely so it
+   * cannot surface alerts, liveBoxes, or stats. Backend detector still runs
+   * and entity/pose/risk state continues to update.
+   */
+  suppressLocalRiskEngine?: boolean;
 }
 
 /**
