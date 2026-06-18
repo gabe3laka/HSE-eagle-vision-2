@@ -44,11 +44,11 @@ export function useHseLiveRiskViewModel(input: BuildHseLiveRiskViewModelInput): 
     // Refresh sticky entries from current overlay entities + grouped risks.
     const seenKeys = new Set<string>();
     for (const g of base.priorityRisks) {
-      const ent = base.overlayEntities.find(
-        (e) =>
-          (e.track_id && g.linkedTrackIds.includes(e.track_id)) ||
-          ((e as { id?: string }).id && g.linkedEntityIds.includes((e as { id: string }).id)),
-      );
+      const ent = base.overlayEntities.find((e) => {
+        if (e.track_id && g.linkedTrackIds.includes(e.track_id)) return true;
+        const eid = (e as unknown as { id?: string }).id;
+        return typeof eid === "string" && g.linkedEntityIds.includes(eid);
+      });
       if (!ent || !ent.bbox) continue;
       const key = g.key;
       seenKeys.add(key);
