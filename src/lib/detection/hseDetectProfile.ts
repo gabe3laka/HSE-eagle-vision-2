@@ -71,7 +71,7 @@ export function normalizeRoi(roi?: Partial<HSERoi> | null): HSERoi | undefined {
  * with Qwen event-driven scene reasoning; raw pose keypoints hallucinate on
  * furniture, plants, reflections, and clutter, so they are opt-in only.
  */
-function readHseRequestPoseFlag(env?: Record<string, unknown>): boolean {
+export function readHseRequestPoseFlag(env?: Record<string, unknown>): boolean {
   try {
     const bag = (env ?? (import.meta as unknown as { env?: Record<string, unknown> }).env ?? {}) as Record<
       string,
@@ -87,15 +87,19 @@ function readHseRequestPoseFlag(env?: Record<string, unknown>): boolean {
  * Build the optional HSE detect-request metadata for a profile (+ optional ROI).
  * Returned object is spread onto the /detect POST body alongside the existing
  * `image_b64` / `conf` / `img_size` fields.
+ *
+ * `envOverride` is for tests only — production callers omit it so the helper
+ * reads `import.meta.env.VITE_HSE_REQUEST_POSE` at call time.
  */
 export function buildHseDetectRequest(
   profile: HSEDetectionProfile,
   roi?: Partial<HSERoi> | null,
   requestReason = "live-monitoring",
+  envOverride?: Record<string, unknown>,
 ): HSEDetectRequest {
   const spec = HSE_PROFILES[profile] ?? HSE_PROFILES[DEFAULT_HSE_PROFILE];
   const normRoi = normalizeRoi(roi);
-  const requestPose = readHseRequestPoseFlag();
+  const requestPose = readHseRequestPoseFlag(envOverride);
   // Filter "pose" out of the profile's task list unless the operator opted in
   // via VITE_HSE_REQUEST_POSE=true. Then merge with the canonical HSE
   // reasoning task set so the worker/Qwen always sees that scene reasoning is
