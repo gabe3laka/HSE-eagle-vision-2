@@ -93,6 +93,7 @@ export function useDetectionSession({
   zones,
   onIncidentSaved,
   suppressIncidents,
+  suppressLocalRiskEngine,
 }: Options) {
   const { user } = useAuth();
   const [running, setRunning] = useState(false);
