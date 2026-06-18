@@ -1003,6 +1003,8 @@ export default function Live() {
                 hse={hse}
                 focusArmed={focusArmed}
                 onArmFocus={() => setFocusArmed(true)}
+                viewModel={hseRiskViewModel}
+                localAlertsEnabled={hseFlags.localAlertsEnabled}
               />
             )}
 
@@ -1010,13 +1012,7 @@ export default function Live() {
                 never rendered, so the layout is unchanged. Read-only surfacing —
                 never converts a draft/VLM risk into an incident or CAPA. */}
             {showDegradedBanner && <MonitoringDegradedBanner />}
-            {showSceneRiskPanel && risk && (
-              <SceneRiskPanel
-                risk={risk}
-                showControlHierarchy={riskFlags.showControlHierarchy}
-                showProvenance={riskFlags.showProvenance}
-              />
-            )}
+            {showSceneRiskPanel && <SceneRiskPanel viewModel={hseRiskViewModel} />}
 
             {buildModeOn && (
               <BuildModePanel
