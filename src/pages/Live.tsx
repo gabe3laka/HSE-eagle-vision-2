@@ -43,6 +43,7 @@ import { BlueprintCalloutLayer } from "@/features/build-mode/components/Blueprin
 import { PlanHologramRenderer } from "@/features/build-mode/components/PlanHologramRenderer";
 import { PlanConsole } from "@/features/build-mode/components/PlanConsole";
 import { useHseMonitoring } from "@/features/hse-monitoring/hooks/useHseMonitoring";
+import { useHseLiveRiskViewModel } from "@/features/hse-monitoring/hooks/useHseLiveRiskViewModel";
 import { EagleVisionHUD } from "@/components/live/EagleVisionHUD";
 import {
   SceneRiskPanel,
@@ -50,7 +51,7 @@ import {
   RiskDebugPanel,
   CameraPrivacyNotice,
 } from "@/components/live/SceneRiskPanel";
-import { readRiskFeatureFlags } from "@/lib/featureFlags";
+import { readRiskFeatureFlags, readHseFeatureFlags } from "@/lib/featureFlags";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import { WearableAlertOverlay } from "@/components/live/WearableAlertOverlay";
 import { HseMonitoringPanel } from "@/components/live/HseMonitoringPanel";
@@ -281,6 +282,7 @@ export default function Live() {
   // Risk-aware feature flags (all default OFF). When every flag is off the
   // risk-aware UI below is never mounted and behavior is byte-for-byte unchanged.
   const riskFlags = useMemo(() => readRiskFeatureFlags(), []);
+  const hseFlags = useMemo(() => readHseFeatureFlags(), []);
 
   const onIncidentSaved = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
