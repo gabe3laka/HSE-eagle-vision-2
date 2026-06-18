@@ -73,10 +73,9 @@ export function normalizeRoi(roi?: Partial<HSERoi> | null): HSERoi | undefined {
  */
 export function readHseRequestPoseFlag(env?: Record<string, unknown>): boolean {
   try {
-    const bag = (env ?? (import.meta as unknown as { env?: Record<string, unknown> }).env ?? {}) as Record<
-      string,
-      unknown
-    >;
+    const bag = (env ??
+      (import.meta as unknown as { env?: Record<string, unknown> }).env ??
+      {}) as Record<string, unknown>;
     return String(bag.VITE_HSE_REQUEST_POSE ?? "false").toLowerCase() === "true";
   } catch {
     return false;

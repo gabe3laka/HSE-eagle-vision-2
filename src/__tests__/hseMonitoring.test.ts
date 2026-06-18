@@ -295,4 +295,3 @@ describe("HSE detection profiles + ROI metadata", () => {
     expect(req.tasks).toContain("pose");
   });
 });
-

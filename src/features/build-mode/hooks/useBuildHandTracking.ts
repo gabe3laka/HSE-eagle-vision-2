@@ -127,10 +127,9 @@ export function useBuildHandTracking({
  *  Landmarker remains the primary source. */
 export function readBackendWristFallbackFlag(env?: Record<string, unknown>): boolean {
   try {
-    const bag = (env ?? (import.meta as unknown as { env?: Record<string, unknown> }).env ?? {}) as Record<
-      string,
-      unknown
-    >;
+    const bag = (env ??
+      (import.meta as unknown as { env?: Record<string, unknown> }).env ??
+      {}) as Record<string, unknown>;
     return String(bag.VITE_BUILD_BACKEND_WRIST_FALLBACK ?? "false").toLowerCase() === "true";
   } catch {
     return false;

@@ -884,9 +884,7 @@ export async function postDetectFrame(
     frame_id: frameId,
     camera_id: cameraId,
   };
-  const body = opts?.monitoringRequest
-    ? applyHseRequestToBody(base, opts.monitoringRequest)
-    : base;
+  const body = opts?.monitoringRequest ? applyHseRequestToBody(base, opts.monitoringRequest) : base;
   const res = await fetch(withToken(detectUrl, token), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -983,8 +981,8 @@ export function summarizeDetectResponse(
       highestLabel = lvl;
     }
     const hasEntity = !!(risk.linked_entity_id || risk.entity_id || risk.detection_id);
-    const hasDetIds = Array.isArray(risk.involved_detection_ids) &&
-      risk.involved_detection_ids.length > 0;
+    const hasDetIds =
+      Array.isArray(risk.involved_detection_ids) && risk.involved_detection_ids.length > 0;
     const hasTrackIds =
       !!risk.track_id ||
       (Array.isArray(risk.involved_track_ids) && risk.involved_track_ids.length > 0);
@@ -1025,13 +1023,14 @@ export function summarizeDetectResponse(
     risk: {
       risks: riskList.length,
       sceneRisks: sceneRisks.length,
-      hasRiskSummary: !!parsed?.riskSummary || (r.risk_summary != null),
+      hasRiskSummary: !!parsed?.riskSummary || r.risk_summary != null,
       highestLevel: highestLabel,
       riskEngine: parsed?.riskEngine ?? (typeof r.risk_engine === "string" ? r.risk_engine : null),
       riskEnabled: parsed?.riskEnabled ?? null,
       degraded: !!parsed?.degraded || r.degraded === true,
       degradationMode:
-        parsed?.degradationMode ?? (typeof r.degradation_mode === "string" ? r.degradation_mode : null),
+        parsed?.degradationMode ??
+        (typeof r.degradation_mode === "string" ? r.degradation_mode : null),
     },
     reasoner: {
       reasonerStatus: parsed?.reasonerStatus ?? rawReasonerNorm ?? null,
