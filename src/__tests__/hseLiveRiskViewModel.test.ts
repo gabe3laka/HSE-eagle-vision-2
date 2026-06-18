@@ -4,8 +4,14 @@ import {
   boxLabelForEntity,
   buildHseLiveRiskViewModel,
   effectiveRiskLevel,
+  entityMatchesRiskIds,
   friendlyHazardLabel,
   itemNameForEntity,
+  linkedEntitiesForRisk,
+  pickRiskAction,
+  pickRiskWhy,
+  riskRegionFor,
+  spatialMatchRiskToEntity,
 } from "@/lib/detection/hseLiveRiskViewModel";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import type { BackendEntity, BackendPose } from "@/lib/detection/types";
