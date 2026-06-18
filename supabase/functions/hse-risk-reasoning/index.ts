@@ -136,7 +136,9 @@ function validate(raw: unknown): Dict | null {
         spokenMessage: str(o.spokenMessage) || shortMessage,
         recommendedAction: str(o.recommendedAction),
         confidence: clamp01(o.confidence),
-        relatedTrackIds: arr(o.relatedTrackIds).map((t) => str(t)).filter(Boolean),
+        relatedTrackIds: arr(o.relatedTrackIds)
+          .map((t) => str(t))
+          .filter(Boolean),
         overlay: overlayOf(o.overlay),
         wearablePattern: WEARABLE.has(o.wearablePattern as string) ? o.wearablePattern : "none",
       },
@@ -148,7 +150,10 @@ function validate(raw: unknown): Dict | null {
     highestSeverity: SEVERITIES.has(r.highestSeverity as string) ? r.highestSeverity : "info",
     alerts: alerts.slice(0, 5),
     supervisorSummary: str(r.supervisorSummary),
-    uncertainty: arr(r.uncertainty).map((u) => str(u).trim()).filter(Boolean).slice(0, 6),
+    uncertainty: arr(r.uncertainty)
+      .map((u) => str(u).trim())
+      .filter(Boolean)
+      .slice(0, 6),
   };
 }
 
@@ -172,7 +177,10 @@ Deno.serve(async (req: Request) => {
   const sendThumb = (Deno.env.get("HSE_REASONING_SEND_THUMBNAIL") ?? "false") === "true";
   if (!sendThumb && "thumbnail" in payload) delete payload.thumbnail;
 
-  const baseUrl = (Deno.env.get("DEEPSEEK_BASE_URL") ?? "https://api.deepseek.com").replace(/\/+$/, "");
+  const baseUrl = (Deno.env.get("DEEPSEEK_BASE_URL") ?? "https://api.deepseek.com").replace(
+    /\/+$/,
+    "",
+  );
   const model = Deno.env.get("DEEPSEEK_MODEL") ?? "deepseek-v4-flash";
   const timeoutMs = Number(Deno.env.get("HSE_REASONING_TIMEOUT_MS") ?? "16000") || 16000;
   const maxTokens = Number(Deno.env.get("HSE_REASONING_MAX_TOKENS") ?? "1400") || 1400;

@@ -9,7 +9,7 @@ Always import from one of:
 
 ```ts
 import { supabase } from "@/integrations/supabase/own-client"; // canonical
-import { supabase } from "@/integrations/supabase/client";     // re-exports own-client
+import { supabase } from "@/integrations/supabase/client"; // re-exports own-client
 ```
 
 Both point at `pigisgebfcbfvvflxkdw`.
@@ -31,6 +31,7 @@ const supabaseAdmin = createClient(
 ```
 
 Available secrets for the external project:
+
 - `MY_SUPABASE_URL`
 - `MY_SUPABASE_ANON_KEY`
 - `MY_SUPABASE_SERVICE_ROLE_KEY`
@@ -49,6 +50,7 @@ affect `pigisgebfcbfvvflxkdw`. Workflow:
 ## Regeneration caveat
 
 Lovable may rewrite these files at any time:
+
 - `client.ts`, `client.server.ts`
 - `auth-middleware.ts`, `auth-attacher.ts`
 - `types.ts`
