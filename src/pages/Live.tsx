@@ -15,7 +15,12 @@ import type { BackendStatus } from "@/lib/detection/backendVisionDetector";
 import {
   postDetectFrame,
   captureVideoFrameBase64,
+  parseDetectRiskFields,
+  hasRiskAwareData,
+  summarizeDetectResponse,
+  formatDetectSummary,
 } from "@/lib/detection/backendVisionHttpDetector";
+import { buildHseDetectRequest } from "@/lib/detection/hseDetectProfile";
 import { isMobileViewport, MOBILE_VISUAL_ASPECT } from "@/lib/detection/coverCrop";
 import type { BackendEntity, BackendPose, BackendSegment } from "@/lib/detection/types";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
