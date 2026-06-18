@@ -313,9 +313,6 @@ export function CameraView({
               {overlayMode !== "hse-risk-only" && (
                 <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
               )}
-              {overlayMode === "hse-risk-only" && (backendPoses?.length ?? 0) > 0 && (
-                <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
-              )}
             </>
           )}
 
