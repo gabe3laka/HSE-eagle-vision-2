@@ -653,11 +653,6 @@ export default function Live() {
     }
     setBackendTesting(true);
     try {
-      // Use the SAME aspect-preserving capture as the live detector so the
-      // single-frame test mirrors what the live stream actually sends. On
-      // mobile portrait this cover-crops to MOBILE_VISUAL_ASPECT — the preview
-      // image below is proof that the backend receives exactly what the user
-      // sees on the camera card.
       const targetAspect = isMobileViewport(window.innerWidth) ? MOBILE_VISUAL_ASPECT : null;
       const captured = captureVideoFrameBase64(video, { targetAspect });
       if (!captured) {
@@ -665,14 +660,38 @@ export default function Live() {
         return;
       }
       const { image_b64, cw, ch } = captured;
-      setBackendTestImg(`data:image/jpeg;base64,${image_b64}`); // preview the exact frame we send
+      setBackendTestImg(`data:image/jpeg;base64,${image_b64}`);
       if (isCloudflareHttp) {
+        // In HSE mode, send the SAME monitoring/reasoning context the live
+        // stream uses so the test exercises the full worker contract.
+        // Build/Plan stays detection-only.
+        const monitoringRequest =
+          appMode === "hse" ? buildHseDetectRequest(hse.profile, hse.roi, "manual-test") : null;
         const t0 = performance.now();
-        const resp = await postDetectFrame(image_b64, { conf: 0.15 });
+        const resp = await postDetectFrame(image_b64, {
+          conf: 0.15,
+          monitoringRequest,
+        });
         const latency = Math.round(performance.now() - t0);
-        setBackendTest(
-          `capture ${cw}×${ch} · round-trip ${latency} ms\n${JSON.stringify(resp, null, 2)}`,
-        );
+        if (appMode === "hse") {
+          const parsed = hasRiskAwareData(resp) ? parseDetectRiskFields(resp) : null;
+          const summary = summarizeDetectResponse(resp, parsed, {
+            latencyMs: latency,
+            proxy: "cloudflare",
+            transport: "http-cloudflare",
+          });
+          const verdict =
+            summary.risk.sceneRisks > 0 || summary.risk.risks > 0 || summary.risk.hasRiskSummary
+              ? "Worker scene risk fields returned and are available to the HSE view model."
+              : "Detection is connected, but no worker scene risk fields were returned for this frame.";
+          setBackendTest(
+            `capture ${cw}×${ch} · round-trip ${latency} ms\n\n${formatDetectSummary(summary)}\n\n${verdict}`,
+          );
+        } else {
+          setBackendTest(
+            `capture ${cw}×${ch} · round-trip ${latency} ms\n${JSON.stringify(resp, null, 2)}`,
+          );
+        }
       } else {
         const { data, error } = await supabase.functions.invoke("deimv2-proxy", {
           body: { image_b64, conf: 0.15, img_size: 640, classes: null },
@@ -684,7 +703,7 @@ export default function Live() {
     } finally {
       setBackendTesting(false);
     }
-  }, [videoRef, isCloudflareHttp]);
+  }, [videoRef, isCloudflareHttp, appMode, hse.profile, hse.roi]);
 
   // Plan Mode shows the holographic planning console (the two mockups): the
   // chrome panels arrange AROUND the unchanged camera card. We extract the
