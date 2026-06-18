@@ -48,6 +48,12 @@ interface Props {
   riskAwareOverlay?: boolean;
   /** HSE overlay mode: "normal" | "hse-risk-only" | "debug". */
   overlayMode?: HseOverlayMode;
+  /** Raw detector counts (pre-filter) for the chip "Detected objects/poses". */
+  rawBackendEntityCount?: number;
+  rawBackendPoseCount?: number;
+  /** Filtered, risk-linked counts for the chip "Risk-linked boxes/poses". */
+  riskLinkedEntityCount?: number;
+  riskLinkedPoseCount?: number;
   /** Small privacy notice slot near the camera (VITE_CAMERA_PRIVACY_NOTICE). */
   privacyNotice?: React.ReactNode;
   zones?: DetectionZone[];
@@ -98,6 +104,10 @@ export function CameraView({
   backendDryRun,
   riskAwareOverlay,
   overlayMode = "normal",
+  rawBackendEntityCount,
+  rawBackendPoseCount,
+  riskLinkedEntityCount,
+  riskLinkedPoseCount,
   privacyNotice,
   zones,
   editingZones,
@@ -359,12 +369,31 @@ export function CameraView({
 
         {active && running && backendDryRun && (
           <div className="pointer-events-none absolute right-3 top-12 z-20 flex flex-col items-end gap-1">
-            <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-teal-300 backdrop-blur">
-              EdgeCrafter entities: {backendEntities?.length ?? 0}
-            </span>
-            <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-fuchsia-300 backdrop-blur">
-              EdgeCrafter poses: {backendPoses?.length ?? 0}
-            </span>
+            {overlayMode === "hse-risk-only" ? (
+              <>
+                <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-teal-300 backdrop-blur">
+                  Detected objects: {rawBackendEntityCount ?? backendEntities?.length ?? 0}
+                </span>
+                <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-amber-300 backdrop-blur">
+                  Risk-linked boxes: {riskLinkedEntityCount ?? backendEntities?.length ?? 0}
+                </span>
+                <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-fuchsia-300 backdrop-blur">
+                  Detected poses: {rawBackendPoseCount ?? backendPoses?.length ?? 0}
+                </span>
+                <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-amber-300 backdrop-blur">
+                  Risk-linked poses: {riskLinkedPoseCount ?? backendPoses?.length ?? 0}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-teal-300 backdrop-blur">
+                  EdgeCrafter entities: {backendEntities?.length ?? 0}
+                </span>
+                <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-fuchsia-300 backdrop-blur">
+                  EdgeCrafter poses: {backendPoses?.length ?? 0}
+                </span>
+              </>
+            )}
           </div>
         )}
 
