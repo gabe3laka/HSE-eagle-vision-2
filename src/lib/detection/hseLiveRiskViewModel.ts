@@ -561,18 +561,39 @@ function poseHasNearbyPerson(pose: BackendPose, entities: BackendEntity[]): bool
 
 // ── Main builder ────────────────────────────────────────────────────────────
 
-/** Copy risk metadata onto a (shallow-cloned) entity for overlay rendering. */
-function entityWithRisk(entity: BackendEntity, level: RiskLevel, risk: SceneRisk): BackendEntity {
+/** Stable id used to dedupe overlay entities. */
+function entityOverlayKey(e: BackendEntity): string {
+  const r = e as unknown as Record<string, unknown>;
+  const id =
+    e.track_id ??
+    (typeof r.id === "string" ? (r.id as string) : undefined) ??
+    (typeof r.entity_id === "string" ? (r.entity_id as string) : undefined) ??
+    (typeof r.detection_id === "string" ? (r.detection_id as string) : undefined);
+  if (id) return String(id);
+  return `${e.label}|${e.bbox?.x ?? "-"}|${e.bbox?.y ?? "-"}|${e.bbox?.w ?? "-"}|${e.bbox?.h ?? "-"}`;
+}
+
+/**
+ * Copy safety status (and optional linked risk metadata) onto a shallow-cloned
+ * entity. Always stamps risk_level + risk_color so GREEN renders too.
+ */
+function entityWithSafetyStatus(
+  entity: BackendEntity,
+  level: RiskLevel,
+  risk?: SceneRisk,
+): BackendEntity {
   const clone: BackendEntity = { ...entity };
   clone.risk_level = level;
-  if (risk.risk_color) clone.risk_color = risk.risk_color;
-  if (typeof risk.risk_score === "number") clone.risk_score = risk.risk_score;
-  if (typeof risk.risk_reason === "string") clone.risk_reason = risk.risk_reason;
-  const action = pickRiskAction(risk);
-  if (action) clone.recommended_action = action;
-  if (typeof risk.produced_by === "string") clone.produced_by = risk.produced_by;
-  if (risk.risk_id) {
-    (clone as unknown as Record<string, unknown>).linked_risk_id = risk.risk_id;
+  clone.risk_color = level;
+  if (risk) {
+    if (typeof risk.risk_score === "number") clone.risk_score = risk.risk_score;
+    if (typeof risk.risk_reason === "string") clone.risk_reason = risk.risk_reason;
+    const action = pickRiskAction(risk);
+    if (action) clone.recommended_action = action;
+    if (typeof risk.produced_by === "string") clone.produced_by = risk.produced_by;
+    if (risk.risk_id) {
+      (clone as unknown as Record<string, unknown>).linked_risk_id = risk.risk_id;
+    }
   }
   return clone;
 }
