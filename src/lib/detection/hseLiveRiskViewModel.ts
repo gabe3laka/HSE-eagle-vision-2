@@ -102,10 +102,15 @@ export interface HseLiveRiskViewModel {
   hiddenPoseReasons: string[];
   hasWorkerSceneRisks: boolean;
   shouldUseLocalFallback: boolean;
-  /** Convenient counts for camera chips ("Risk-linked boxes/poses"). */
+  /** Convenient counts for camera chips. */
   riskLinkedEntityCount: number;
   riskLinkedPoseCount: number;
-}
+  /** All safety-status boxes (GREEN + YELLOW+) rendered in HSE mode. */
+  statusEntityCount: number;
+  /** YELLOW+ status boxes only (= riskLinkedEntityCount). */
+  activeRiskEntityCount: number;
+  /** GREEN-only status boxes (safe/observed). */
+  safeEntityCount: number;
 
 // ── Friendly labels ─────────────────────────────────────────────────────────
 
