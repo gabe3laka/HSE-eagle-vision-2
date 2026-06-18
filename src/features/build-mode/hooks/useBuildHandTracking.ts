@@ -125,7 +125,7 @@ export function useBuildHandTracking({
  *  and pose-debug wrists are NOT promoted into Build Mode hand pointers, so
  *  hallucinated keypoints can't trigger pinch/hold/extract. MediaPipe Hand
  *  Landmarker remains the primary source. */
-function readBackendWristFallbackFlag(): boolean {
+export function readBackendWristFallbackFlag(): boolean {
   try {
     const env = (import.meta as unknown as { env?: Record<string, unknown> }).env ?? {};
     return String(env.VITE_BUILD_BACKEND_WRIST_FALLBACK ?? "false").toLowerCase() === "true";
