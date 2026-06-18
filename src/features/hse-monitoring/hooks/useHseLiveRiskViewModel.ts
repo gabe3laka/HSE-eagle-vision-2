@@ -33,7 +33,9 @@ interface StickyEntry {
   resolving: boolean;
 }
 
-export function useHseLiveRiskViewModel(input: BuildHseLiveRiskViewModelInput): HseLiveRiskViewModel {
+export function useHseLiveRiskViewModel(
+  input: BuildHseLiveRiskViewModelInput,
+): HseLiveRiskViewModel {
   const stickyRef = useRef<Map<string, StickyEntry>>(new Map());
 
   return useMemo(() => {
@@ -102,7 +104,10 @@ export function useHseLiveRiskViewModel(input: BuildHseLiveRiskViewModelInput): 
       const id = entry.entity.track_id ?? (entry.entity as unknown as { id?: string }).id ?? "";
       if (overlayEntityIds.has(id)) continue;
       // Only emit if still within minimum visible window.
-      if (now - entry.firstVisibleMs < MIN_VISIBLE_RISK_MS || now - entry.lastSeenMs < MIN_VISIBLE_RISK_MS) {
+      if (
+        now - entry.firstVisibleMs < MIN_VISIBLE_RISK_MS ||
+        now - entry.lastSeenMs < MIN_VISIBLE_RISK_MS
+      ) {
         extra.push(entry.entity);
       }
     }

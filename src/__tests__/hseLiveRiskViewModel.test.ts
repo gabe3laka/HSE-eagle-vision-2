@@ -58,9 +58,7 @@ describe("hseLiveRiskViewModel — labels", () => {
 
   it("itemNameForEntity prefers semantic/display/label/class_name", () => {
     expect(
-      itemNameForEntity(
-        entity({ label: "obj42" }) as BackendEntity & Record<string, unknown>,
-      ),
+      itemNameForEntity(entity({ label: "obj42" }) as BackendEntity & Record<string, unknown>),
     ).toBe("obj42");
     expect(itemNameForEntity(entity({ label: "" }))).toBe("detected item");
   });
@@ -81,7 +79,10 @@ describe("hseLiveRiskViewModel — labels", () => {
 describe("hseLiveRiskViewModel — effectiveRiskLevel", () => {
   it("never downgrades a linked YELLOW+ to GREEN", () => {
     expect(
-      effectiveRiskLevel({ linkedSceneHighest: "YELLOW", risk: { hazard: "x", risk_level: "GREEN" } }),
+      effectiveRiskLevel({
+        linkedSceneHighest: "YELLOW",
+        risk: { hazard: "x", risk_level: "GREEN" },
+      }),
     ).toBe("YELLOW");
   });
 

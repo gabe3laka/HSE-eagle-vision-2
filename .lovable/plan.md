@@ -2,9 +2,10 @@
 
 Scope: frontend HSE-mode behavior only. Build mode, Plan mode, Cloudflare Worker, RunPod, and the signed session-token flow are untouched. No secrets added to Vite.
 
-## 1. Env & flags (public VITE_* only)
+## 1. Env & flags (public VITE\_\* only)
 
 Add to `.env.example` and `src/build-env.d.ts` (`ImportMetaEnv`):
+
 - `VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED=false`
 - `VITE_HSE_SHOW_QWEN_CANDIDATES=false`
 - `VITE_HSE_LOCAL_ALERTS_ENABLED=false`
@@ -40,6 +41,7 @@ File: `src/lib/detection/backendVisionHttpDetector.ts`
 New file: `src/lib/detection/hseLiveRiskViewModel.ts`
 
 Exports:
+
 - `HSE_PRIORITY_RISK_LIMIT = 10`
 - `HseOverlayMode = "normal" | "hse-risk-only" | "debug"`
 - types `BuildHseLiveRiskViewModelInput`, `HseLiveRiskViewModel`,
@@ -61,6 +63,7 @@ Exports:
   GREEN/YELLOW/stale/resolving/track/risk words.
 
 New hook: `src/features/hse-monitoring/hooks/useHseLiveRiskViewModel.ts`
+
 - Wraps `buildHseLiveRiskViewModel` with stickiness:
   `MIN_VISIBLE_RISK_MS=1000`, `YELLOW_RESOLVING_MS=500`,
   `YELLOW_HARD_MAX_MS=2000`, `RED_STALE_MAX_MS=4500`.
@@ -69,6 +72,7 @@ New hook: `src/features/hse-monitoring/hooks/useHseLiveRiskViewModel.ts`
 ## 4. Worker/Qwen risks become source of truth
 
 Default (`VITE_HSE_LOCAL_ALERTS_ENABLED=false`):
+
 - Local `hse.activeAlerts` no longer feed main cards, AlertFeed,
   wearable top alerts, haptics, or incidents in HSE mode.
 - View model derives priority/grouped risks from worker
@@ -119,6 +123,7 @@ Files: `src/components/live/CameraView.tsx`,
 ## 8. Pose false-positive filtering (HSE only)
 
 In `hse-risk-only` mode, only emit a pose when:
+
 - nearby person entity conf ≥ 0.45
 - keypoint score ≥ 0.45, ≥ 8 visible keypoints
 - torso/shoulder/hip/head structure present; hand-only poses dropped.
@@ -160,6 +165,7 @@ File: `src/features/hse-monitoring/hooks/useHseMonitoring.ts`
 ## 12. Tests
 
 Add `src/__tests__/hseLiveRiskViewModel.test.ts` covering:
+
 - dedupe + ranking + 10-item cap
 - `effectiveRiskLevel` promotion rules and weak-edge suppression
 - `itemNameForEntity` / `boxLabelForEntity` label rules
@@ -173,11 +179,13 @@ Existing `hseMonitoring.test.ts`, `hseReasoning.test.ts`,
 ## Files touched
 
 New:
+
 - `src/lib/detection/hseLiveRiskViewModel.ts`
 - `src/features/hse-monitoring/hooks/useHseLiveRiskViewModel.ts`
 - `src/__tests__/hseLiveRiskViewModel.test.ts`
 
 Edited:
+
 - `.env.example`, `src/build-env.d.ts`, `src/lib/featureFlags.ts`
 - `src/lib/detection/backendVisionHttpDetector.ts`
 - `src/components/live/HseMonitoringPanel.tsx`
@@ -193,6 +201,7 @@ Untouched: `supabase/functions/*` Worker code, RunPod, Build mode files
 flow, any service-role/RunPod/Worker secrets.
 
 ## Acceptance check before finishing
+
 Run `bunx vitest run` on the new + adjusted tests; spot-check `/live` in
 HSE mode (priority scene risks list, colored boxes labeled with item names,
 no AlertFeed, Qwen chip visible) and confirm `/build` + `/plan` render

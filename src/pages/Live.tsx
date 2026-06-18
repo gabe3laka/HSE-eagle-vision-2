@@ -710,9 +710,7 @@ export default function Live() {
             : (backendEntities as BackendEntity[])
         }
         backendPoses={
-          appMode === "hse"
-            ? hseRiskViewModel.overlayPoses
-            : (backendPoses as BackendPose[])
+          appMode === "hse" ? hseRiskViewModel.overlayPoses : (backendPoses as BackendPose[])
         }
         // Dry-run debug overlays (raw entity boxes, the fuchsia pose skeleton
         // and the entity/pose count chip) belong to HSE monitoring only. In
