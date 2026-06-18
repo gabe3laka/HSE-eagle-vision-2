@@ -1,86 +1,199 @@
-## Goal
+# Reapply HSE Live Monitoring Fix — App-Only
 
-Rebuild `src/pages/Landing.tsx` to match the selected "Editorial industrial navy v5" prototype — premium, restrained, Ocean Deep palette, Space Grotesk + DM Sans — while keeping every section the current landing has (nav, hero, camera mock, detection chip row, 3 features, multilingual line, CTA band, footer) and every CTA wired the same (`/auth`).
+Scope: frontend HSE-mode behavior only. Build mode, Plan mode, Cloudflare Worker, RunPod, and the signed session-token flow are untouched. No secrets added to Vite.
 
-## Scope
+## 1. Env & flags (public VITE_* only)
 
-- Only `src/pages/Landing.tsx` and minimal token additions in `src/styles.css`.
-- No router, no auth, no app shell, no detection logic touched.
-- Fonts already loaded by the app (Space Grotesk + DM Sans available via existing `font-display` / Tailwind setup). If not present in `src/routes/__root.tsx` head, add the Google Fonts `<link>` there (small, additive).
+Add to `.env.example` and `src/build-env.d.ts` (`ImportMetaEnv`):
+- `VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED=false`
+- `VITE_HSE_SHOW_QWEN_CANDIDATES=false`
+- `VITE_HSE_LOCAL_ALERTS_ENABLED=false`
 
-## Visual system (locked from picks)
+Extend `src/lib/featureFlags.ts` with a `readHseFeatureFlags()` returning
+`{ qwenCandidateLaneEnabled, showQwenCandidates, localAlertsEnabled }`, all
+default `false`. Existing risk-aware flags untouched.
 
-```text
-Palette  Ocean Deep
-  bg          #020617 / #0a0f16   (near-black navy)
-  surface     #0f172a, white/[0.02]
-  hairline    white/10, white/5
-  accent      cyan-400 #22d3ee, teal-200
-  ok          green-500
-  text        slate-50 / slate-400 / slate-500
-Type
-  display     Space Grotesk (light 300 + semibold 600)
-  body        DM Sans
-Motion
-  - Cyan scanline sweep across camera mock
-  - Searching bbox drifts; pose skeleton blinks on each pass
-  - Status dots pulse; hairline borders brighten on hover
-  - No bouncy springs, no parallax
-```
+Confirm no server secrets land in Vite. The existing signed-token request in
+`backendVisionHttpDetector.ts` and any Supabase Edge function that mints the
+token are left intact — we only change the JSON body fields the app sends.
 
-## Page composition
+> Note on "make Vite vars an edge function": these three flags are pure UI
+> toggles read at module init across many components. Moving them to an edge
+> function would require an async fetch on every render path and a global
+> store. Recommendation: keep as `VITE_*` (they are non-secret booleans). Flag
+> this as a follow-up if the user wants runtime-controlled flags.
 
-```text
-[Top nav]
-  Brand mark (cyan square + shield) + "SafeLens"
-  Right: Sign In (ghost) + Get Started (cyan pill)  -> /auth
+## 2. Neutralize detect request context
 
-[Hero — 2-col magazine grid, lg:grid-cols-2]
-  LEFT
-    - Pulse chip: "Real-time safety coaching"
-    - H1 Space Grotesk light 5xl/7xl
-        "See the hazard" / "before it happens" (gradient cyan->teal on line 2)
-    - Lede paragraph (slate-400)
-    - CTA row: cyan "Start monitoring" + glass "Watch live demo" -> /auth
-    - Detection chip row (5 caps): Unsafe Lifting · Forklift Proximity ·
-      Blocked Fire Exit · Restricted-Zone Entry · PPE Compliance
-  RIGHT
-    - Eagle Vision camera mock card:
-        header: CAM-04-NORTH_DOCK + Live Feed chip
-        viewport: grid bg, dashed "Loading Bay 2" zone, animated
-          scanning bbox with SVG pose skeleton blinking through,
-          corner accents, cyan scanline sweep, "AI Inference Active" pill
-        footer stats: Detection Rate 99.4% · Latency 24ms · dot indicators
-    - Floating badges below card: Threat Level / Entities
+File: `src/lib/detection/backendVisionHttpDetector.ts`
 
-[Section: "A safety layer, not another gadget" — 3 features]
-  Same content (phone camera / instant alerts / private by design)
-  Restyled as hairline-bordered editorial blocks, numbered 01/02/03,
-  no glow, no gradient, hover = subtle white/[0.02] tint.
+- Remove any hard-coded `allowed_hazard_focus` edge-biased list.
+- Send neutral `site_context` (environment_type, mode `live_hse_monitoring`,
+  `reasoning_policy`, `monitoring_focus`) and balanced `reasoning_preferences`
+  (`force_reason:false`, `prefer_low_latency:true`, evidence-required, allow
+  no-risk, verify-current-frame) — per spec body.
+- Preserve `session_id`, `frame_id`, `camera_id`, `camera_context`,
+  `scene_hint`, existing auth/session token plumbing.
 
-[Multilingual caption line]
-  Small Languages icon + "Alerts in English, Arabic, Hindi, Urdu, Bengali,
-  Nepali, Malayalam, Tamil & Tagalog" — slate-500.
+## 3. New shared HSE Live Risk View Model
 
-[CTA band]
-  Wide cyan-on-navy band: "Turn any camera into a safety coach"
-  subhead + cyan CTA -> /auth.
+New file: `src/lib/detection/hseLiveRiskViewModel.ts`
 
-[Footer]
-  Hairline top, © year SafeLens Vision · Privacy · Safety · Contact.
-```
+Exports:
+- `HSE_PRIORITY_RISK_LIMIT = 10`
+- `HseOverlayMode = "normal" | "hse-risk-only" | "debug"`
+- types `BuildHseLiveRiskViewModelInput`, `HseLiveRiskViewModel`,
+  `HseGroupedRisk`, `HseDebugRisk`, `HseQwenCandidate`, `HseReasonerBadge`
+- `buildHseLiveRiskViewModel(input)` — single selector that:
+  - filters/sorts grouped risks (dedupe by risk_id / source_risk_id /
+    hazard_type+track_ids / hazard_type+linked_entity / hazard_type+action)
+  - rank order RED→YELLOW, active→stale, non-resolving→resolving,
+    Rules+Qwen→Qwen→Rules, score desc, link-count desc, recency
+  - picks `overlayEntities` (only those tied to YELLOW+ linked risks in
+    hse-risk-only mode), `overlayPoses` (filtered by pose rules in §9)
+  - computes `reasonerBadge`, `highestLevel`, counts, `hasWorkerSceneRisks`,
+    `shouldUseLocalFallback`
+- `effectiveRiskLevel({risk, entity, riskSummaryHighest, linkedSceneHighest})`
+  with the promotion/demotion rules from §6 (never downgrade linked
+  YELLOW+; weak generic `object_near_edge` stays out of priority view).
+- `itemNameForEntity(e)` and `boxLabelForEntity(e, riskAware, overlayMode)`
+  per spec — labels are item names only in hse-risk-only mode, no
+  GREEN/YELLOW/stale/resolving/track/risk words.
 
-## Technical notes
+New hook: `src/features/hse-monitoring/hooks/useHseLiveRiskViewModel.ts`
+- Wraps `buildHseLiveRiskViewModel` with stickiness:
+  `MIN_VISIBLE_RISK_MS=1000`, `YELLOW_RESOLVING_MS=500`,
+  `YELLOW_HARD_MAX_MS=2000`, `RED_STALE_MAX_MS=4500`.
+- Stores only `{ riskKey, entity, firstVisibleMs, lastSeenMs, level, bbox }`.
 
-- Keep imports: `Link` from `@/lib/router-shim`, `Button` from `@/components/ui/button`, lucide icons (`ShieldCheck`, `ArrowRight`, `Languages`, `Camera`, `Zap`, `EyeOff` for features).
-- Inject scoped CSS for `@keyframes personSearch`, `skeletonAppear`, `scanMove` in a single `<style>` block inside the page component (already a pattern the prototype uses; safe and isolated).
-- All buttons remain `<Button asChild><Link to="/auth">…</Link></Button>` so existing routing/auth flow is unchanged.
-- No new dependencies. No backend changes. No edits outside `src/pages/Landing.tsx` (and at most a Google Fonts `<link>` already present in `__root.tsx`).
-- Tests: no landing-specific tests exist; full suite should remain green. Run `bunx vitest run` after build.
+## 4. Worker/Qwen risks become source of truth
 
-## Acceptance
+Default (`VITE_HSE_LOCAL_ALERTS_ENABLED=false`):
+- Local `hse.activeAlerts` no longer feed main cards, AlertFeed,
+  wearable top alerts, haptics, or incidents in HSE mode.
+- View model derives priority/grouped risks from worker
+  `risks` + `scene_risks` + `parsedRisk` + linked entity risks.
+- When flag is true, current local fallback path is preserved.
 
-- `/landing` matches the v5 prototype direction (composition, palette, type, motion register).
-- All CTAs still route to `/auth`.
-- No other route, component, or logic changed.
-- Build + 280 tests pass.
+## 5. HseMonitoringPanel — Priority Scene Risks
+
+File: `src/components/live/HseMonitoringPanel.tsx`
+
+- Replace "Priority Alerts" list with "Priority Scene Risks" rendering
+  `viewModel.priorityRisks` (max 10).
+- Empty state: "No active scene risks."
+- Overflow: "Showing top 10 of N grouped scene risks".
+- Each card uses friendly hazard labels (`object_near_edge` →
+  "Object near edge", etc.), linked item, why, action, source chip
+  (Rules / Qwen / Rules + Qwen / Qwen Candidate / Local fallback).
+- "Analyze scene" button (§12): hidden by default; when local alerts flag
+  is off, render disabled text "Legacy local analysis disabled; worker/Qwen
+  scene risks are active."
+
+## 6. SceneRiskPanel cleanup
+
+File: `src/components/live/SceneRiskPanel.tsx`
+
+- Drive from same `viewModel`.
+- Hide by default: raw temporal JSON, session_id, risk id, track IDs,
+  anchor details, full hierarchy-of-controls list (gate behind existing
+  `VITE_SHOW_CONTROL_HIERARCHY`/`VITE_SHOW_PROVENANCE` debug flags).
+- Render Qwen reasoner chip: queued / running / ready / unavailable —
+  using rules only / error — using rules only / disabled.
+
+## 7. Overlays — HSE risk-only with item-name labels
+
+Files: `src/components/live/CameraView.tsx`,
+`BackendEntityOverlay.tsx`, `BackendPoseOverlay.tsx`.
+
+- Add `overlayMode: HseOverlayMode` prop (default `"normal"`).
+- In `hse-risk-only`:
+  - Render only YELLOW/ORANGE/RED linked entities supplied via
+    `overlayEntities`.
+  - Box border color follows risk level; label uses
+    `itemNameForEntity` (semantic_label → display_label → label →
+    class_name → "detected item").
+  - No risk/level/stale text on the box.
+- `normal` and `debug` paths unchanged.
+
+## 8. Pose false-positive filtering (HSE only)
+
+In `hse-risk-only` mode, only emit a pose when:
+- nearby person entity conf ≥ 0.45
+- keypoint score ≥ 0.45, ≥ 8 visible keypoints
+- torso/shoulder/hip/head structure present; hand-only poses dropped.
+
+Filtering lives in the view model (`overlayPoses` + `hiddenPoseReasons`);
+overlay just renders what it gets. Build/Plan pose behavior unchanged.
+
+## 9. Qwen candidate lane (disabled by default)
+
+- Surface `qwenCandidates` from view model but only render when both
+  `VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED` and
+  `VITE_HSE_SHOW_QWEN_CANDIDATES` are true.
+- Never create boxes/haptics/incidents from Qwen-only unlinked candidates.
+- When a Qwen candidate matches a detector entity later, the detector
+  entity gets colored via normal linked-risk path.
+
+## 10. Live.tsx wiring
+
+File: `src/pages/Live.tsx`
+
+- Build view model only when `appMode === "hse"`, via the new hook.
+- Pass `overlayEntities`/`overlayPoses`/`overlayMode="hse-risk-only"` to
+  `CameraView`; pass `viewModel` to `HseMonitoringPanel` and
+  `SceneRiskPanel`.
+- Hide `AlertFeed` in HSE mode unless `VITE_HSE_LOCAL_ALERTS_ENABLED=true`
+  or debug.
+- Build mode and Plan mode keep their existing entities, overlays, plan
+  console, blueprint layers, extraction overlays, ghost layers — no
+  changes to those code paths.
+
+## 11. Gate local reasoning hook
+
+File: `src/features/hse-monitoring/hooks/useHseMonitoring.ts`
+
+- When `localAlertsEnabled` is false: skip local DeepSeek/analyze path,
+  do not synthesize active alerts, no haptics/incidents.
+- When true: preserve current behavior.
+
+## 12. Tests
+
+Add `src/__tests__/hseLiveRiskViewModel.test.ts` covering:
+- dedupe + ranking + 10-item cap
+- `effectiveRiskLevel` promotion rules and weak-edge suppression
+- `itemNameForEntity` / `boxLabelForEntity` label rules
+- view-model behavior with `localAlertsEnabled` on/off and Qwen flags
+- pose filtering thresholds
+
+Existing `hseMonitoring.test.ts`, `hseReasoning.test.ts`,
+`riskAware.test.ts` are updated only where they assert removed
+"Priority Alerts" labels.
+
+## Files touched
+
+New:
+- `src/lib/detection/hseLiveRiskViewModel.ts`
+- `src/features/hse-monitoring/hooks/useHseLiveRiskViewModel.ts`
+- `src/__tests__/hseLiveRiskViewModel.test.ts`
+
+Edited:
+- `.env.example`, `src/build-env.d.ts`, `src/lib/featureFlags.ts`
+- `src/lib/detection/backendVisionHttpDetector.ts`
+- `src/components/live/HseMonitoringPanel.tsx`
+- `src/components/live/SceneRiskPanel.tsx`
+- `src/components/live/CameraView.tsx`
+- `src/components/live/BackendEntityOverlay.tsx`
+- `src/components/live/BackendPoseOverlay.tsx`
+- `src/features/hse-monitoring/hooks/useHseMonitoring.ts`
+- `src/pages/Live.tsx`
+
+Untouched: `supabase/functions/*` Worker code, RunPod, Build mode files
+(`src/features/build-mode/**`), Plan reasoning, `client.ts`, signed-token
+flow, any service-role/RunPod/Worker secrets.
+
+## Acceptance check before finishing
+Run `bunx vitest run` on the new + adjusted tests; spot-check `/live` in
+HSE mode (priority scene risks list, colored boxes labeled with item names,
+no AlertFeed, Qwen chip visible) and confirm `/build` + `/plan` render
+unchanged.
