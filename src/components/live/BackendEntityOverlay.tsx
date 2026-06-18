@@ -19,12 +19,34 @@ export function boxColorFor(e: BackendEntity, riskAware: boolean): string {
   return level ? riskLevelColor(level) : BOX_COLOR;
 }
 
+/** Pick the best human-readable item name for an entity, preferring richer
+ *  semantic labels over the raw detector class. Never returns risk-status
+ *  words (GREEN/YELLOW/stale/...) — those belong to the border color, not the
+ *  visible label. */
+export function itemNameForEntity(e: BackendEntity): string {
+  const record = e as unknown as Record<string, unknown>;
+  const candidates: Array<unknown> = [
+    e.semantic_label,
+    record.display_label,
+    e.label,
+    record.class_name,
+  ];
+  const name = candidates.find(
+    (value) => typeof value === "string" && (value as string).trim().length > 0,
+  ) as string | undefined;
+  return name?.trim() || "detected item";
+}
+
 export function boxLabelForEntity(
   e: BackendEntity,
   riskAware: boolean,
   overlayMode: HseOverlayMode = "normal",
 ): string | null {
-  if (overlayMode === "hse-risk-only") return null;
+  if (overlayMode === "hse-risk-only") {
+    // HSE risk-only: keep the colored border as the risk signal, but show the
+    // actual detected item name (no GREEN/YELLOW/stale/resolving/score words).
+    return itemNameForEntity(e);
+  }
   const pct = `${Math.round((e.confidence ?? 0) * 100)}%`;
   if (!riskAware) return `${e.label} - ${pct}`;
   if (overlayMode !== "debug") {

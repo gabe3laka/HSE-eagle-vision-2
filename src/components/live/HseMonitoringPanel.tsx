@@ -18,6 +18,7 @@ import {
   type HsePriorityRisk,
 } from "@/lib/detection/hseLiveRiskViewModel";
 import { riskLevelColor } from "@/lib/detection/riskTypes";
+import { readRiskFeatureFlags } from "@/lib/featureFlags";
 
 const PROFILE_ORDER: HSEDetectionProfile[] = ["fast", "balanced", "far-scan", "inspection"];
 
@@ -65,6 +66,7 @@ export function HseMonitoringPanel({
   const sceneRiskCount = hseRiskViewModel?.groupedRiskCount ?? priorityRisks.length;
   const rawRiskCount = hseRiskViewModel?.rawRiskCount ?? 0;
   const useLocalFallback = hseRiskViewModel?.shouldUseLocalFallback === true;
+  const { hseLocalAlertsEnabled } = readRiskFeatureFlags();
 
   return (
     <section className="console-panel overflow-hidden p-4">
@@ -160,10 +162,23 @@ export function HseMonitoringPanel({
             Clear focus
           </Button>
         )}
-        <Button size="sm" variant="secondary" className="min-h-9" onClick={hse.analyzeScene}>
-          <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
-          Analyze scene
-        </Button>
+        {hseLocalAlertsEnabled ? (
+          <Button size="sm" variant="secondary" className="min-h-9" onClick={hse.analyzeScene}>
+            <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
+            Analyze scene
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="min-h-9 opacity-60"
+            disabled
+            title="Legacy local analysis disabled; worker/Qwen scene risks are active."
+          >
+            <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
+            Analyze scene
+          </Button>
+        )}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-white/5 pt-3 text-[10px] text-muted-foreground">

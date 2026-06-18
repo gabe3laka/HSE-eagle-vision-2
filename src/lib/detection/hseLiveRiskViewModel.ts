@@ -397,7 +397,49 @@ export function effectiveRiskLevel(input: {
   }
 
   if (lower(risk?.risk_state) === "latent" && (!best || best === "GREEN")) {
-    best = hazard === "object_near_edge" ? "YELLOW" : best;
+    if (hazard === "object_near_edge") {
+      // Only escalate latent object_near_edge to YELLOW when there is real
+      // evidence — score, Qwen confirmation, visual evidence, explicit alert
+      // flag, active state, or a stronger linked scene level. This stops the
+      // UI from flooding with weak generic edge risks.
+      const r = (risk ?? {}) as Record<string, unknown>;
+      const score = typeof risk?.risk_score === "number" ? risk.risk_score : 0;
+      const sourceStr = lower(
+        typeof r.source === "string"
+          ? (r.source as string)
+          : typeof risk?.produced_by === "string"
+            ? risk.produced_by
+            : typeof risk?.reasoner_model === "string"
+              ? risk.reasoner_model
+              : undefined,
+      );
+      const qwenConfirmed =
+        sourceStr.includes("qwen") ||
+        sourceStr.includes("reasoner") ||
+        r.confirmed_by_reasoner === true ||
+        risk?.reasoner_status === "ok";
+      const hasVisualEvidence =
+        Array.isArray(risk?.visual_evidence) &&
+        risk.visual_evidence.some((v) => typeof v === "string" && v.trim().length > 0);
+      const isActive =
+        lower(risk?.risk_anchor_status) === "active" ||
+        lower(typeof r.status === "string" ? (r.status as string) : undefined) === "active" ||
+        lower(typeof r.status === "string" ? (r.status as string) : undefined) === "confirmed";
+      const shouldAlert = risk?.should_alert === true;
+      const linkedStrong =
+        linkedHighest && riskLevelRank(linkedHighest) >= riskLevelRank("YELLOW");
+
+      if (
+        score >= 4 ||
+        qwenConfirmed ||
+        hasVisualEvidence ||
+        shouldAlert ||
+        isActive ||
+        linkedStrong
+      ) {
+        best = "YELLOW";
+      }
+    }
   }
 
   return best ?? null;
