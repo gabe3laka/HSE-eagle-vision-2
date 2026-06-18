@@ -193,6 +193,9 @@ export interface ParsedDetectRisk {
   temporalReasoning?: unknown;
   sceneContext?: { summary?: string; scene_summary?: string } & Record<string, unknown>;
   semanticCorrections?: Array<{ explanation?: string } & Record<string, unknown>>;
+  /** Passthrough: worker-emitted tracks / scene graph (never re-derived). */
+  tracks?: unknown;
+  sceneGraph?: unknown;
 }
 
 /** Schema versions this client recognises. An unknown version still renders the
