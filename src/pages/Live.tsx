@@ -1207,6 +1207,8 @@ export default function Live() {
                           })()}
                           status={(backendStatus as BackendStatus | null) ?? null}
                           localAlertsEnabled={hseFlags.localAlertsEnabled}
+                          riskLinkedEntityCount={hseRiskViewModel.riskLinkedEntityCount}
+                          riskLinkedPoseCount={hseRiskViewModel.riskLinkedPoseCount}
                         />
                       )}
                       {showFrameTest && (

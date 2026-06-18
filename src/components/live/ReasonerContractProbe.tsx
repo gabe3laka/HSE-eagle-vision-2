@@ -96,15 +96,22 @@ export function ReasonerContractProbe({
   rawResp,
   status,
   localAlertsEnabled,
+  riskLinkedEntityCount,
+  riskLinkedPoseCount,
 }: {
   parsedRisk: ParsedDetectRisk | null;
   rawResp: unknown;
   status: BackendStatus | null;
   localAlertsEnabled?: boolean;
+  riskLinkedEntityCount?: number;
+  riskLinkedPoseCount?: number;
 }) {
   const probe = buildReasonerProbe(parsedRisk, rawResp, status);
   const s = probe.summary;
   const visibleSource = localAlertsEnabled ? "legacy_local_alerts" : "worker_scene_risks";
+  const perceptionBackend =
+    s.gateway.backend ?? (status?.backend ?? null);
+  const perceptionModel = s.gateway.model ?? (status?.model ?? null);
   return (
     <div className="rounded-xl border border-violet-300/30 bg-violet-400/[0.04] p-3 font-mono text-[11px] leading-relaxed">
       <div className="mb-2 flex items-center gap-2">
@@ -128,6 +135,13 @@ export function ReasonerContractProbe({
           <Row label="transport" value={s.gateway.transport ?? "—"} />
           <Row label="upstream_status" value={s.gateway.upstreamStatus ?? "—"} />
           <Row label="latency_ms" value={s.gateway.latencyMs ?? "—"} />
+        </Section>
+        <Section title="Perception">
+          <Row label="backend" value={perceptionBackend ?? "—"} />
+          <Row label="model" value={perceptionModel ?? "—"} />
+          <Row label="detector_objects" value={s.detection.entities} />
+          <Row label="risk_linked_boxes" value={riskLinkedEntityCount ?? "—"} />
+          <Row label="risk_linked_poses" value={riskLinkedPoseCount ?? "—"} />
         </Section>
         <Section title="Detection">
           <Row label="entities" value={s.detection.entities} />
@@ -173,6 +187,13 @@ export function ReasonerContractProbe({
         <div className={probe.qwenDetected ? "text-emerald-300" : "text-muted-foreground"}>
           Qwen contribution:{" "}
           {probe.qwenDetected ? "detected" : "not detected in latest response"}
+        </div>
+        <div className="text-muted-foreground">
+          Visible alert source: <span className="text-foreground">{visibleSource}</span>
+        </div>
+        <div className="text-muted-foreground">
+          Local alerts enabled:{" "}
+          <span className="text-foreground">{localAlertsEnabled ? "yes" : "no"}</span>
         </div>
       </div>
     </div>

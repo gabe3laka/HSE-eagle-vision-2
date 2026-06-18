@@ -87,8 +87,11 @@ export function useBuildHandTracking({
       };
     }
 
-    // Priority 2/3: wrist fallbacks need the HSE tracking stream.
-    if (!running) {
+    // Priority 2/3: wrist fallbacks need the HSE tracking stream AND the
+    // public VITE_BUILD_BACKEND_WRIST_FALLBACK opt-in. Default OFF so backend
+    // pose hallucinations on couches/pillows/tables never become fake left/
+    // right-wrist dots or trigger pinch/hold/extract.
+    if (!running || !readBackendWristFallbackFlag()) {
       prevRef.current = [];
       return EMPTY;
     }
@@ -116,4 +119,20 @@ export function useBuildHandTracking({
       sourceMode: primary ? sourceMode : "none",
     };
   }, [enabled, running, mediapipeLandmarks, backendPoses, poseDebug]);
+}
+
+/** Public, browser-safe flag — default OFF. When false, backend pose wrists
+ *  and pose-debug wrists are NOT promoted into Build Mode hand pointers, so
+ *  hallucinated keypoints can't trigger pinch/hold/extract. MediaPipe Hand
+ *  Landmarker remains the primary source. */
+export function readBackendWristFallbackFlag(env?: Record<string, unknown>): boolean {
+  try {
+    const bag = (env ?? (import.meta as unknown as { env?: Record<string, unknown> }).env ?? {}) as Record<
+      string,
+      unknown
+    >;
+    return String(bag.VITE_BUILD_BACKEND_WRIST_FALLBACK ?? "false").toLowerCase() === "true";
+  } catch {
+    return false;
+  }
 }

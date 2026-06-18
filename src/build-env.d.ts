@@ -17,6 +17,13 @@ declare const __BUILD_TIME__: string | undefined;
 //   VITE_HSE_SHOW_QWEN_CANDIDATES — render Qwen-only advisory candidates (default false).
 //   VITE_HSE_LOCAL_ALERTS_ENABLED — re-enable legacy on-device HSE alerts /
 //     AlertFeed / haptics / incidents in HSE mode (default false).
+//   VITE_HSE_REQUEST_POSE — opt back into requesting "pose" in the default
+//     Live HSE /detect tasks list. Default false: YOLO continuous detect +
+//     event-driven Qwen scene reasoning only.
+//   VITE_BUILD_BACKEND_WRIST_FALLBACK — allow Build Mode to fall back to
+//     backend pose wrist keypoints when MediaPipe hands are unavailable.
+//     Default false: MediaPipe hands only, no fake-wrist dots from backend
+//     pose hallucinations.
 interface ImportMetaEnv {
   readonly VITE_VISION_HTTP_DETECT_URL?: string;
   readonly VITE_VISION_STREAM_WS_URL?: string;
@@ -26,4 +33,6 @@ interface ImportMetaEnv {
   readonly VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED?: string;
   readonly VITE_HSE_SHOW_QWEN_CANDIDATES?: string;
   readonly VITE_HSE_LOCAL_ALERTS_ENABLED?: string;
+  readonly VITE_HSE_REQUEST_POSE?: string;
+  readonly VITE_BUILD_BACKEND_WRIST_FALLBACK?: string;
 }
