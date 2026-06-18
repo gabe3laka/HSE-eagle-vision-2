@@ -166,7 +166,7 @@ export function itemNameForEntity(e: BackendEntity): string {
 
 /**
  * Resolve the visible label for an entity box.
- * - hse-risk-only: ITEM NAME only — never risk words/stale/track ids.
+ * - hse-status / hse-risk-only: ITEM NAME only — never risk words/stale/track ids.
  * - normal: caller decides (returns null).
  * - debug: detailed label including risk + confidence.
  */
@@ -175,7 +175,7 @@ export function boxLabelForEntity(
   riskAware: boolean,
   overlayMode: HseOverlayMode = "normal",
 ): string | null {
-  if (overlayMode === "hse-risk-only") {
+  if (overlayMode === "hse-status" || overlayMode === "hse-risk-only") {
     return itemNameForEntity(e);
   }
   if (overlayMode === "debug") {
