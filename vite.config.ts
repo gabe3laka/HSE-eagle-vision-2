@@ -31,7 +31,7 @@ export default async (): Promise<UserConfig> => {
 
   const { defineConfig } = await import("@lovable.dev/vite-tanstack-config");
 
-  return defineConfig({
+  const config = defineConfig({
     tanstackStart: {
       // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
       // nitro/vite builds from this
@@ -42,5 +42,9 @@ export default async (): Promise<UserConfig> => {
         __BUILD_TIME__: JSON.stringify(BUILD_TIME),
       },
     },
-  }) as unknown as UserConfig;
+  });
+
+  // defineConfig may return a config object, a promise, or a function — resolve it.
+  const resolved = typeof config === "function" ? await config() : await config;
+  return resolved as UserConfig;
 };
