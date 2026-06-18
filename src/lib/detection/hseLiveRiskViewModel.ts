@@ -313,6 +313,10 @@ export function entityMatchesRiskIds(risk: SceneRisk, entity: BackendEntity): bo
     risk.detection_id,
     risk.source_risk_id,
     risk.linked_risk_id,
+    // Worker may link risks back to detection ids instead of track ids; also
+    // allow the risk's own `risk_id` to match an entity's `linked_risk_id`.
+    risk.risk_id,
+    ...(Array.isArray(risk.involved_detection_ids) ? risk.involved_detection_ids : []),
   ];
   for (const id of riskEntityIds) {
     if (typeof id === "string" && id && entityIds.has(id)) return true;
