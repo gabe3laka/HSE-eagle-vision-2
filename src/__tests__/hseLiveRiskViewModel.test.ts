@@ -424,3 +424,108 @@ describe("hseLiveRiskViewModel — box label safety", () => {
     );
   });
 });
+
+describe("hseLiveRiskViewModel — hazard_type compatibility", () => {
+  it("uses hazard_type when hazard is missing for grouping + labels", () => {
+    const r: SceneRisk = {
+      hazard_type: "object_near_edge",
+      risk_level: "YELLOW",
+      risk_score: 5,
+      track_id: "tA",
+      produced_by: "rules+vlm",
+      visual_evidence: ["cup near table edge"],
+      should_alert: true,
+    };
+    const e = entity({ label: "cup", track_id: "tA" });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [e],
+      poses: [],
+      parsedRisk: parsedRisk([r]),
+      nowMs: NOW,
+    });
+    expect(vm.priorityRisks.length).toBe(1);
+    expect(vm.priorityRisks[0].hazardType).toBe("object_near_edge");
+    expect(vm.priorityRisks[0].hazardLabel).toBe("Object near edge");
+  });
+
+  it("weak-edge filter applies to hazard_type variant too", () => {
+    const weak: SceneRisk = {
+      hazard_type: "object_near_edge",
+      risk_level: "YELLOW",
+      track_id: "tW",
+      produced_by: "rules",
+      // no visual_evidence / should_alert / score >=4 → weak
+    };
+    const e = entity({ label: "cup", track_id: "tW" });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [e],
+      poses: [],
+      parsedRisk: parsedRisk([weak]),
+      nowMs: NOW,
+    });
+    expect(vm.priorityRisks.length).toBe(0);
+  });
+});
+
+describe("hseLiveRiskViewModel — broadened ID matching", () => {
+  it("matches via risk.risk_id ↔ entity.linked_risk_id", () => {
+    const r: SceneRisk = { hazard: "object_near_edge", risk_id: "R-1", should_alert: true };
+    const e = entity({ label: "cup" }) as BackendEntity & { linked_risk_id?: string };
+    e.linked_risk_id = "R-1";
+    expect(entityMatchesRiskIds(r, e)).toBe(true);
+  });
+
+  it("matches via risk.involved_detection_ids ↔ entity.id", () => {
+    const r: SceneRisk = {
+      hazard: "object_near_edge",
+      involved_detection_ids: ["d-7"],
+      should_alert: true,
+    };
+    const e = entity({ label: "cup" }) as BackendEntity & { id?: string };
+    e.id = "d-7";
+    expect(entityMatchesRiskIds(r, e)).toBe(true);
+    expect(linkedEntitiesForRisk(r, [e]).length).toBe(1);
+  });
+});
+
+describe("hseLiveRiskViewModel — qwen candidate flags", () => {
+  const qwenOnly: SceneRisk = {
+    hazard: "ergonomics",
+    risk_level: "YELLOW",
+    produced_by: "vlm_reasoner",
+    visual_evidence: ["bent posture"],
+  };
+  it("lane disabled → no candidates", () => {
+    const vm = buildHseLiveRiskViewModel({
+      entities: [],
+      poses: [],
+      parsedRisk: parsedRisk([qwenOnly]),
+      nowMs: NOW,
+      qwenCandidateLaneEnabled: false,
+      showQwenCandidates: true,
+    });
+    expect(vm.qwenCandidates.length).toBe(0);
+  });
+  it("lane enabled but show=false → no candidates", () => {
+    const vm = buildHseLiveRiskViewModel({
+      entities: [],
+      poses: [],
+      parsedRisk: parsedRisk([qwenOnly]),
+      nowMs: NOW,
+      qwenCandidateLaneEnabled: true,
+      showQwenCandidates: false,
+    });
+    expect(vm.qwenCandidates.length).toBe(0);
+  });
+  it("both flags true → candidates surface", () => {
+    const vm = buildHseLiveRiskViewModel({
+      entities: [],
+      poses: [],
+      parsedRisk: parsedRisk([qwenOnly]),
+      nowMs: NOW,
+      qwenCandidateLaneEnabled: true,
+      showQwenCandidates: true,
+    });
+    expect(vm.qwenCandidates.length).toBe(1);
+  });
+});
