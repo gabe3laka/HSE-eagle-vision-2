@@ -310,7 +310,7 @@ export function CameraView({
                 riskAware={riskAwareOverlay}
                 overlayMode={overlayMode}
               />
-              {overlayMode !== "hse-risk-only" && (
+              {overlayMode !== "hse-risk-only" && overlayMode !== "hse-status" && (
                 <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
               )}
             </>
