@@ -22,9 +22,19 @@ export type RiskSummary = {
   by_level?: Record<string, number>;
 };
 
+/** Loose normalized bbox shape (0..1). */
+export type RiskBBox = { x: number; y: number; w: number; h: number };
+
 export type SceneRisk = {
   risk_id?: string;
+  source_risk_id?: string;
+  linked_risk_id?: string;
   track_id?: string;
+  involved_track_ids?: string[];
+  involved_detection_ids?: string[];
+  linked_entity_id?: string;
+  entity_id?: string;
+  detection_id?: string;
   hazard?: string;
   risk_level?: RiskLevel;
   risk_color?: string;
@@ -34,14 +44,29 @@ export type SceneRisk = {
   risk_reason?: string;
   evidence?: string[];
   visual_evidence?: string[];
+  /** Free-text trigger/observation/description used as wording fallbacks. */
+  trigger_condition?: string;
+  observation?: string;
+  description?: string;
+  /** Optional spatial region for the risk (for app-side spatial linking). */
+  bbox?: RiskBBox;
+  box?: RiskBBox;
+  approximate_region?: RiskBBox;
+  region?: RiskBBox;
+  visual_region?: RiskBBox;
+  location_box?: RiskBBox;
   recommended_action?: string;
   recommended_controls?: RecommendedControl[];
+  primary_action?: string;
+  next_action?: string;
+  control_recommendation?: string;
   produced_by?: string;
   risk_matrix_version?: string;
   should_alert?: boolean;
   requires_human_review?: boolean;
   reasoner_model?: string;
   reasoner_status?: "not_run" | "ok" | "timeout" | "unavailable" | "schema_error" | string;
+  risk_state?: string;
   confidence?: number;
 };
 
@@ -66,6 +91,10 @@ export interface RiskAwareFields {
   stage_timings_ms?: Record<string, number>;
   privacy_blur_applied?: boolean;
   warnings?: string[];
+  /** Additive: passed through verbatim to the panel/debug surfaces. */
+  temporal_reasoning?: unknown;
+  scene_context?: { summary?: string; scene_summary?: string } & Record<string, unknown>;
+  semantic_corrections?: Array<{ explanation?: string } & Record<string, unknown>>;
 }
 
 // ── PURE helpers ─────────────────────────────────────────────────────────────
