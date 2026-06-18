@@ -288,15 +288,14 @@ describe("HSE detection profiles + ROI metadata", () => {
     }
   });
 
-  it("re-includes pose when VITE_HSE_REQUEST_POSE=true", () => {
-    const prev = (import.meta as unknown as { env: Record<string, unknown> }).env
-      .VITE_HSE_REQUEST_POSE;
-    (import.meta as unknown as { env: Record<string, unknown> }).env.VITE_HSE_REQUEST_POSE = "true";
+  it("re-includes pose when VITE_HSE_REQUEST_POSE=true", async () => {
+    const { vi } = await import("vitest");
+    vi.stubEnv("VITE_HSE_REQUEST_POSE", "true");
     try {
       const req = buildHseDetectRequest("balanced");
       expect(req.tasks).toContain("pose");
     } finally {
-      (import.meta as unknown as { env: Record<string, unknown> }).env.VITE_HSE_REQUEST_POSE = prev;
+      vi.unstubAllEnvs();
     }
   });
 });
