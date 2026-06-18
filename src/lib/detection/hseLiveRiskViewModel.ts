@@ -129,6 +129,16 @@ export function friendlyHazardLabel(raw: string | undefined): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+/**
+ * Resolve the hazard string regardless of whether the worker/Qwen returned it
+ * as `hazard` or `hazard_type`. Keeps grouping/labelling/weak-edge logic
+ * consistent across schema variants. Never invent a hazard string — the
+ * reasoning layer remains the source of truth.
+ */
+export function riskHazard(r: SceneRisk): string {
+  return r.hazard_type ?? r.hazard ?? "unknown";
+}
+
 // ── Item name helpers ───────────────────────────────────────────────────────
 
 export function itemNameForEntity(e: BackendEntity): string {
