@@ -426,8 +426,7 @@ export function effectiveRiskLevel(input: {
         lower(typeof r.status === "string" ? (r.status as string) : undefined) === "active" ||
         lower(typeof r.status === "string" ? (r.status as string) : undefined) === "confirmed";
       const shouldAlert = risk?.should_alert === true;
-      const linkedStrong =
-        linkedHighest && riskLevelRank(linkedHighest) >= riskLevelRank("YELLOW");
+      const linkedStrong = linkedHighest && riskLevelRank(linkedHighest) >= riskLevelRank("YELLOW");
 
       if (
         score >= 4 ||
