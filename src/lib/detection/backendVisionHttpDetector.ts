@@ -606,7 +606,15 @@ export class BackendVisionHttpDetector implements Detector {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(
             applyHseRequestToBody(
-              { image_b64, conf: DRY_RUN_CONF, img_size: 640, classes: null },
+              {
+                image_b64,
+                conf: DRY_RUN_CONF,
+                img_size: 640,
+                classes: null,
+                session_id: this.sessionId ?? undefined,
+                frame_id: `${this.sessionId ?? "f"}-${++this.frameCounter}`,
+                camera_id: this.cameraId,
+              },
               this.monitoringRequest,
             ),
           ),
