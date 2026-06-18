@@ -273,13 +273,16 @@ export function useHseMonitoring({
   }, []);
 
   const topAlert = activeAlerts.find((a) => a.state !== "resolved") ?? null;
+  // When local alerts are disabled, no UI surface (HUD, wearable overlay,
+  // header top-risk, camera top-alert banner) should consume `topAlert`.
+  const visibleTopAlert = localAlertsEnabled ? topAlert : null;
   const status: StatusLevel = useMemo(() => {
-    const sev = topAlert?.severity;
+    const sev = visibleTopAlert?.severity;
     if (sev === "critical") return "critical";
     if (sev === "high" || sev === "medium") return "risk";
     if (profile === "far-scan" || profile === "inspection") return "scanning";
     return "monitoring";
-  }, [topAlert, profile]);
+  }, [visibleTopAlert, profile]);
 
   const stableCount = tracks.filter((t) => t.stable).length;
 
@@ -298,6 +301,8 @@ export function useHseMonitoring({
     stableCount,
     activeAlerts,
     topAlert,
+    visibleTopAlert,
+    localAlertsEnabled,
     status,
     reasoningSource,
     sceneCaption,
