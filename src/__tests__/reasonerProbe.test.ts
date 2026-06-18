@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildReasonerProbe, buildReasonerDiagnostic } from "@/components/live/ReasonerContractProbe";
+import {
+  buildReasonerProbe,
+  buildReasonerDiagnostic,
+} from "@/components/live/ReasonerContractProbe";
 import { parseDetectRiskFields } from "@/lib/detection/backendVisionHttpDetector";
 
 describe("buildReasonerProbe — structured reasoner_status + scene_context", () => {

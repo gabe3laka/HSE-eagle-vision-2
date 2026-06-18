@@ -91,7 +91,15 @@ export function buildReasonerDiagnostic(probe: ReasonerProbe): ReasonerDiagnosti
   const status_ = (s.reasoner.reasonerStatus ?? "").toLowerCase();
   const sceneRisks = s.risk.sceneRisks ?? 0;
   const isReady = ["ready", "ok", "done", "completed", "success"].includes(status_);
-  const isQueued = ["queued", "pending", "scheduled", "running", "busy", "processing", "in_progress"].includes(status_);
+  const isQueued = [
+    "queued",
+    "pending",
+    "scheduled",
+    "running",
+    "busy",
+    "processing",
+    "in_progress",
+  ].includes(status_);
   const isError = ["error", "schema_error"].includes(status_);
   const isDisabled = ["disabled", "not_run"].includes(status_) || !status_;
   const qwenState: ReasonerDiagnostic["qwenState"] = isReady
@@ -105,13 +113,16 @@ export function buildReasonerDiagnostic(probe: ReasonerProbe): ReasonerDiagnosti
           : "unavailable";
   let message: string;
   if (!detectionOk) {
-    message = "Detection route: error or unavailable. No entities returned from the latest /detect.";
+    message =
+      "Detection route: error or unavailable. No entities returned from the latest /detect.";
   } else if (qwenState === "unavailable" || qwenState === "error" || qwenState === "disabled") {
     message = "Detection is working. Qwen reasoning is not available from the worker response.";
   } else if (qwenState === "queued") {
-    message = "Detection is working. Qwen reasoning is queued/throttled and no current scene_risks were returned.";
+    message =
+      "Detection is working. Qwen reasoning is queued/throttled and no current scene_risks were returned.";
   } else if (qwenState === "ready" && sceneRisks === 0) {
-    message = "Detection and Qwen responded. Qwen returned no active scene risks for the latest frame.";
+    message =
+      "Detection and Qwen responded. Qwen returned no active scene risks for the latest frame.";
   } else {
     message = `Detection working. Qwen ${qwenState}, scene_risks: ${sceneRisks}.`;
   }
@@ -233,20 +244,41 @@ export function ReasonerContractProbe({
           const status_ = (s.reasoner.reasonerStatus ?? "").toLowerCase();
           const sceneRisks = s.risk.sceneRisks ?? 0;
           const isReady = ["ready", "ok", "done", "completed", "success"].includes(status_);
-          const isQueued = ["queued", "pending", "scheduled", "running", "busy", "processing", "in_progress"].includes(status_);
+          const isQueued = [
+            "queued",
+            "pending",
+            "scheduled",
+            "running",
+            "busy",
+            "processing",
+            "in_progress",
+          ].includes(status_);
           const isUnavailable =
             !status_ ||
-            ["unavailable", "timeout", "missing", "not_available", "disabled", "not_run", "error", "schema_error"].includes(status_) ||
+            [
+              "unavailable",
+              "timeout",
+              "missing",
+              "not_available",
+              "disabled",
+              "not_run",
+              "error",
+              "schema_error",
+            ].includes(status_) ||
             (!isReady && !isQueued);
           let diagnostic = "";
           if (!detectionOk) {
-            diagnostic = "Detection route: error or unavailable. No entities returned from the latest /detect.";
+            diagnostic =
+              "Detection route: error or unavailable. No entities returned from the latest /detect.";
           } else if (isUnavailable) {
-            diagnostic = "Detection is working. Qwen reasoning is not available from the worker response.";
+            diagnostic =
+              "Detection is working. Qwen reasoning is not available from the worker response.";
           } else if (isQueued) {
-            diagnostic = "Detection is working. Qwen reasoning is queued/throttled and no current scene_risks were returned.";
+            diagnostic =
+              "Detection is working. Qwen reasoning is queued/throttled and no current scene_risks were returned.";
           } else if (isReady && sceneRisks === 0) {
-            diagnostic = "Detection and Qwen responded. Qwen returned no active scene risks for the latest frame.";
+            diagnostic =
+              "Detection and Qwen responded. Qwen returned no active scene risks for the latest frame.";
           } else {
             diagnostic = `Detection working. Qwen ${status_ || "ready"}, scene_risks: ${sceneRisks}.`;
           }
@@ -258,11 +290,20 @@ export function ReasonerContractProbe({
               <div className="text-foreground">
                 AI/Qwen route:{" "}
                 <span className="text-cyan-300">
-                  {isReady ? "ready" : isQueued ? "queued" : isUnavailable ? (status_ ? status_ : "unavailable") : status_}
+                  {isReady
+                    ? "ready"
+                    : isQueued
+                      ? "queued"
+                      : isUnavailable
+                        ? status_
+                          ? status_
+                          : "unavailable"
+                        : status_}
                 </span>
               </div>
               <div className="text-muted-foreground">
-                scene_context: {s.reasoner.sceneContextPresent ? "yes" : "no"} · scene_risks: {sceneRisks}
+                scene_context: {s.reasoner.sceneContextPresent ? "yes" : "no"} · scene_risks:{" "}
+                {sceneRisks}
               </div>
               <div className="text-foreground">{diagnostic}</div>
             </>

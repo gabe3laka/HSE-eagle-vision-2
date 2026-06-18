@@ -113,7 +113,6 @@ export interface HseLiveRiskViewModel {
   safeEntityCount: number;
 }
 
-
 // ── Friendly labels ─────────────────────────────────────────────────────────
 
 const HAZARD_LABELS: Record<string, string> = {
@@ -796,8 +795,7 @@ export function buildHseLiveRiskViewModel(
   const upgradeEntity = (e: BackendEntity, level: RiskLevel, risk?: SceneRisk) => {
     const key = entityOverlayKey(e);
     const existing = overlayMap.get(key);
-    const existingLevel =
-      normalizeRiskLevel(existing?.risk_level, existing?.risk_color) ?? "GREEN";
+    const existingLevel = normalizeRiskLevel(existing?.risk_level, existing?.risk_color) ?? "GREEN";
     if (!existing || riskLevelRank(level) >= riskLevelRank(existingLevel)) {
       overlayMap.set(key, entityWithSafetyStatus(e, level, risk));
     }
