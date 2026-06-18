@@ -280,5 +280,24 @@ describe("HSE detection profiles + ROI metadata", () => {
       expect(req.tasks).toContain(t);
     }
   });
+
+  it("default Live HSE request omits raw pose (VITE_HSE_REQUEST_POSE unset)", () => {
+    for (const p of ["balanced", "inspection"] as const) {
+      const req = buildHseDetectRequest(p);
+      expect(req.tasks).not.toContain("pose");
+    }
+  });
+
+  it("re-includes pose when VITE_HSE_REQUEST_POSE=true", () => {
+    const prev = (import.meta as unknown as { env: Record<string, unknown> }).env
+      .VITE_HSE_REQUEST_POSE;
+    (import.meta as unknown as { env: Record<string, unknown> }).env.VITE_HSE_REQUEST_POSE = "true";
+    try {
+      const req = buildHseDetectRequest("balanced");
+      expect(req.tasks).toContain("pose");
+    } finally {
+      (import.meta as unknown as { env: Record<string, unknown> }).env.VITE_HSE_REQUEST_POSE = prev;
+    }
+  });
 });
 
