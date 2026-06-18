@@ -46,14 +46,16 @@ interface Props {
   backendDryRun?: boolean;
   /** Risk-aware box coloring (VITE_RISK_AWARE_OVERLAY). OFF → unchanged. */
   riskAwareOverlay?: boolean;
-  /** HSE overlay mode: "normal" | "hse-risk-only" | "debug". */
+  /** HSE overlay mode: "normal" | "hse-status" | "hse-risk-only" | "debug". */
   overlayMode?: HseOverlayMode;
   /** Raw detector counts (pre-filter) for the chip "Detected objects/poses". */
   rawBackendEntityCount?: number;
   rawBackendPoseCount?: number;
-  /** Filtered, risk-linked counts for the chip "Risk-linked boxes/poses". */
+  /** Active risk-linked counts (YELLOW+). */
   riskLinkedEntityCount?: number;
   riskLinkedPoseCount?: number;
+  /** All safety-status boxes (GREEN + YELLOW+) for the new chip. */
+  statusEntityCount?: number;
   /** Small privacy notice slot near the camera (VITE_CAMERA_PRIVACY_NOTICE). */
   privacyNotice?: React.ReactNode;
   zones?: DetectionZone[];
