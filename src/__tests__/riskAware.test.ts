@@ -91,32 +91,9 @@ describe("backward-compatible parsing", () => {
     expect(parsed.degraded).toBe(false);
   });
 
-  it("combines risks + scene_risks and de-dupes repeated risk IDs", () => {
-    const parsed = parseDetectRiskFields({
-      scene_risks: [
-        { risk_id: "x", risk_level: "ORANGE", hazard_type: "spill" },
-        { risk_id: "scene-only", risk_level: "YELLOW" },
-      ],
-      risks: [
-        { risk_id: "x", risk_level: "RED", hazard_type: "duplicate" },
-        { risk_id: "risk-only", risk_level: "GREEN" },
-      ],
-      temporal_reasoning: { carried_tracks: 1 },
-      scene_context: { environment_type: "indoor" },
-      semantic_corrections: [{ correction_id: "c1", action: "semantic_label" }],
-    });
-    expect(parsed.sceneRisks.map((item) => item.risk_id)).toEqual(["x", "scene-only", "risk-only"]);
-    expect(parsed.sceneRisks[0].risk_level).toBe("ORANGE");
-    expect(parsed.temporalReasoning).toEqual({ carried_tracks: 1 });
-    expect(parsed.sceneContext).toEqual({ environment_type: "indoor" });
-    expect(parsed.semanticCorrections).toHaveLength(1);
-  });
-
-  it("parses object-form reasoner_status without crashing the UI", () => {
-    const status = { state: "timeout", model: "risk-reasoner", reason: "deadline" };
-    const parsed = parseDetectRiskFields({ scene_risks: [], reasoner_status: status });
-    expect(parsed.reasonerStatus).toEqual(status);
-    expect(isReasonerUnavailable(parsed.reasonerStatus)).toBe(true);
+  it("accepts `risks` as an alias for scene_risks", () => {
+    const parsed = parseDetectRiskFields({ risks: [{ risk_id: "x", risk_level: "ORANGE" }] });
+    expect(parsed.sceneRisks).toHaveLength(1);
   });
 
   // ── (4) unknown schema_version doesn't crash ───────────────────────────────
@@ -158,9 +135,7 @@ describe("(6) isAiDraftReviewRequired", () => {
     expect(isReasonerUnavailable("timeout")).toBe(true);
     expect(isReasonerUnavailable("unavailable")).toBe(true);
     expect(isReasonerUnavailable("schema_error")).toBe(true);
-    expect(isReasonerUnavailable({ state: "timeout" })).toBe(true);
     expect(isReasonerUnavailable("ok")).toBe(false);
-    expect(isReasonerUnavailable({ state: "ok" })).toBe(false);
     expect(isReasonerUnavailable(undefined)).toBe(false);
   });
 });
@@ -181,34 +156,15 @@ describe("(7) feature flags", () => {
     );
   });
 
-  it("readRiskFeatureFlags keeps risk UI on and HSE optional lanes off by default", () => {
+  it("readRiskFeatureFlags defaults all flags ON for an empty env", () => {
     const f = readRiskFeatureFlags({});
-    expect(f.riskAwareOverlay).toBe(true);
-    expect(f.workerSceneRisks).toBe(true);
-    expect(f.riskDebugPanel).toBe(true);
-    expect(f.showControlHierarchy).toBe(true);
-    expect(f.showProvenance).toBe(true);
-    expect(f.cameraPrivacyNotice).toBe(true);
-    expect(f.hseQwenCandidateLaneEnabled).toBe(false);
-    expect(f.hseShowQwenCandidates).toBe(false);
-    expect(f.hseLocalAlertsEnabled).toBe(false);
+    expect(Object.values(f).every((v) => v === true)).toBe(true);
   });
 
   it("readRiskFeatureFlags honours an explicit 'false' opt-out", () => {
     const f = readRiskFeatureFlags({ VITE_RISK_AWARE_OVERLAY: "false" });
     expect(f.riskAwareOverlay).toBe(false);
     expect(f.workerSceneRisks).toBe(true);
-  });
-
-  it("readRiskFeatureFlags enables optional HSE lanes only when explicit", () => {
-    const f = readRiskFeatureFlags({
-      VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED: "true",
-      VITE_HSE_SHOW_QWEN_CANDIDATES: "true",
-      VITE_HSE_LOCAL_ALERTS_ENABLED: "true",
-    });
-    expect(f.hseQwenCandidateLaneEnabled).toBe(true);
-    expect(f.hseShowQwenCandidates).toBe(true);
-    expect(f.hseLocalAlertsEnabled).toBe(true);
   });
 });
 

@@ -8,8 +8,6 @@ export type {
   RecommendedControl,
   RiskSummary,
   SceneRisk,
-  ReasonerStatus,
-  SemanticCorrection,
   RiskAwareFields,
 } from "./riskTypes";
 
@@ -113,14 +111,10 @@ export interface LiveBox {
  * only carry label/bbox/confidence keep working unchanged.
  */
 export interface BackendEntity {
-  id?: string;
-  detection_id?: string;
   label: string;
   class_id: number;
   confidence: number;
   bbox: BBox;
-  raw_label?: string;
-  semantic_label?: string;
   /** Which backend produced this entity, e.g. "yolo26" | "yolo26-seg". */
   source?: string;
   /** Segmentation outline, normalized 0..1 to the frame (when seg ran). */
@@ -143,13 +137,6 @@ export interface BackendEntity {
   risk_matrix_version?: string;
   requires_human_review?: boolean;
   confidence_risk?: number;
-  linked_risk_id?: string;
-  risk_association?: "exact_id" | "historical_id" | "anchor_carryover" | "spatial_fallback";
-  risk_stale?: boolean;
-  risk_resolving?: boolean;
-  risk_expires_at_ms?: number;
-  correction_status?: string;
-  semantic_correction_reason?: string;
 }
 
 /**

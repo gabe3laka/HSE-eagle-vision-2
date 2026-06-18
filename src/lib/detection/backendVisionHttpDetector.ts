@@ -14,23 +14,8 @@ import {
 } from "./backendVisionDetector";
 import { applyHseRequestToBody } from "./hseDetectProfile";
 import type { HSEDetectRequest } from "./hseTypes";
-import type {
-  ReasonerStatus,
-  RiskAwareFields,
-  RecommendedControl,
-  RiskSummary,
-  SceneRisk,
-  SemanticCorrection,
-} from "./riskTypes";
+import type { RiskAwareFields, RecommendedControl, RiskSummary, SceneRisk } from "./riskTypes";
 import { normalizeRiskLevel } from "./riskTypes";
-import {
-  applySemanticCorrectionsToEntities,
-  associateRisksToEntities,
-  pushRecentEntitySnapshot,
-  type CorrectionAnchor,
-  type EntitySnapshot,
-  type RiskAnchor,
-} from "./riskAssociation";
 import { supabase } from "@/integrations/supabase/own-client";
 import { computeCoverCrop, isMobileViewport, MOBILE_VISUAL_ASPECT } from "./coverCrop";
 
@@ -62,7 +47,7 @@ function resolveViewportTargetAspect(): number | null {
  * `create-stream-session` Edge Function) authenticates the call to the Worker.
  *
  * Fast + adaptive: at most ONE request is in flight at a time, and frames are
- * submitted at most every TARGET_INTERVAL_MS (about 2 FPS). If a request is still
+ * submitted at most every TARGET_INTERVAL_MS (~3 FPS). If a request is still
  * running the newest frame is simply skipped — there is no queue of stale
  * frames, so we always send the freshest frame the camera can give us.
  *
@@ -71,14 +56,14 @@ function resolveViewportTargetAspect(): number | null {
  * cached entities/poses for the debug overlay.
  */
 
-export const TARGET_INTERVAL_MS = 500; // clearer backend cadence, one request at a time
-const TARGET_FPS = Number((1000 / TARGET_INTERVAL_MS).toFixed(1));
+const TARGET_INTERVAL_MS = 250; // ~4 FPS ceiling — fast, but one request at a time
+const TARGET_FPS = Math.round(1000 / TARGET_INTERVAL_MS); // ~4
 // Aspect-preserving capture: keep longest side at most CAPTURE_MAX_SIDE so the
 // frame we send mirrors the visible video's shape (portrait → portrait,
 // landscape → landscape). Avoids the 4:3-only 640×480 distortion that
 // mis-aligned overlays on phones.
-export const CAPTURE_MAX_SIDE = 960;
-export const CAPTURE_QUALITY = 0.85;
+const CAPTURE_MAX_SIDE = 512;
+const CAPTURE_QUALITY = 0.7;
 // Dry-run confidence — kept low so more entities surface for visual validation.
 const DRY_RUN_CONF = 0.2;
 const CAMERA_ID = "browser-http";
@@ -192,20 +177,13 @@ export interface ParsedDetectRisk {
   schemaVersion?: string | number;
   riskEngine?: string;
   sceneRisks: SceneRisk[];
-  unmatchedRisks?: SceneRisk[];
-  riskAnchors?: RiskAnchor[];
-  temporalReasoning?: unknown;
-  sceneContext?: unknown;
-  semanticCorrections?: SemanticCorrection[];
-  unmatchedCorrections?: SemanticCorrection[];
-  qwenCandidates?: SceneRisk[];
   riskSummary?: RiskSummary;
   riskEnabled?: boolean;
   trackingEnabled?: boolean;
   sceneGraphEnabled?: boolean;
   degraded: boolean;
   degradationMode?: string;
-  reasonerStatus?: ReasonerStatus;
+  reasonerStatus?: string;
   stageTimingsMs?: Record<string, number>;
   privacyBlurApplied?: boolean;
   warnings: string[];
@@ -215,7 +193,7 @@ export interface ParsedDetectRisk {
 
 /** Schema versions this client recognises. An unknown version still renders the
  *  old fields and only adds a non-blocking debug warning. */
-const KNOWN_SCHEMA_VERSIONS = new Set(["1", "2", "1.0", "2.0", "v1", "v2", "risk.v1"]);
+const KNOWN_SCHEMA_VERSIONS = new Set(["1", "2", "1.0", "2.0", "v1", "v2"]);
 
 /** PURE: true when a `/detect` response carries ANY risk-aware field. Used to
  *  decide whether to expose a parsed risk view at all (legacy responses → null,
@@ -228,12 +206,8 @@ export function hasRiskAwareData(resp: unknown): boolean {
     "risk_engine",
     "tracks",
     "scene_graph",
-    "temporal_reasoning",
-    "scene_context",
-    "semantic_corrections",
     "risks",
     "scene_risks",
-    "qwen_candidates",
     "risk_summary",
     "risk_enabled",
     "tracking_enabled",
@@ -248,31 +222,6 @@ export function hasRiskAwareData(resp: unknown): boolean {
   return keys.some((k) => r[k] !== undefined);
 }
 
-function riskDedupeKey(risk: SceneRisk): string | null {
-  if (risk.risk_id) return `risk:${risk.risk_id}`;
-  const involved = risk.involved_track_ids?.join(",") ?? "";
-  const hazard = risk.hazard_type ?? risk.hazard;
-  if (hazard && involved) return `hazard:${hazard}:${involved}`;
-  if (risk.track_id && risk.risk_level) return `track:${risk.track_id}:${risk.risk_level}`;
-  return null;
-}
-
-function combineAndDedupeRisks(resp: RiskAwareFields): SceneRisk[] {
-  const allRisks = [
-    ...(Array.isArray(resp.scene_risks) ? resp.scene_risks : []),
-    ...(Array.isArray(resp.risks) ? resp.risks : []),
-  ];
-  const out: SceneRisk[] = [];
-  const seen = new Set<string>();
-  allRisks.forEach((risk, index) => {
-    const key = riskDedupeKey(risk) ?? `idx:${index}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(risk);
-  });
-  return out;
-}
-
 /**
  * PURE: parse the OPTIONAL risk-aware fields from a `/detect` response. Never
  * throws — unknown/missing fields are tolerated and the legacy fields are left
@@ -281,7 +230,11 @@ function combineAndDedupeRisks(resp: RiskAwareFields): SceneRisk[] {
  */
 export function parseDetectRiskFields(resp: unknown): ParsedDetectRisk {
   const r = (resp && typeof resp === "object" ? resp : {}) as RiskAwareFields;
-  const sceneRisks = combineAndDedupeRisks(r);
+  const sceneRisks: SceneRisk[] = Array.isArray(r.scene_risks)
+    ? r.scene_risks
+    : Array.isArray(r.risks)
+      ? r.risks
+      : [];
   const warnings: string[] = Array.isArray(r.warnings)
     ? r.warnings.filter((w): w is string => typeof w === "string")
     : [];
@@ -292,20 +245,12 @@ export function parseDetectRiskFields(resp: unknown): ParsedDetectRisk {
   };
   if (r.schema_version != null) out.schemaVersion = r.schema_version;
   if (typeof r.risk_engine === "string") out.riskEngine = r.risk_engine;
-  if (r.temporal_reasoning !== undefined) out.temporalReasoning = r.temporal_reasoning;
-  if (r.scene_context !== undefined) out.sceneContext = r.scene_context;
-  if (Array.isArray(r.semantic_corrections)) out.semanticCorrections = r.semantic_corrections;
-  if (Array.isArray(r.qwen_candidates)) out.qwenCandidates = r.qwen_candidates;
   if (r.risk_summary && typeof r.risk_summary === "object") out.riskSummary = r.risk_summary;
   if (typeof r.risk_enabled === "boolean") out.riskEnabled = r.risk_enabled;
   if (typeof r.tracking_enabled === "boolean") out.trackingEnabled = r.tracking_enabled;
   if (typeof r.scene_graph_enabled === "boolean") out.sceneGraphEnabled = r.scene_graph_enabled;
   if (typeof r.degradation_mode === "string") out.degradationMode = r.degradation_mode;
-  if (
-    typeof r.reasoner_status === "string" ||
-    (r.reasoner_status != null && typeof r.reasoner_status === "object")
-  )
-    out.reasonerStatus = r.reasoner_status;
+  if (typeof r.reasoner_status === "string") out.reasonerStatus = r.reasoner_status;
   if (r.stage_timings_ms && typeof r.stage_timings_ms === "object")
     out.stageTimingsMs = r.stage_timings_ms;
   if (typeof r.privacy_blur_applied === "boolean") out.privacyBlurApplied = r.privacy_blur_applied;
@@ -322,14 +267,8 @@ export function applyEntityRiskFields(
   entity: BackendEntity,
   raw: Record<string, unknown>,
 ): BackendEntity {
-  if (typeof raw.id === "string") entity.id = raw.id;
-  else if (typeof raw.id === "number") entity.id = String(raw.id);
-  if (typeof raw.detection_id === "string") entity.detection_id = raw.detection_id;
-  else if (typeof raw.detection_id === "number") entity.detection_id = String(raw.detection_id);
   if (typeof raw.track_id === "string") entity.track_id = raw.track_id;
   else if (typeof raw.track_id === "number") entity.track_id = String(raw.track_id);
-  if (typeof raw.raw_label === "string") entity.raw_label = raw.raw_label;
-  if (typeof raw.semantic_label === "string") entity.semantic_label = raw.semantic_label;
   if (typeof raw.state === "string") entity.state = raw.state;
   const level = normalizeRiskLevel(raw.risk_level, raw.risk_color);
   if (level) entity.risk_level = level;
@@ -367,11 +306,7 @@ export function mergeEntityRisk(normalized: BackendEntity[], raw: unknown): Back
       typeof it === "object" &&
       ("risk_level" in it ||
         "risk_color" in it ||
-        "id" in it ||
-        "detection_id" in it ||
         "track_id" in it ||
-        "raw_label" in it ||
-        "semantic_label" in it ||
         "risk_reason" in it ||
         "produced_by" in it),
   ) as Record<string, unknown>[];
@@ -418,73 +353,6 @@ function freshStatus(state: BackendStatus["state"]): BackendStatus {
   };
 }
 
-function createDetectorRunSessionId(): string {
-  const prefix = "browser-http";
-  try {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return `${prefix}-${crypto.randomUUID()}`;
-    }
-  } catch {
-    // fall through to timestamp fallback
-  }
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function buildRiskAwareDetectBody(
-  image_b64: string,
-  session_id: string,
-  frame_id: string,
-  monitoringRequest: HSEDetectRequest | null,
-): Record<string, unknown> {
-  return applyHseRequestToBody(
-    {
-      image_b64,
-      conf: DRY_RUN_CONF,
-      img_size: 640,
-      classes: null,
-      session_id,
-      frame_id,
-      camera_id: CAMERA_ID,
-      scene_hint: "indoor_demo",
-      site_context: {
-        environment_type: "indoor",
-        mode: "live_hse_monitoring",
-        reasoning_policy: {
-          report_only_visible_supported_risks: true,
-          allow_no_risk_result: true,
-          prefer_scene_observation_over_hazard_template: true,
-          require_visual_evidence_for_scene_risk: true,
-          avoid_assuming_edge_risk_from_object_presence: true,
-        },
-        monitoring_focus: [
-          "visible slip/trip hazards",
-          "falling-object potential",
-          "blocked path",
-          "broken object",
-          "unsafe human-object interaction",
-          "visible PPE concern",
-          "vehicle/person proximity when visible",
-        ],
-      },
-      camera_context: {
-        camera_name: CAMERA_ID,
-        location_name: "live_camera",
-      },
-      reasoning_preferences: {
-        force_reason: false,
-        prefer_low_latency: true,
-        target_reasoning_interval_ms: 1500,
-        max_candidate_age_ms: 1500,
-        require_visual_evidence: true,
-        allow_no_active_risk: true,
-        avoid_repeating_unconfirmed_risks: true,
-        verify_current_frame_before_reusing_cached_risk: true,
-      },
-    },
-    monitoringRequest,
-  );
-}
-
 export class BackendVisionHttpDetector implements Detector {
   readonly name = "backend-edgecrafter-http";
 
@@ -502,11 +370,6 @@ export class BackendVisionHttpDetector implements Detector {
   // Latest parsed risk-aware view (additive). Null until a response carries any
   // risk-aware field; old responses leave it null so the UI renders plain.
   private lastRisk: ParsedDetectRisk | null = null;
-  private detectRunSessionId: string | null = null;
-  private frameSeq = 0;
-  private recentEntitySnapshots: EntitySnapshot[] = [];
-  private riskAnchors: RiskAnchor[] = [];
-  private correctionAnchors: CorrectionAnchor[] = [];
   private captureCanvas: HTMLCanvasElement | null = null;
   private captureCtx: CanvasRenderingContext2D | null = null;
   private status: BackendStatus = freshStatus("idle");
@@ -546,11 +409,6 @@ export class BackendVisionHttpDetector implements Detector {
     this.lastPoses = [];
     this.lastSegments = [];
     this.lastRisk = null;
-    this.detectRunSessionId = createDetectorRunSessionId();
-    this.frameSeq = 0;
-    this.recentEntitySnapshots = [];
-    this.riskAnchors = [];
-    this.correctionAnchors = [];
     this.retryAfterMs = 0;
     this.session = null;
     this.sessionPromise = null;
@@ -579,11 +437,6 @@ export class BackendVisionHttpDetector implements Detector {
     this.lastPoses = [];
     this.lastSegments = [];
     this.lastRisk = null;
-    this.detectRunSessionId = null;
-    this.frameSeq = 0;
-    this.recentEntitySnapshots = [];
-    this.riskAnchors = [];
-    this.correctionAnchors = [];
     this.retryAfterMs = 0;
     this.captureCanvas = null;
     this.captureCtx = null;
@@ -721,9 +574,6 @@ export class BackendVisionHttpDetector implements Detector {
         this.status.error = "frame_capture_failed";
         return;
       }
-      if (!this.detectRunSessionId) this.detectRunSessionId = createDetectorRunSessionId();
-      this.frameSeq += 1;
-      const currentFrameId = String(this.frameSeq);
 
       this.status.requestCount += 1;
       this.status.lastRequestAt = Date.now();
@@ -737,10 +587,8 @@ export class BackendVisionHttpDetector implements Detector {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(
-            buildRiskAwareDetectBody(
-              image_b64,
-              this.detectRunSessionId,
-              currentFrameId,
+            applyHseRequestToBody(
+              { image_b64, conf: DRY_RUN_CONF, img_size: 640, classes: null },
               this.monitoringRequest,
             ),
           ),
@@ -804,9 +652,9 @@ export class BackendVisionHttpDetector implements Detector {
         return;
       }
 
-      let entities = normalizeEntities(resp.entities, resp.img_w, resp.img_h);
+      this.lastEntities = normalizeEntities(resp.entities, resp.img_w, resp.img_h);
       // Additive: overlay any entity-level risk fields (track_id, risk_level, …).
-      mergeEntityRisk(entities, resp.entities);
+      mergeEntityRisk(this.lastEntities, resp.entities);
       this.lastPoses = normalizePoses(resp.poses, resp.img_w, resp.img_h);
       // Segments are OPTIONAL — missing/invalid => [] (never breaks parsing).
       this.lastSegments = normalizeSegments(resp.segments, resp.img_w, resp.img_h);
@@ -814,61 +662,7 @@ export class BackendVisionHttpDetector implements Detector {
       // missing risk fields never throw — we just keep the legacy view. Only
       // store a non-null risk when the worker actually included risk-aware data.
       const parsedRisk = parseDetectRiskFields(resp);
-      if (hasRiskAwareData(resp)) {
-        const nowMs = performance.now();
-        const associated = associateRisksToEntities(
-          entities,
-          parsedRisk.sceneRisks,
-          parsedRisk.semanticCorrections ?? [],
-          this.recentEntitySnapshots,
-          this.riskAnchors,
-          nowMs,
-        );
-        entities = associated.entities;
-        parsedRisk.sceneRisks = associated.associatedRisks;
-        this.riskAnchors = associated.anchors;
-        parsedRisk.unmatchedRisks = associated.unmatchedRisks;
-        parsedRisk.riskAnchors = associated.anchors;
-
-        const corrected = applySemanticCorrectionsToEntities(
-          entities,
-          parsedRisk.semanticCorrections ?? [],
-          this.recentEntitySnapshots,
-          this.correctionAnchors,
-          nowMs,
-        );
-        entities = corrected.entities;
-        this.correctionAnchors = corrected.anchors;
-        parsedRisk.unmatchedCorrections = corrected.unmatchedCorrections;
-
-        this.recentEntitySnapshots = pushRecentEntitySnapshot(this.recentEntitySnapshots, {
-          frameId: currentFrameId,
-          timestampMs: nowMs,
-          entities: entities.map((entity) => ({
-            ...entity,
-            risk_level: undefined,
-            risk_score: undefined,
-            risk_reason: undefined,
-            evidence: undefined,
-            recommended_action: undefined,
-            recommended_controls: undefined,
-            linked_risk_id: undefined,
-            risk_association: undefined,
-            risk_stale: undefined,
-            risk_resolving: undefined,
-            risk_expires_at_ms: undefined,
-          })),
-        });
-        this.lastRisk = parsedRisk;
-      } else {
-        this.lastRisk = null;
-        this.recentEntitySnapshots = pushRecentEntitySnapshot(this.recentEntitySnapshots, {
-          frameId: currentFrameId,
-          timestampMs: performance.now(),
-          entities,
-        });
-      }
-      this.lastEntities = entities;
+      this.lastRisk = hasRiskAwareData(resp) ? parsedRisk : null;
       this.status.segmentCount = this.lastSegments.length;
       this.status.lastBackendImgW = typeof resp.img_w === "number" ? resp.img_w : null;
       this.status.lastBackendImgH = typeof resp.img_h === "number" ? resp.img_h : null;
@@ -1017,10 +811,10 @@ export async function postDetectFrame(
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      ...buildRiskAwareDetectBody(image_b64, createDetectorRunSessionId(), "1", null),
+      image_b64,
       conf: opts?.conf ?? DRY_RUN_CONF,
       img_size: opts?.imgSize ?? 640,
-      camera_id: opts?.cameraId ?? CAMERA_ID,
+      classes: null,
     }),
   });
   const text = await res.text();

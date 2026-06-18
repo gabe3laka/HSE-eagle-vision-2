@@ -13,9 +13,9 @@ Add a **dry-run DEIMv2 backend integration** into Eagle Vision 2.
 
 ## Two-repo architecture
 
-| Repo                               | Purpose                                       |
-| ---------------------------------- | --------------------------------------------- |
-| `gabe3laka/HSE-eagle-vision-2`     | Frontend app (React/TS) — this repo           |
+| Repo | Purpose |
+|---|---|
+| `gabe3laka/HSE-eagle-vision-2` | Frontend app (React/TS) — this repo |
 | `gabe3laka/safelens-deimv2-worker` | RunPod worker (Python/Docker) — separate repo |
 
 RunPod builds and runs containers from the **worker repo** only.  
@@ -48,25 +48,25 @@ Browser camera frame
 
 ### Worker repo (`safelens-deimv2-worker`)
 
-| File                    | Purpose                                        |
-| ----------------------- | ---------------------------------------------- |
-| `Dockerfile`            | CUDA/PyTorch base; clones DEIMv2 at build time |
-| `requirements.txt`      | runpod, Pillow, pydantic, torch, transformers  |
-| `schema.py`             | Pydantic request/response models               |
-| `deimv2_infer.py`       | Lazy model loading + DEIMv2 inference wrapper  |
-| `handler.py`            | RunPod serverless entry point                  |
-| `scripts/smoke_test.py` | Local + live endpoint smoke test               |
-| `examples/*.json`       | Sample request/response payloads               |
+| File | Purpose |
+|---|---|
+| `Dockerfile` | CUDA/PyTorch base; clones DEIMv2 at build time |
+| `requirements.txt` | runpod, Pillow, pydantic, torch, transformers |
+| `schema.py` | Pydantic request/response models |
+| `deimv2_infer.py` | Lazy model loading + DEIMv2 inference wrapper |
+| `handler.py` | RunPod serverless entry point |
+| `scripts/smoke_test.py` | Local + live endpoint smoke test |
+| `examples/*.json` | Sample request/response payloads |
 
 ### Eagle Vision 2 (`HSE-eagle-vision-2`)
 
-| File                                         | Change                                                                   |
-| -------------------------------------------- | ------------------------------------------------------------------------ |
-| `src/lib/detection/types.ts`                 | Add `"backend-deimv2"` to `DetectionMode`; add `BackendEntity` interface |
-| `src/lib/detection/backendVisionDetector.ts` | **New** — fires async backend requests, caches entities                  |
-| `src/lib/detection/detectorFactory.ts`       | Add `"backend-deimv2"` case → `BackendVisionDetector`                    |
-| `src/hooks/useAlertSettings.ts`              | Add `coerceMode()` to handle `"backend-deimv2"` in persisted settings    |
-| `supabase/functions/deimv2-proxy/index.ts`   | **New** — Edge Function proxy (keeps RunPod key secret)                  |
+| File | Change |
+|---|---|
+| `src/lib/detection/types.ts` | Add `"backend-deimv2"` to `DetectionMode`; add `BackendEntity` interface |
+| `src/lib/detection/backendVisionDetector.ts` | **New** — fires async backend requests, caches entities |
+| `src/lib/detection/detectorFactory.ts` | Add `"backend-deimv2"` case → `BackendVisionDetector` |
+| `src/hooks/useAlertSettings.ts` | Add `coerceMode()` to handle `"backend-deimv2"` in persisted settings |
+| `supabase/functions/deimv2-proxy/index.ts` | **New** — Edge Function proxy (keeps RunPod key secret) |
 
 ---
 
@@ -78,7 +78,6 @@ supabase secrets set RUNPOD_ENDPOINT_ID=<your-endpoint-id>
 ```
 
 Deploy the Edge Function:
-
 ```bash
 supabase functions deploy deimv2-proxy
 ```
@@ -98,7 +97,6 @@ supabase functions deploy deimv2-proxy
 ## Sprint 4B+ plan
 
 When DEIMv2 is validated on real camera footage:
-
 1. Map DEIMv2 `entities` → `Observation[]` in `BackendVisionDetector.detect()`
 2. Enable: `ppe_missing`, `forklift_proximity`, `blocked_exit` hazard types
 3. Merge DEIMv2 + Pose observations via existing `trackKey` / `source` seam

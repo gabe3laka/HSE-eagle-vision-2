@@ -43,7 +43,6 @@ import { BlueprintCalloutLayer } from "@/features/build-mode/components/Blueprin
 import { PlanHologramRenderer } from "@/features/build-mode/components/PlanHologramRenderer";
 import { PlanConsole } from "@/features/build-mode/components/PlanConsole";
 import { useHseMonitoring } from "@/features/hse-monitoring/hooks/useHseMonitoring";
-import { useHseLiveRiskViewModel } from "@/features/hse-monitoring/hooks/useHseLiveRiskViewModel";
 import { EagleVisionHUD } from "@/components/live/EagleVisionHUD";
 import {
   SceneRiskPanel,
@@ -312,10 +311,6 @@ export default function Live() {
     suppressIncidents: buildModeOn,
   });
 
-  // Parsed worker risk view from the HTTP detector. The detector remains the
-  // coordinate/track source; HSE mode only changes what we surface visually.
-  const risk = (backendRisk as ParsedDetectRisk | null) ?? null;
-
   // Eagle Vision HSE monitoring pipeline (HSE mode only) — backend detections →
   // tracks → risk rules → wearable alerts + HUD + throttled DeepSeek. Runs
   // alongside the existing RiskEngine/pose path without touching it.
@@ -331,30 +326,6 @@ export default function Live() {
     backendName: (backendStatus as BackendStatus | null)?.backend ?? null,
     fallbackActive: !!(backendStatus as BackendStatus | null)?.fallbackUsed,
     setMonitoringRequest,
-    localAlertsEnabled: riskFlags.hseLocalAlertsEnabled,
-  });
-
-  const [acknowledgedSceneRiskKeys, setAcknowledgedSceneRiskKeys] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const acknowledgeSceneRisk = useCallback((key: string) => {
-    setAcknowledgedSceneRiskKeys((prev) => {
-      const next = new Set(prev);
-      next.add(key);
-      return next;
-    });
-  }, []);
-  const hseRiskViewModel = useHseLiveRiskViewModel({
-    entities: backendEntities as BackendEntity[],
-    poses: backendPoses as BackendPose[],
-    parsedRisk: hseActive ? risk : null,
-    localActiveAlerts: hse.activeAlerts,
-    nowMs: Date.now(),
-    acknowledgedRiskKeys: acknowledgedSceneRiskKeys,
-    debug: false,
-    qwenCandidateLaneEnabled: riskFlags.hseQwenCandidateLaneEnabled,
-    showQwenCandidates: riskFlags.hseShowQwenCandidates,
-    localAlertsEnabled: riskFlags.hseLocalAlertsEnabled,
   });
 
   // Finger-level hand tracking (MediaPipe Hand Landmarker) — Build Mode only,
@@ -624,6 +595,7 @@ export default function Live() {
 
   // Parsed risk-aware view from the HTTP detector (null for legacy responses).
   // Only consumed when a risk-aware flag is on — otherwise it's inert.
+  const risk = (backendRisk as ParsedDetectRisk | null) ?? null;
   const showSceneRiskPanel =
     riskFlags.workerSceneRisks && !!risk && (risk.sceneRisks.length > 0 || !!risk.riskSummary);
   const showDegradedBanner = riskFlags.workerSceneRisks && !!risk && risk.degraded;
@@ -638,14 +610,6 @@ export default function Live() {
   const showFrameTest = isCloudflareHttp || isLegacyHttp;
   const liveBackendName = (backendStatus as BackendStatus | null)?.backend ?? null;
   const fallbackActive = !!(backendStatus as BackendStatus | null)?.fallbackUsed;
-  const cameraBackendEntities = hseActive
-    ? hseRiskViewModel.overlayEntities
-    : (backendEntities as BackendEntity[]);
-  const cameraBackendPoses = hseActive
-    ? hseRiskViewModel.overlayPoses
-    : (backendPoses as BackendPose[]);
-  const cameraOverlayMode = hseActive ? "hse-risk-only" : "normal";
-  const hseTopAlert = riskFlags.hseLocalAlertsEnabled ? hse.topAlert : null;
 
   const handleStart = useCallback(async () => {
     if (!active) await startCamera();
@@ -720,9 +684,8 @@ export default function Live() {
         poseStatus={poseStatus}
         debug={debug}
         showSkeleton={import.meta.env.DEV}
-        backendEntities={cameraBackendEntities}
-        backendPoses={cameraBackendPoses}
-        overlayMode={cameraOverlayMode}
+        backendEntities={backendEntities as BackendEntity[]}
+        backendPoses={backendPoses as BackendPose[]}
         // Dry-run debug overlays (raw entity boxes, the fuchsia pose skeleton
         // and the entity/pose count chip) belong to HSE monitoring only. In
         // Build/Plan they just clutter the camera on top of the clean
@@ -865,11 +828,11 @@ export default function Live() {
         hseOverlay={
           hseActive ? (
             <>
-              <WearableAlertOverlay severity={hseTopAlert?.severity ?? null} />
+              <WearableAlertOverlay severity={hse.topAlert?.severity ?? null} />
               <EagleVisionHUD
                 tracks={hse.tracks}
-                poses={cameraBackendPoses}
-                topAlert={hseTopAlert}
+                poses={backendPoses as BackendPose[]}
+                topAlert={hse.topAlert}
                 status={hse.status}
                 objectCount={hse.objectCount}
                 stableCount={hse.stableCount}
@@ -906,8 +869,8 @@ export default function Live() {
         backendName={liveBackendName}
         fallbackActive={fallbackActive}
         objectCount={appMode === "hse" ? hse.objectCount : candidates.length}
-        alertCount={appMode === "hse" ? hseRiskViewModel.priorityRisks.length : alerts.length}
-        topRisk={appMode === "hse" ? (hseRiskViewModel.priorityRisks[0]?.title ?? null) : null}
+        alertCount={alerts.length}
+        topRisk={appMode === "hse" ? (hse.topAlert?.title ?? null) : null}
       />
 
       <div
@@ -1020,8 +983,6 @@ export default function Live() {
                 hse={hse}
                 focusArmed={focusArmed}
                 onArmFocus={() => setFocusArmed(true)}
-                hseRiskViewModel={hseRiskViewModel}
-                onAcknowledgeSceneRisk={acknowledgeSceneRisk}
               />
             )}
 
@@ -1032,7 +993,6 @@ export default function Live() {
             {showSceneRiskPanel && risk && (
               <SceneRiskPanel
                 risk={risk}
-                hseRiskViewModel={hseRiskViewModel}
                 showControlHierarchy={riskFlags.showControlHierarchy}
                 showProvenance={riskFlags.showProvenance}
               />
@@ -1125,14 +1085,12 @@ export default function Live() {
                   </button>
                 </SheetTrigger>
                 <SheetContent side="bottom" className="h-[80vh] rounded-t-2xl p-4">
-                  {(appMode !== "hse" || riskFlags.hseLocalAlertsEnabled || !!debug) && (
-                    <AlertFeed
-                      alerts={alerts}
-                      running={running}
-                      language={config.language}
-                      onDismiss={dismissAlert}
-                    />
-                  )}
+                  <AlertFeed
+                    alerts={alerts}
+                    running={running}
+                    language={config.language}
+                    onDismiss={dismissAlert}
+                  />
                 </SheetContent>
               </Sheet>
             </div>
@@ -1213,16 +1171,14 @@ export default function Live() {
                 </div>
               </details>
             )}
-            {(appMode !== "hse" || riskFlags.hseLocalAlertsEnabled || !!debug) && (
-              <div className="console-panel hidden h-[360px] p-4 xl:block">
-                <AlertFeed
-                  alerts={alerts}
-                  running={running}
-                  language={config.language}
-                  onDismiss={dismissAlert}
-                />
-              </div>
-            )}
+            <div className="console-panel hidden h-[360px] p-4 xl:block">
+              <AlertFeed
+                alerts={alerts}
+                running={running}
+                language={config.language}
+                onDismiss={dismissAlert}
+              />
+            </div>
           </aside>
         </div>
       </div>

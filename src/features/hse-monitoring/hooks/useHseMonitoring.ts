@@ -51,7 +51,6 @@ interface Options {
   backendName?: string | null;
   fallbackActive?: boolean;
   haptics?: boolean;
-  localAlertsEnabled?: boolean;
   setMonitoringRequest: (req: unknown) => void;
 }
 
@@ -65,7 +64,6 @@ export function useHseMonitoring({
   backendName,
   fallbackActive,
   haptics = true,
-  localAlertsEnabled = false,
   setMonitoringRequest,
 }: Options) {
   const { user } = useAuth();
@@ -177,12 +175,12 @@ export function useHseMonitoring({
 
     // Wearable haptics + incident persistence for newly-fired alerts.
     for (const a of fired) {
-      if (localAlertsEnabled && haptics && a.wearablePattern !== "none") {
+      if (haptics && a.wearablePattern !== "none") {
         void wearableRef.current.send(
           toWearableAlert({ id: a.id, severity: a.severity, spokenMessage: a.spokenMessage }),
         );
       }
-      if (localAlertsEnabled) persistIncident(a);
+      persistIncident(a);
     }
 
     // Throttled DeepSeek: a fresh medium+ alert, or a stale-but-changed scene.
@@ -197,9 +195,8 @@ export function useHseMonitoring({
     const sinceReason = now - lastReasonAtRef.current;
     const sceneChanged = sig !== lastSceneSigRef.current;
     if (
-      localAlertsEnabled &&
-      ((hasSignificant && sinceReason > REASON_MIN_GAP_MS) ||
-        (sceneChanged && sinceReason > REASON_IDLE_MS && candidates.length > 0))
+      (hasSignificant && sinceReason > REASON_MIN_GAP_MS) ||
+      (sceneChanged && sinceReason > REASON_IDLE_MS && candidates.length > 0)
     ) {
       lastSceneSigRef.current = sig;
       void runReasoning(candidates);
@@ -212,7 +209,6 @@ export function useHseMonitoring({
     liveBoxes,
     zones,
     haptics,
-    localAlertsEnabled,
     ppeRequired,
     persistIncident,
     runReasoning,
@@ -264,9 +260,7 @@ export function useHseMonitoring({
     setActiveAlerts(managerRef.current.list());
   }, []);
 
-  const topAlert = localAlertsEnabled
-    ? (activeAlerts.find((a) => a.state !== "resolved") ?? null)
-    : null;
+  const topAlert = activeAlerts.find((a) => a.state !== "resolved") ?? null;
   const status: StatusLevel = useMemo(() => {
     const sev = topAlert?.severity;
     if (sev === "critical") return "critical";
@@ -297,7 +291,6 @@ export function useHseMonitoring({
     sceneCaption,
     backendName: backendName ?? null,
     fallbackActive: !!fallbackActive,
-    localAlertsEnabled,
   };
 }
 

@@ -13,7 +13,6 @@ import { SkeletonOverlay } from "./SkeletonOverlay";
 import { ZoneOverlay } from "./ZoneOverlay";
 import type { PoseDebug, PoseStatus } from "@/lib/detection/poseGeometry";
 import type { DetectionZone, ZonePoint } from "@/lib/detection/types";
-import type { HseOverlayMode } from "@/lib/detection/hseLiveRiskViewModel";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { computeCoverCrop, MOBILE_VISUAL_ASPECT } from "@/lib/detection/coverCrop";
 
@@ -44,7 +43,6 @@ interface Props {
   backendEntities?: BackendEntity[];
   backendPoses?: BackendPose[];
   backendDryRun?: boolean;
-  overlayMode?: HseOverlayMode;
   /** Risk-aware box coloring (VITE_RISK_AWARE_OVERLAY). OFF → unchanged. */
   riskAwareOverlay?: boolean;
   /** Small privacy notice slot near the camera (VITE_CAMERA_PRIVACY_NOTICE). */
@@ -95,7 +93,6 @@ export function CameraView({
   backendEntities,
   backendPoses,
   backendDryRun,
-  overlayMode = "normal",
   riskAwareOverlay,
   privacyNotice,
   zones,
@@ -287,9 +284,7 @@ export function CameraView({
             />
           )}
 
-          {active && running && overlayMode !== "hse-risk-only" && (
-            <DetectionOverlay boxes={boxes} mirrored={mirrored} />
-          )}
+          {active && running && <DetectionOverlay boxes={boxes} mirrored={mirrored} />}
 
           {active && running && backendDryRun && (
             <>
@@ -299,13 +294,8 @@ export function CameraView({
                 debug={showSkeleton}
                 mirrored={mirrored}
                 riskAware={riskAwareOverlay}
-                overlayMode={overlayMode}
               />
-              <BackendPoseOverlay
-                poses={backendPoses ?? []}
-                mirrored={mirrored}
-                overlayMode={overlayMode}
-              />
+              <BackendPoseOverlay poses={backendPoses ?? []} mirrored={mirrored} />
             </>
           )}
 
@@ -357,7 +347,7 @@ export function CameraView({
           </button>
         )}
 
-        {active && running && backendDryRun && overlayMode !== "hse-risk-only" && (
+        {active && running && backendDryRun && (
           <div className="pointer-events-none absolute right-3 top-12 z-20 flex flex-col items-end gap-1">
             <span className="rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-teal-300 backdrop-blur">
               EdgeCrafter entities: {backendEntities?.length ?? 0}

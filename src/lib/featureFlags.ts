@@ -14,10 +14,7 @@ export type RiskFeatureFlag =
   | "VITE_RISK_DEBUG_PANEL"
   | "VITE_SHOW_CONTROL_HIERARCHY"
   | "VITE_SHOW_PROVENANCE"
-  | "VITE_CAMERA_PRIVACY_NOTICE"
-  | "VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED"
-  | "VITE_HSE_SHOW_QWEN_CANDIDATES"
-  | "VITE_HSE_LOCAL_ALERTS_ENABLED";
+  | "VITE_CAMERA_PRIVACY_NOTICE";
 
 /** PURE: read a single boolean flag from an env bag. Returns `true` for the
  *  string "true", `false` for the string "false", and `defaultValue` otherwise
@@ -42,9 +39,6 @@ export interface RiskFeatureFlags {
   showControlHierarchy: boolean;
   showProvenance: boolean;
   cameraPrivacyNotice: boolean;
-  hseQwenCandidateLaneEnabled: boolean;
-  hseShowQwenCandidates: boolean;
-  hseLocalAlertsEnabled: boolean;
 }
 
 /** The risk-aware UI is enabled by default; set the matching VITE_* var to
@@ -57,9 +51,6 @@ export function readRiskFeatureFlags(env: Record<string, unknown> = safeEnv()): 
     showControlHierarchy: readFlag("VITE_SHOW_CONTROL_HIERARCHY", env, true),
     showProvenance: readFlag("VITE_SHOW_PROVENANCE", env, true),
     cameraPrivacyNotice: readFlag("VITE_CAMERA_PRIVACY_NOTICE", env, true),
-    hseQwenCandidateLaneEnabled: readFlag("VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED", env, false),
-    hseShowQwenCandidates: readFlag("VITE_HSE_SHOW_QWEN_CANDIDATES", env, false),
-    hseLocalAlertsEnabled: readFlag("VITE_HSE_LOCAL_ALERTS_ENABLED", env, false),
   };
 }
 
