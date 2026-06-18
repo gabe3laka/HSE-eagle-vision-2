@@ -398,6 +398,10 @@ export class BackendVisionHttpDetector implements Detector {
   // Optional HSE-monitoring request metadata (profile / quality / ROI). When
   // null the /detect body is exactly the legacy shape — the contract is intact.
   private monitoringRequest: HSEDetectRequest | null = null;
+  // Stable per-detector-instance session id; reused for every frame this
+  // detector submits until stop(). Generated on start().
+  private sessionId: string | null = null;
+  private frameCounter = 0;
 
   constructor(opts?: {
     detectUrl?: string | null;
