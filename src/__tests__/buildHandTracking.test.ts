@@ -156,25 +156,18 @@ describe("Build Mode hand tracking — keyframe recording", () => {
   });
 });
 
-import { vi } from "vitest";
 import { readBackendWristFallbackFlag } from "../features/build-mode/hooks/useBuildHandTracking";
 
 describe("Build Mode — backend wrist fallback flag (VITE_BUILD_BACKEND_WRIST_FALLBACK)", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it("defaults to false when the env var is unset", () => {
-    vi.stubEnv("VITE_BUILD_BACKEND_WRIST_FALLBACK", "");
-    expect(readBackendWristFallbackFlag()).toBe(false);
+  it("defaults to false when unset", () => {
+    expect(readBackendWristFallbackFlag({})).toBe(false);
   });
 
   it("returns true only for the exact string 'true'", () => {
-    vi.stubEnv("VITE_BUILD_BACKEND_WRIST_FALLBACK", "true");
-    expect(readBackendWristFallbackFlag()).toBe(true);
-    vi.stubEnv("VITE_BUILD_BACKEND_WRIST_FALLBACK", "false");
-    expect(readBackendWristFallbackFlag()).toBe(false);
-    vi.stubEnv("VITE_BUILD_BACKEND_WRIST_FALLBACK", "yes");
-    expect(readBackendWristFallbackFlag()).toBe(false);
+    expect(readBackendWristFallbackFlag({ VITE_BUILD_BACKEND_WRIST_FALLBACK: "true" })).toBe(true);
+    expect(readBackendWristFallbackFlag({ VITE_BUILD_BACKEND_WRIST_FALLBACK: "false" })).toBe(
+      false,
+    );
+    expect(readBackendWristFallbackFlag({ VITE_BUILD_BACKEND_WRIST_FALLBACK: "yes" })).toBe(false);
   });
 });
