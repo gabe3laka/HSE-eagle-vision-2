@@ -110,6 +110,7 @@ export function CameraView({
   rawBackendPoseCount,
   riskLinkedEntityCount,
   riskLinkedPoseCount,
+  statusEntityCount,
   privacyNotice,
   zones,
   editingZones,
