@@ -15,6 +15,20 @@ import type { HseLiveRiskViewModel, HseGroupedRisk } from "@/lib/detection/hseLi
 
 function RiskRow({ risk }: { risk: HseGroupedRisk }) {
   const color = riskLevelColor(risk.level);
+  const rep = risk.raw[0];
+  const score = risk.riskScore || rep?.risk_score;
+  const severity = typeof rep?.severity === "number" ? rep.severity : undefined;
+  const likelihood = typeof rep?.likelihood === "number" ? rep.likelihood : undefined;
+  const visualEvidence =
+    Array.isArray(rep?.visual_evidence) && rep.visual_evidence.length > 0
+      ? rep.visual_evidence[0]
+      : undefined;
+  const linkedArea = !risk.linkedItem && (rep?.bbox || rep?.approximate_region || rep?.region);
+  const metaParts: string[] = [];
+  if (typeof score === "number") metaParts.push(`score ${score}`);
+  if (typeof severity === "number") metaParts.push(`sev ${severity}`);
+  if (typeof likelihood === "number") metaParts.push(`lik ${likelihood}`);
+
   return (
     <li className="rounded-lg border border-white/[0.06] bg-black/20 p-2.5">
       <div className="flex items-center gap-2">
@@ -29,14 +43,28 @@ function RiskRow({ risk }: { risk: HseGroupedRisk }) {
           {risk.source}
         </span>
       </div>
-      {risk.linkedItem && (
+      {metaParts.length > 0 && (
+        <p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground/80">
+          {metaParts.join(" · ")}
+        </p>
+      )}
+      {risk.linkedItem ? (
         <p className="mt-1 text-[10px] text-muted-foreground/85">
           Linked item: <span className="text-foreground/90">{risk.linkedItem}</span>
         </p>
-      )}
+      ) : linkedArea ? (
+        <p className="mt-1 text-[10px] text-muted-foreground/85">
+          Linked area: <span className="text-foreground/90">visual region</span>
+        </p>
+      ) : null}
       {risk.why && (
         <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
           <span className="font-medium text-foreground/80">Why:</span> {risk.why}
+        </p>
+      )}
+      {visualEvidence && (
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          <span className="font-medium text-foreground/80">Evidence:</span> {visualEvidence}
         </p>
       )}
       {risk.action && (
