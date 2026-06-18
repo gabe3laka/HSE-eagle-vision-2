@@ -196,10 +196,32 @@ export function runHseRules(input: HseRulesInput): HSEAlertCandidate[] {
     }
   }
 
-  // 6 — Ergonomic posture risk from pose (cautious; needs a pose).
+  // 6 — Ergonomic posture risk from pose. Strict: only fires when there is
+  //     a confirmed person observation (track confidence >= 0.45, real person
+  //     bbox covers the pose) AND the pose has full body structure. This
+  //     prevents pose-only false positives from raising a "Possible unsafe
+  //     posture" warning when no person is actually in frame.
+  const PERSON_MIN_CONF = 0.45;
+  const MIN_STRUCTURAL_KP = 8;
   for (const person of stablePersons) {
-    const obs = observations.find((o) => o.pose && o.bbox && iou(o.bbox, person.bbox) > 0.3);
-    if (obs?.pose && isStooped(obs.pose)) {
+    if (person.confidence < PERSON_MIN_CONF) continue;
+    const obs = observations.find(
+      (o) =>
+        o.pose &&
+        o.bbox &&
+        o.category === "person" &&
+        iou(o.bbox, person.bbox) > 0.3,
+    );
+    if (!obs?.pose) continue;
+    const pose = obs.pose;
+    const visibleKp = (pose.keypoints ?? []).filter((k) => k.score >= 0.45);
+    if (visibleKp.length < MIN_STRUCTURAL_KP) continue;
+    const names = new Set(visibleKp.map((k) => (k.name ?? "").toLowerCase()));
+    const hasShoulder = names.has("left_shoulder") || names.has("right_shoulder");
+    const hasHip = names.has("left_hip") || names.has("right_hip");
+    const hasHead = names.has("nose") || names.has("head");
+    if (!hasShoulder || !hasHip || !hasHead) continue;
+    if (isStooped(pose)) {
       out.push({
         id: nextId(),
         severity: "low",
