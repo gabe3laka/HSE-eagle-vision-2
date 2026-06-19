@@ -1236,20 +1236,24 @@ export default function Live() {
                           Diagnostic only: never creates alerts/boxes/incidents. */}
                       {import.meta.env.DEV && appMode === "hse" && (
                         <ReasonerContractProbe
-                          parsedRisk={risk}
-                          rawResp={(() => {
-                            const raw = (backendStatus as BackendStatus | null)?.lastRawResponse;
-                            if (typeof raw !== "string" || !raw) return null;
-                            try {
-                              return JSON.parse(raw);
-                            } catch {
-                              return null;
-                            }
-                          })()}
+                          parsedRisk={parsedRiskForVm}
+                          rawResp={
+                            heartbeatRaw ??
+                            (() => {
+                              const raw = (backendStatus as BackendStatus | null)?.lastRawResponse;
+                              if (typeof raw !== "string" || !raw) return null;
+                              try {
+                                return JSON.parse(raw);
+                              } catch {
+                                return null;
+                              }
+                            })()
+                          }
                           status={(backendStatus as BackendStatus | null) ?? null}
                           localAlertsEnabled={hseFlags.localAlertsEnabled}
                           riskLinkedEntityCount={hseRiskViewModel.riskLinkedEntityCount}
                           riskLinkedPoseCount={hseRiskViewModel.riskLinkedPoseCount}
+                          forceReasonSent={heartbeatFlags.forceReason && heartbeatAtMs != null}
                         />
                       )}
                       {showFrameTest && (
