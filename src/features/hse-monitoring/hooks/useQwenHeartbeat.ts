@@ -186,24 +186,11 @@ export function useQwenHeartbeat({
           roiRef.current,
           "hse-qwen-heartbeat",
         );
-        const monitoringRequest = forceReasonRef.current
-          ? {
-              ...baseReq,
-              reasoningPreferencesOverride: {
-                force_reason: true,
-                prefer_low_latency: true,
-                require_visual_evidence: true,
-                allow_no_active_risk: true,
-                return_scene_risks: true,
-                return_linked_entities: true,
-                return_reasoner_status: true,
-                return_scene_context: true,
-                return_semantic_corrections: true,
-                avoid_repeating_unconfirmed_risks: true,
-                verify_current_frame_before_reusing_cached_risk: true,
-              },
-            }
-          : baseReq;
+        const monitoringRequest = buildHeartbeatMonitoringRequest(
+          profileRef.current,
+          roiRef.current,
+          forceReasonRef.current,
+        );
         const raw = await postDetectFrame(captured.image_b64, {
           conf: 0.15,
           monitoringRequest,
