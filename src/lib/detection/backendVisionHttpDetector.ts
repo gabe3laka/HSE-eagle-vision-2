@@ -184,6 +184,7 @@ interface DetectResponse extends RiskAwareFields {
   tasks?: unknown;
   inference_ms?: number;
   model?: string;
+  det_model_id?: string;
   error?: string;
   img_w?: number;
   img_h?: number;
