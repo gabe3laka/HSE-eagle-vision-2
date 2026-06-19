@@ -1103,10 +1103,16 @@ export function formatDetectSummary(s: DetectResponseSummary): string {
   lines.push(`  scene_risks: ${s.risk.sceneRisks}`);
   lines.push(`  risk_summary: ${s.risk.hasRiskSummary ? "yes" : "no"}`);
   lines.push(`  highest_level: ${s.risk.highestLevel ?? "missing"}`);
-  lines.push(`  reasoner_status: ${s.reasoner.reasonerStatus ?? "missing"}`);
+  lines.push(`  raw_reasoner_status: ${s.reasoner.rawReasonerStatus ?? "missing"}`);
+  lines.push(`  normalized_reasoner_status: ${s.reasoner.reasonerStatus ?? "missing"}`);
   lines.push(`  scene_context: ${s.reasoner.sceneContextPresent ? "yes" : "no"}`);
   lines.push(`  semantic_corrections: ${s.reasoner.semanticCorrections}`);
   lines.push(`  temporal_reasoning: ${s.reasoner.temporalReasoningPresent ? "yes" : "no"}`);
+  lines.push(`  qwen_result_received: ${qwenResultReceivedFromSummary(s) ? "yes" : "no"}`);
+  lines.push(
+    `  qwen_unavailable_warning: ${s.warnings.includes("qwen_unavailable") ? "yes" : "no"}`,
+  );
+  lines.push(`  manual force_reason sent: ${s.forceReasonSent ? "yes" : "no"}`);
   lines.push("");
   lines.push("Gateway:");
   lines.push(`  proxy: ${s.gateway.proxy ?? "—"}`);
