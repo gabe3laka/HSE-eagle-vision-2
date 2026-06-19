@@ -1342,6 +1342,21 @@ export default function Live() {
                           forceReasonSent={heartbeatFlags.forceReason && heartbeatAtMs != null}
                         />
                       )}
+                      {import.meta.env.DEV && appMode === "hse" && (
+                        <HeartbeatDiagnosticsPanel
+                          enabled={hseActive && heartbeatFlags.enabled}
+                          intervalMs={heartbeatFlags.intervalMs}
+                          backoffMs={heartbeatFlags.backoffMs}
+                          extendedBackoffMs={heartbeatFlags.extendedBackoffMs}
+                          extendedBackoffAfter={heartbeatFlags.extendedBackoffAfter}
+                          forceReason={heartbeatFlags.forceReason}
+                          currentSessionId={currentHeartbeatSessionId}
+                          lastDiagnostic={heartbeatLastDiag}
+                          counters={heartbeatCounters}
+                          ignoreReason={hbIgnoreReason}
+                          nowMs={nowMsForVm}
+                        />
+                      )}
                       {import.meta.env.DEV && appMode === "hse" && hbIgnoreReason && (
                         <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-200">
                           {heartbeatIgnoreMessage(hbIgnoreReason)}
