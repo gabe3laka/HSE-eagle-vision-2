@@ -17,7 +17,9 @@ export type RiskFeatureFlag =
   | "VITE_CAMERA_PRIVACY_NOTICE"
   | "VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED"
   | "VITE_HSE_SHOW_QWEN_CANDIDATES"
-  | "VITE_HSE_LOCAL_ALERTS_ENABLED";
+  | "VITE_HSE_LOCAL_ALERTS_ENABLED"
+  | "VITE_HSE_QWEN_HEARTBEAT_ENABLED"
+  | "VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON";
 
 /** PURE: read a single boolean flag from an env bag. Returns `true` for the
  *  string "true", `false` for the string "false", and `defaultValue` otherwise
@@ -77,6 +79,40 @@ export function readHseFeatureFlags(env: Record<string, unknown> = safeEnv()): H
     qwenCandidateLaneEnabled: readFlag("VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED", env, false),
     showQwenCandidates: readFlag("VITE_HSE_SHOW_QWEN_CANDIDATES", env, false),
     localAlertsEnabled: readFlag("VITE_HSE_LOCAL_ALERTS_ENABLED", env, false),
+  };
+}
+
+/** Qwen scene-reasoning heartbeat (low-frequency Qwen loop) configuration. */
+export interface HseQwenHeartbeatFlags {
+  enabled: boolean;
+  intervalMs: number;
+  backoffMs: number;
+  forceReason: boolean;
+  resultTtlMs: number;
+}
+
+function readNumberEnv(
+  env: Record<string, unknown>,
+  key: string,
+  fallback: number,
+  min: number,
+): number {
+  const v = env[key];
+  const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, n);
+}
+
+export function readHseQwenHeartbeatFlags(
+  env: Record<string, unknown> = safeEnv(),
+): HseQwenHeartbeatFlags {
+  const intervalMs = readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_MS", 2000, 1000);
+  return {
+    enabled: readFlag("VITE_HSE_QWEN_HEARTBEAT_ENABLED", env, true),
+    intervalMs,
+    backoffMs: readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS", 10000, intervalMs),
+    forceReason: readFlag("VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON", env, true),
+    resultTtlMs: readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS", 3000, 500),
   };
 }
 
