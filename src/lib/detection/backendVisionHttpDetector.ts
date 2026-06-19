@@ -972,6 +972,9 @@ export interface DetectResponseSummary {
     upstreamStatus: number | null;
     latencyMs: number | null;
     model: string | null;
+    /** Worker-reported underlying detector model id (e.g. "yolo11s.pt").
+     *  Distinct from `model` (response label, e.g. "YOLO26"). */
+    detModelId: string | null;
     backend: string | null;
   };
   /** Worker-supplied warnings list (e.g. ["qwen_unavailable"]). */
