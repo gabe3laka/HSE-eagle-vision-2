@@ -45,6 +45,12 @@ export interface QwenHeartbeatDiagnostic {
   sceneRisks: number;
   outcome: "ok" | "no-video" | "error" | "skipped-inflight";
   error?: string;
+  /** Heartbeat session id active when this diagnostic was emitted. */
+  sessionId: string;
+  /** Consecutive Qwen failures observed (resets to 0 on ok). */
+  consecutiveFailures: number;
+  /** Delay (ms) scheduled for the NEXT tick after this diagnostic. */
+  nextDelayMs: number;
 }
 
 export interface UseQwenHeartbeatOptions {
@@ -56,10 +62,16 @@ export interface UseQwenHeartbeatOptions {
   intervalMs?: number;
   /** Backoff after Qwen failure. Default 10000. */
   backoffMs?: number;
+  /** Extended backoff after `extendedBackoffAfter` consecutive failures. Default 30000. */
+  extendedBackoffMs?: number;
+  /** Threshold of consecutive failures before switching to `extendedBackoffMs`. Default 3. */
+  extendedBackoffAfter?: number;
   /** Force Qwen reasoning on each tick. Default true. */
   forceReason?: boolean;
   onResponse?: (r: QwenHeartbeatResponse) => void;
   onDiagnostic?: (d: QwenHeartbeatDiagnostic) => void;
+  /** Fires once per effect-run with the current heartbeat session id. */
+  onSessionStart?: (sessionId: string) => void;
 }
 
 const FAILURE_STATES = new Set([
