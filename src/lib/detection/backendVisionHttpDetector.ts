@@ -389,6 +389,7 @@ function freshStatus(state: BackendStatus["state"]): BackendStatus {
     backend: null,
     tasks: null,
     model: null,
+    detModelId: null,
     entityCount: 0,
     poseCount: 0,
     error: null,
