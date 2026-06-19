@@ -69,7 +69,14 @@ import {
   computeQwenDiagnostic,
   formatRouteStatus,
 } from "@/components/live/ReasonerContractProbe";
-import { useQwenHeartbeat } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+import {
+  useQwenHeartbeat,
+  type QwenHeartbeatDiagnostic,
+} from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+import {
+  HeartbeatDiagnosticsPanel,
+  type HeartbeatCounters,
+} from "@/components/live/HeartbeatDiagnosticsPanel";
 import {
   mergeParsedRisk,
   isHeartbeatFresh,
