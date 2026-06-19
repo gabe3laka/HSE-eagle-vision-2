@@ -181,3 +181,35 @@ describe("EdgeCrafter HTTP — fast dry run (backend-edgecrafter-http)", () => {
     expect(createDetector("simulated").name).toBe("simulated");
   });
 });
+
+describe("clampNumber + capture env knobs", () => {
+  it("clampNumber returns fallback on NaN and clamps to [lo, hi]", async () => {
+    const { clampNumber } = await import("../lib/detection/backendVisionHttpDetector");
+    expect(clampNumber(Number.NaN, 256, 1280, 512)).toBe(512);
+    expect(clampNumber(100, 256, 1280, 512)).toBe(256);
+    expect(clampNumber(9999, 256, 1280, 512)).toBe(1280);
+    expect(clampNumber(640, 256, 1280, 512)).toBe(640);
+    expect(clampNumber(0.2, 0.4, 0.92, 0.7)).toBe(0.4);
+    expect(clampNumber(0.95, 0.4, 0.92, 0.7)).toBe(0.92);
+  });
+
+  it("captureVideoFrameBase64 honors maxSide + quality and preserves aspect", async () => {
+    const { captureVideoFrameBase64 } =
+      await import("../lib/detection/backendVisionHttpDetector");
+    await withFakeDocument(async () => {
+      const vid = { videoWidth: 1920, videoHeight: 1080 } as unknown as HTMLVideoElement;
+      // Pass targetAspect: null so the cover-crop path doesn't run in node tests.
+      const res = captureVideoFrameBase64(vid, {
+        maxSide: 960,
+        quality: 0.8,
+        targetAspect: null,
+      });
+      expect(res).not.toBeNull();
+      const { cw, ch } = res!;
+      expect(Math.max(cw, ch)).toBeLessThanOrEqual(960);
+      // 1920×1080 → max side capped at 960 → 960×540 (aspect preserved).
+      expect(cw).toBe(960);
+      expect(ch).toBe(540);
+    });
+  });
+});
