@@ -373,6 +373,18 @@ export default function Live() {
   const [heartbeatRaw, setHeartbeatRaw] = useState<unknown>(null);
   const [heartbeatAtMs, setHeartbeatAtMs] = useState<number | null>(null);
   const [heartbeatSessionId, setHeartbeatSessionId] = useState<string | null>(null);
+  const [currentHeartbeatSessionId, setCurrentHeartbeatSessionId] = useState<string | null>(
+    null,
+  );
+  const [heartbeatLastDiag, setHeartbeatLastDiag] = useState<QwenHeartbeatDiagnostic | null>(
+    null,
+  );
+  const [heartbeatCounters, setHeartbeatCounters] = useState<HeartbeatCounters>({
+    okCount: 0,
+    errorCount: 0,
+    skippedInflightCount: 0,
+    noVideoCount: 0,
+  });
   useQwenHeartbeat({
     enabled: hseActive && heartbeatFlags.enabled,
     videoRef,
@@ -380,6 +392,8 @@ export default function Live() {
     roi: hse.roi,
     intervalMs: heartbeatFlags.intervalMs,
     backoffMs: heartbeatFlags.backoffMs,
+    extendedBackoffMs: heartbeatFlags.extendedBackoffMs,
+    extendedBackoffAfter: heartbeatFlags.extendedBackoffAfter,
     forceReason: heartbeatFlags.forceReason,
     onResponse: useCallback(
       (r: {
@@ -395,6 +409,19 @@ export default function Live() {
       },
       [],
     ),
+    onSessionStart: useCallback((sid: string) => {
+      setCurrentHeartbeatSessionId(sid);
+    }, []),
+    onDiagnostic: useCallback((d: QwenHeartbeatDiagnostic) => {
+      setHeartbeatLastDiag(d);
+      setHeartbeatCounters((prev) => ({
+        okCount: prev.okCount + (d.outcome === "ok" ? 1 : 0),
+        errorCount: prev.errorCount + (d.outcome === "error" ? 1 : 0),
+        skippedInflightCount:
+          prev.skippedInflightCount + (d.outcome === "skipped-inflight" ? 1 : 0),
+        noVideoCount: prev.noVideoCount + (d.outcome === "no-video" ? 1 : 0),
+      }));
+    }, []),
   });
 
   const nowMsForVm = Date.now();
@@ -405,7 +432,7 @@ export default function Live() {
         ttlMs: heartbeatFlags.resultTtlMs,
         nowMs: nowMsForVm,
         heartbeatSessionId,
-        liveSessionId: null,
+        liveSessionId: currentHeartbeatSessionId,
         liveHasEntities: (backendEntities as BackendEntity[]).length > 0,
       })
     : null;
