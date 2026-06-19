@@ -767,8 +767,28 @@ export default function Live() {
         // In HSE mode, send the SAME monitoring/reasoning context the live
         // stream uses so the test exercises the full worker contract.
         // Build/Plan stays detection-only.
+        // Manual test must exercise Qwen — apply the same force_reason
+        // override the heartbeat uses so the worker prefers Qwen reasoning
+        // and the probe block reports `manual force_reason sent: yes`.
         const monitoringRequest =
-          appMode === "hse" ? buildHseDetectRequest(hse.profile, hse.roi, "manual-test") : null;
+          appMode === "hse"
+            ? {
+                ...buildHseDetectRequest(hse.profile, hse.roi, "manual-test"),
+                reasoningPreferencesOverride: {
+                  force_reason: true,
+                  prefer_low_latency: true,
+                  require_visual_evidence: true,
+                  allow_no_active_risk: true,
+                  return_scene_risks: true,
+                  return_linked_entities: true,
+                  return_reasoner_status: true,
+                  return_scene_context: true,
+                  return_semantic_corrections: true,
+                  avoid_repeating_unconfirmed_risks: true,
+                  verify_current_frame_before_reusing_cached_risk: true,
+                },
+              }
+            : null;
         const t0 = performance.now();
         const resp = await postDetectFrame(image_b64, {
           conf: 0.15,
