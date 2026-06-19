@@ -48,11 +48,7 @@ export function heartbeatIgnoreReason(args: {
     liveHasEntities,
   } = args;
   if (!isHeartbeatFresh(receivedAtMs, ttlMs, nowMs)) return "stale";
-  if (
-    heartbeatSessionId &&
-    liveSessionId &&
-    heartbeatSessionId !== liveSessionId
-  ) {
+  if (heartbeatSessionId && liveSessionId && heartbeatSessionId !== liveSessionId) {
     return "session-mismatch";
   }
   if (!liveHasEntities) return "frame-mismatch";
