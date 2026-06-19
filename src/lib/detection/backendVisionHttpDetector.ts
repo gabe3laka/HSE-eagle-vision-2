@@ -719,6 +719,7 @@ export class BackendVisionHttpDetector implements Detector {
         this.status.state = loading ? "loading" : "error";
         this.status.error = resp.error;
         this.status.model = resp.model ?? this.status.model;
+        this.status.detModelId = resp.det_model_id ?? this.status.detModelId ?? null;
         return;
       }
 
