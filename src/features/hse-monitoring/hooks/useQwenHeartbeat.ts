@@ -270,11 +270,16 @@ export function useQwenHeartbeat({
           sceneRisks,
           outcome: "ok",
         });
-        const failed =
-          warnings.includes("qwen_unavailable") ||
-          (normalized != null && FAILURE_STATES.has(normalized.toLowerCase())) ||
-          (rawStatus != null && FAILURE_STATES.has(rawStatus.toLowerCase()));
-        currentDelay = failed ? backoffRef.current : intervalRef.current;
+        const failed = isQwenFailureResponse({
+          warnings: [...warnings],
+          normalizedReasonerStatus: normalized,
+          rawReasonerStatus: rawStatus,
+        });
+        currentDelay = pickHeartbeatDelay({
+          failed,
+          intervalMs: intervalRef.current,
+          backoffMs: backoffRef.current,
+        });
       } catch (e) {
         onDiagnosticRef.current?.({
           receivedAtMs: Date.now(),
