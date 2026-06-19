@@ -187,6 +187,18 @@ export function buildHeartbeatMonitoringRequest(
   };
 }
 
+/**
+ * PURE: pick the effective worker session_id for the heartbeat. Adopts the
+ * live-detector override when it's a non-empty/trimmed string; otherwise falls
+ * back to the minted heartbeat session id (`hse-qwen-hb-…`).
+ */
+export function pickEffectiveHeartbeatSessionId(
+  override: string | null | undefined,
+  fallback: string,
+): string {
+  return typeof override === "string" && override.trim().length > 0 ? override : fallback;
+}
+
 export function useQwenHeartbeat({
   enabled,
   videoRef,
@@ -197,6 +209,7 @@ export function useQwenHeartbeat({
   extendedBackoffMs = 30000,
   extendedBackoffAfter = 3,
   forceReason = true,
+  sessionIdOverride = null,
   onResponse,
   onDiagnostic,
   onSessionStart,
@@ -231,9 +244,13 @@ export function useQwenHeartbeat({
     let inFlight = false;
     let currentDelay = intervalRef.current;
     let consecutiveFailures = 0;
-    const sessionId = `hse-qwen-hb-${Date.now().toString(36)}-${Math.random()
+    const fallbackSessionId = `hse-qwen-hb-${Date.now().toString(36)}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
+    // Adopt the live detector's worker session_id when available so the
+    // heartbeat and live loop share the SAME temporal/Qwen memory window.
+    // Cloudflare's `?token=` (set in postDetectFrame) is unrelated.
+    const sessionId = pickEffectiveHeartbeatSessionId(sessionIdOverride, fallbackSessionId);
     let frameCounter = 0;
     onSessionStartRef.current?.(sessionId);
 
