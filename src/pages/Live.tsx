@@ -367,7 +367,11 @@ export default function Live() {
     intervalMs: heartbeatFlags.intervalMs,
     backoffMs: heartbeatFlags.backoffMs,
     forceReason: heartbeatFlags.forceReason,
-    onResponse: useCallback((r) => {
+    onResponse: useCallback((r: {
+      parsed: ParsedDetectRisk | null;
+      raw: unknown;
+      receivedAtMs: number;
+    }) => {
       setHeartbeatRisk(r.parsed);
       setHeartbeatRaw(r.raw);
       setHeartbeatAtMs(r.receivedAtMs);
