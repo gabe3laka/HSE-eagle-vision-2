@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildHeartbeatMonitoringRequest } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+import {
+  buildHeartbeatMonitoringRequest,
+  isQwenFailureResponse,
+  pickHeartbeatDelay,
+} from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
 
 describe("buildHeartbeatMonitoringRequest", () => {
   it("uses requestReason 'hse-qwen-heartbeat'", () => {
