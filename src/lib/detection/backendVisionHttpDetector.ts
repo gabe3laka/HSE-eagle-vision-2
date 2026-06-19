@@ -1115,6 +1115,7 @@ export function summarizeDetectResponse(
       upstreamStatus: typeof r.upstream_status === "number" ? (r.upstream_status as number) : null,
       latencyMs: ctx.latencyMs ?? null,
       model: typeof r.model === "string" ? (r.model as string) : null,
+      detModelId: typeof r.det_model_id === "string" ? (r.det_model_id as string) : null,
       backend: typeof r.backend === "string" ? (r.backend as string) : null,
     },
     warnings,
