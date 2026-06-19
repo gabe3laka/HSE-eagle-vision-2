@@ -56,7 +56,11 @@ import {
   RiskDebugPanel,
   CameraPrivacyNotice,
 } from "@/components/live/SceneRiskPanel";
-import { readRiskFeatureFlags, readHseFeatureFlags, readHseQwenHeartbeatFlags } from "@/lib/featureFlags";
+import {
+  readRiskFeatureFlags,
+  readHseFeatureFlags,
+  readHseQwenHeartbeatFlags,
+} from "@/lib/featureFlags";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import { WearableAlertOverlay } from "@/components/live/WearableAlertOverlay";
 import { HseMonitoringPanel } from "@/components/live/HseMonitoringPanel";
@@ -66,10 +70,7 @@ import {
   formatRouteStatus,
 } from "@/components/live/ReasonerContractProbe";
 import { useQwenHeartbeat } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
-import {
-  mergeParsedRisk,
-  isHeartbeatFresh,
-} from "@/features/hse-monitoring/lib/mergeParsedRisk";
+import { mergeParsedRisk, isHeartbeatFresh } from "@/features/hse-monitoring/lib/mergeParsedRisk";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
 import { ARRecordButton } from "@/features/build-mode/components/ARRecordButton";
 import { ExtractableCandidateOverlay } from "@/features/build-mode/components/ExtractableCandidateOverlay";
@@ -367,15 +368,14 @@ export default function Live() {
     intervalMs: heartbeatFlags.intervalMs,
     backoffMs: heartbeatFlags.backoffMs,
     forceReason: heartbeatFlags.forceReason,
-    onResponse: useCallback((r: {
-      parsed: ParsedDetectRisk | null;
-      raw: unknown;
-      receivedAtMs: number;
-    }) => {
-      setHeartbeatRisk(r.parsed);
-      setHeartbeatRaw(r.raw);
-      setHeartbeatAtMs(r.receivedAtMs);
-    }, []),
+    onResponse: useCallback(
+      (r: { parsed: ParsedDetectRisk | null; raw: unknown; receivedAtMs: number }) => {
+        setHeartbeatRisk(r.parsed);
+        setHeartbeatRaw(r.raw);
+        setHeartbeatAtMs(r.receivedAtMs);
+      },
+      [],
+    ),
   });
 
   const nowMsForVm = Date.now();
@@ -719,8 +719,11 @@ export default function Live() {
         if (appMode === "hse") {
           const parsed = hasRiskAwareData(resp) ? parseDetectRiskFields(resp) : null;
           const forceReasonSent =
-            (monitoringRequest?.reasoningPreferencesOverride as { force_reason?: unknown } | undefined)
-              ?.force_reason === true;
+            (
+              monitoringRequest?.reasoningPreferencesOverride as
+                | { force_reason?: unknown }
+                | undefined
+            )?.force_reason === true;
           const summary = summarizeDetectResponse(resp, parsed, {
             latencyMs: latency,
             proxy: "cloudflare",
