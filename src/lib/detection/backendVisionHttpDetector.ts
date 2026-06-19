@@ -184,6 +184,7 @@ interface DetectResponse extends RiskAwareFields {
   tasks?: unknown;
   inference_ms?: number;
   model?: string;
+  det_model_id?: string;
   error?: string;
   img_w?: number;
   img_h?: number;
@@ -388,6 +389,7 @@ function freshStatus(state: BackendStatus["state"]): BackendStatus {
     backend: null,
     tasks: null,
     model: null,
+    detModelId: null,
     entityCount: 0,
     poseCount: 0,
     error: null,
@@ -718,6 +720,7 @@ export class BackendVisionHttpDetector implements Detector {
         this.status.state = loading ? "loading" : "error";
         this.status.error = resp.error;
         this.status.model = resp.model ?? this.status.model;
+        this.status.detModelId = resp.det_model_id ?? this.status.detModelId ?? null;
         return;
       }
 
@@ -738,6 +741,7 @@ export class BackendVisionHttpDetector implements Detector {
       this.status.state = "ready";
       this.status.error = null;
       this.status.model = resp.model ?? this.status.model;
+      this.status.detModelId = resp.det_model_id ?? this.status.detModelId ?? null;
       // Server-measured inference time (separate from the round-trip latency).
       this.status.lastInferenceMs =
         typeof resp.inference_ms === "number" ? resp.inference_ms : null;
@@ -968,6 +972,9 @@ export interface DetectResponseSummary {
     upstreamStatus: number | null;
     latencyMs: number | null;
     model: string | null;
+    /** Worker-reported underlying detector model id (e.g. "yolo11s.pt").
+     *  Distinct from `model` (response label, e.g. "YOLO26"). */
+    detModelId: string | null;
     backend: string | null;
   };
   /** Worker-supplied warnings list (e.g. ["qwen_unavailable"]). */
@@ -1108,6 +1115,7 @@ export function summarizeDetectResponse(
       upstreamStatus: typeof r.upstream_status === "number" ? (r.upstream_status as number) : null,
       latencyMs: ctx.latencyMs ?? null,
       model: typeof r.model === "string" ? (r.model as string) : null,
+      detModelId: typeof r.det_model_id === "string" ? (r.det_model_id as string) : null,
       backend: typeof r.backend === "string" ? (r.backend as string) : null,
     },
     warnings,
@@ -1161,7 +1169,8 @@ export function formatDetectSummary(s: DetectResponseSummary): string {
   lines.push(`  transport: ${s.gateway.transport ?? "—"}`);
   lines.push(`  upstream_status: ${s.gateway.upstreamStatus ?? "—"}`);
   lines.push(`  latency_ms: ${s.gateway.latencyMs ?? "—"}`);
-  lines.push(`  model: ${s.gateway.model ?? "—"}`);
+  lines.push(`  response label (model): ${s.gateway.model ?? "—"}`);
+  lines.push(`  detector model id: ${s.gateway.detModelId ?? "—"}`);
   lines.push(`  backend: ${s.gateway.backend ?? "—"}`);
   return lines.join("\n");
 }

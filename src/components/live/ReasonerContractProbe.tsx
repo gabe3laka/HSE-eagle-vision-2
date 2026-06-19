@@ -231,7 +231,8 @@ export function formatRouteStatus(s: DetectResponseSummary, d: QwenDiagnostic): 
   return [
     `Detection route: ${d.detectionOk ? "working" : "error"}`,
     `Detector backend: ${s.gateway.backend ?? "—"}`,
-    `Detector model: ${s.gateway.model ?? "—"}`,
+    `Response label: ${s.gateway.model ?? "—"}`,
+    `Detector model id: ${s.gateway.detModelId ?? "—"}`,
     `Detected entities: ${s.detection.entities}`,
     "",
     `Risk schema: ${s.riskAwareFieldsPresent ? "present" : "absent"}`,

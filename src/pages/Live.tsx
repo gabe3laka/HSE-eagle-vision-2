@@ -228,7 +228,8 @@ function BackendDebugPanel({
             <div>last inference: {ms(status.lastInferenceMs)}</div>
           </>
         )}
-        <div>model: {status.model ?? "—"}</div>
+        <div>response label: {status.model ?? "—"}</div>
+        <div>detector model id: {status.detModelId ?? "—"}</div>
         <div>
           last success:{" "}
           {status.lastSuccessAt ? new Date(status.lastSuccessAt).toLocaleTimeString() : "—"}

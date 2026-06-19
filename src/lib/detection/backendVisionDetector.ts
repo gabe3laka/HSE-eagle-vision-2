@@ -83,6 +83,9 @@ export interface BackendStatus {
   backend: string | null; // "yolo26" | "edgecrafter" | "deimv2" | ...
   tasks: string[] | null; // ["det"] | ["det","seg"] | ["det","pose"]
   model: string | null;
+  /** Worker-reported underlying detector model id (e.g. "yolo11s.pt").
+   *  Distinct from `model` (response label, e.g. "YOLO26"). Optional. */
+  detModelId?: string | null;
   entityCount: number;
   poseCount: number;
   error: string | null;
@@ -282,6 +285,7 @@ export class BackendVisionDetector implements Detector {
         tasks?: unknown;
         inference_ms?: number;
         model?: string;
+        det_model_id?: string;
         error?: string;
         img_w?: number;
         img_h?: number;
@@ -297,6 +301,7 @@ export class BackendVisionDetector implements Detector {
         this.status.state = loading ? "loading" : "error";
         this.status.error = resp.error;
         this.status.model = resp.model ?? this.status.model;
+        this.status.detModelId = resp.det_model_id ?? this.status.detModelId ?? null;
         this.status.lastInferenceMs = performance.now() - t0;
         if (loading && Date.now() - this.lastWarmupAt > 15000) this._warmup();
         return;
@@ -306,6 +311,7 @@ export class BackendVisionDetector implements Detector {
       this.status.state = "ready";
       this.status.error = null;
       this.status.model = resp.model ?? this.status.model;
+      this.status.detModelId = resp.det_model_id ?? this.status.detModelId ?? null;
       this.status.lastInferenceMs = resp.inference_ms ?? performance.now() - t0;
       this.status.lastSuccessAt = Date.now();
     } catch (e) {
