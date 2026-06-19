@@ -330,11 +330,14 @@ export function useQwenHeartbeat({
           return;
         }
         frameCounter += 1;
-        const frameId = `${sessionId}-${frameCounter}`;
+        // Keep frame ids heartbeat-specific even when the session id is shared
+        // with the live detector, so the worker can tell heartbeat frames apart.
+        const frameId = `${sessionId}-hb-${frameCounter}`;
+        const forceReasonSent = forceReasonRef.current;
         const monitoringRequest = buildHeartbeatMonitoringRequest(
           profileRef.current,
           roiRef.current,
-          forceReasonRef.current,
+          forceReasonSent,
         );
         const raw = await postDetectFrame(captured.image_b64, {
           conf: 0.15,
@@ -349,7 +352,14 @@ export function useQwenHeartbeat({
         const normalized = parsed?.reasonerStatus ?? null;
         const warnings = parsed?.warnings ?? [];
         const sceneRisks = parsed?.sceneRisks.length ?? 0;
-        onResponseRef.current?.({ parsed, raw, receivedAtMs, sessionId, frameId });
+        onResponseRef.current?.({
+          parsed,
+          raw,
+          receivedAtMs,
+          sessionId,
+          frameId,
+          forceReasonSent,
+        });
         const failed = isQwenFailureResponse({
           warnings: [...warnings],
           normalizedReasonerStatus: normalized,
@@ -417,5 +427,8 @@ export function useQwenHeartbeat({
       timer = null;
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [enabled, videoRef]);
+    // sessionIdOverride is intentionally in deps: when the live detector mints
+    // (or rotates) its worker session_id, the heartbeat restarts so the new id
+    // is adopted on the very next tick.
+  }, [enabled, videoRef, sessionIdOverride]);
 }
