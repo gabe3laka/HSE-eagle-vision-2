@@ -79,6 +79,14 @@ export interface UseQwenHeartbeatOptions {
   extendedBackoffAfter?: number;
   /** Force Qwen reasoning on each tick. Default true. */
   forceReason?: boolean;
+  /**
+   * Worker `session_id` to use for heartbeat requests. When provided & non-empty
+   * the heartbeat ADOPTS it (shared temporal/Qwen memory with the live
+   * detector). When null/empty/whitespace, the hook mints a fallback
+   * `hse-qwen-hb-…` session id. Changes restart the heartbeat loop so the new
+   * session id is applied immediately.
+   */
+  sessionIdOverride?: string | null;
   onResponse?: (r: QwenHeartbeatResponse) => void;
   onDiagnostic?: (d: QwenHeartbeatDiagnostic) => void;
   /** Fires once per effect-run with the current heartbeat session id. */
