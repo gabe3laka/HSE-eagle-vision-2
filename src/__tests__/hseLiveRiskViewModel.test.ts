@@ -653,7 +653,6 @@ describe("hseLiveRiskViewModel — hse-status overlay (one box per detection)", 
 });
 
 describe("hseLiveRiskViewModel — heartbeat merge integration", () => {
-
   it("live entities + fresh linked heartbeat risk → matching entity upgrades", () => {
     const e = entity({ label: "person", track_id: "p1", class_id: 0 });
     const live = parsedRisk([]);
