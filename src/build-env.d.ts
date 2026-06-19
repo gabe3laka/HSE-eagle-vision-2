@@ -42,4 +42,9 @@ interface ImportMetaEnv {
   readonly VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS?: string;
   readonly VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON?: string;
   readonly VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS?: string;
+  /** HSE capture knobs. Defaults preserve prior behaviour (512 / 0.7).
+   *  Raise to e.g. 960 / 0.78 to help small-object recall (cup/can/glass).
+   *  Clamped to [256,1280] / [0.4,0.92]. */
+  readonly VITE_HSE_CAPTURE_MAX_SIDE?: string;
+  readonly VITE_HSE_CAPTURE_QUALITY?: string;
 }

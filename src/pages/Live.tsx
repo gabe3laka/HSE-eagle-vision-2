@@ -374,6 +374,7 @@ export default function Live() {
   const [heartbeatAtMs, setHeartbeatAtMs] = useState<number | null>(null);
   const [heartbeatSessionId, setHeartbeatSessionId] = useState<string | null>(null);
   const [currentHeartbeatSessionId, setCurrentHeartbeatSessionId] = useState<string | null>(null);
+  const [heartbeatForceReasonSent, setHeartbeatForceReasonSent] = useState<boolean>(false);
   const [heartbeatLastDiag, setHeartbeatLastDiag] = useState<QwenHeartbeatDiagnostic | null>(null);
   const [heartbeatCounters, setHeartbeatCounters] = useState<HeartbeatCounters>({
     okCount: 0,
@@ -381,6 +382,12 @@ export default function Live() {
     skippedInflightCount: 0,
     noVideoCount: 0,
   });
+  // Share the live detector's worker session_id with the heartbeat so both
+  // loops use the SAME temporal/Qwen memory window on the worker. Cloudflare
+  // `?token=` (set inside postDetectFrame) authorizes the gateway request and
+  // is independent of this session id.
+  const liveDetectorSessionId =
+    (backendStatus as BackendStatus | null)?.sessionId ?? null;
   useQwenHeartbeat({
     enabled: hseActive && heartbeatFlags.enabled,
     videoRef,
@@ -391,17 +398,20 @@ export default function Live() {
     extendedBackoffMs: heartbeatFlags.extendedBackoffMs,
     extendedBackoffAfter: heartbeatFlags.extendedBackoffAfter,
     forceReason: heartbeatFlags.forceReason,
+    sessionIdOverride: liveDetectorSessionId,
     onResponse: useCallback(
       (r: {
         parsed: ParsedDetectRisk | null;
         raw: unknown;
         receivedAtMs: number;
         sessionId: string;
+        forceReasonSent: boolean;
       }) => {
         setHeartbeatRisk(r.parsed);
         setHeartbeatRaw(r.raw);
         setHeartbeatAtMs(r.receivedAtMs);
         setHeartbeatSessionId(r.sessionId);
+        setHeartbeatForceReasonSent(r.forceReasonSent);
       },
       [],
     ),
@@ -428,7 +438,9 @@ export default function Live() {
         ttlMs: heartbeatFlags.resultTtlMs,
         nowMs: nowMsForVm,
         heartbeatSessionId,
-        liveSessionId: currentHeartbeatSessionId,
+        // True live detector session id — surfaces real session-mismatch when a
+        // stale in-flight heartbeat from a previous live session arrives late.
+        liveSessionId: liveDetectorSessionId,
         liveHasEntities: (backendEntities as BackendEntity[]).length > 0,
       })
     : null;
@@ -1335,7 +1347,7 @@ export default function Live() {
                           localAlertsEnabled={hseFlags.localAlertsEnabled}
                           riskLinkedEntityCount={hseRiskViewModel.riskLinkedEntityCount}
                           riskLinkedPoseCount={hseRiskViewModel.riskLinkedPoseCount}
-                          forceReasonSent={heartbeatFlags.forceReason && heartbeatAtMs != null}
+                          forceReasonSent={heartbeatForceReasonSent}
                         />
                       )}
                       {import.meta.env.DEV && appMode === "hse" && (
