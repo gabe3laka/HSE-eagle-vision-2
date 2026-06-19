@@ -87,6 +87,10 @@ export interface HseQwenHeartbeatFlags {
   enabled: boolean;
   intervalMs: number;
   backoffMs: number;
+  /** Delay after `extendedBackoffAfter` consecutive Qwen failures. */
+  extendedBackoffMs: number;
+  /** Number of consecutive failures before switching to `extendedBackoffMs`. */
+  extendedBackoffAfter: number;
   forceReason: boolean;
   resultTtlMs: number;
 }
@@ -107,10 +111,28 @@ export function readHseQwenHeartbeatFlags(
   env: Record<string, unknown> = safeEnv(),
 ): HseQwenHeartbeatFlags {
   const intervalMs = readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_MS", 2000, 1000);
+  const backoffMs = readNumberEnv(
+    env,
+    "VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS",
+    10000,
+    intervalMs,
+  );
   return {
     enabled: readFlag("VITE_HSE_QWEN_HEARTBEAT_ENABLED", env, true),
     intervalMs,
-    backoffMs: readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS", 10000, intervalMs),
+    backoffMs,
+    extendedBackoffMs: readNumberEnv(
+      env,
+      "VITE_HSE_QWEN_HEARTBEAT_EXTENDED_BACKOFF_MS",
+      30000,
+      backoffMs,
+    ),
+    extendedBackoffAfter: readNumberEnv(
+      env,
+      "VITE_HSE_QWEN_HEARTBEAT_EXTENDED_BACKOFF_AFTER",
+      3,
+      1,
+    ),
     forceReason: readFlag("VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON", env, true),
     resultTtlMs: readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS", 3000, 500),
   };
