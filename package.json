@@ -9,7 +9,10 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "preflight": "bun run format && bun run lint:fix && bun run lint",
     "test": "vitest run"
   },
   "dependencies": {
