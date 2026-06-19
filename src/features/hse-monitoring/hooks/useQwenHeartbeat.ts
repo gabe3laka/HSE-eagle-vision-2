@@ -16,6 +16,12 @@
  * Lifecycle: stops on unmount, when `enabled` flips false, when the document
  * is hidden, when monitoring stops, when the camera stops, or when the app
  * leaves HSE mode.
+ *
+ * Cloudflare session token (sent as `?token=` by `postDetectFrame`) authorizes
+ * the gateway request. Worker `session_id` is SEPARATE: it carries
+ * temporal/Qwen memory continuity. When the live detector exposes an active
+ * session id, the heartbeat should adopt it via `sessionIdOverride` so both
+ * loops share the SAME worker memory window.
  */
 
 import { useEffect, useRef } from "react";
@@ -35,6 +41,11 @@ export interface QwenHeartbeatResponse {
   receivedAtMs: number;
   sessionId: string;
   frameId: string;
+  /**
+   * Exact value of `reasoning_preferences.force_reason` sent on THIS request.
+   * Mirrors `forceReason` at call time — never derived from response shape.
+   */
+  forceReasonSent: boolean;
 }
 
 export interface QwenHeartbeatDiagnostic {
