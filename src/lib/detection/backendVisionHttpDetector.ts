@@ -740,6 +740,7 @@ export class BackendVisionHttpDetector implements Detector {
       this.status.state = "ready";
       this.status.error = null;
       this.status.model = resp.model ?? this.status.model;
+      this.status.detModelId = resp.det_model_id ?? this.status.detModelId ?? null;
       // Server-measured inference time (separate from the round-trip latency).
       this.status.lastInferenceMs =
         typeof resp.inference_ms === "number" ? resp.inference_ms : null;
