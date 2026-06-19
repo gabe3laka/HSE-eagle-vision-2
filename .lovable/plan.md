@@ -1,65 +1,59 @@
-## Goal
-Close the remaining gaps from the "Safe Qwen Heartbeat Merge + Stale/Race Guards" plan. The core implementation is already done; what's missing is the explicit tests, the session-id mismatch guard, and the human-readable ignore reasons.
+## Audit result — all 4 gaps confirmed open
 
-## Changes
+| Gap | Status | Evidence |
+|---|---|---|
+| Manual test forces Qwen (`force_reason=true`) | ❌ Not done | `Live.tsx` L737 calls `buildHseDetectRequest(hse.profile, hse.roi, "manual-test")` with no `reasoningPreferencesOverride`. `NEUTRAL_HSE_REASONING_PREFERENCES.force_reason = false` (`hseDetectProfile.ts` L148), so `forceReasonSent` is always `false` for manual tests. |
+| Heartbeat runtime diagnostics visible | ❌ Partial | `useQwenHeartbeat` already emits `onDiagnostic` per tick (outcome: `ok` / `no-video` / `error` / `skipped-inflight`, warnings, sceneRisks, status). `Live.tsx` never subscribes — no UI shows "heartbeat ticking / last outcome / last error". Only the ignore-reason amber banner exists. |
+| Session mismatch guard usable | ❌ Hardcoded null | `Live.tsx` L401 passes `liveSessionId: null` to `heartbeatIgnoreReason`, so `session-mismatch` can never fire. Live session id is not threaded out of `useDetectionSession`. |
+| Extended 30s failure backoff | ❌ Single-tier only | `pickHeartbeatDelay` returns `intervalMs` or `backoffMs` (default 10s). No escalation after consecutive failures. |
 
-### 1. `src/features/hse-monitoring/lib/mergeParsedRisk.ts`
-Add a thin helper used by Live.tsx to derive an explicit `ignoreReason`:
+## Plan
 
-```ts
-export type HeartbeatIgnoreReason = null | "stale" | "session-mismatch" | "frame-mismatch";
+### 1. Manual test forces Qwen (highest priority)
 
-export function heartbeatIgnoreReason(args: {
-  receivedAtMs: number | null;
-  ttlMs: number;
-  nowMs?: number;
-  heartbeatSessionId?: string | null;
-  liveSessionId?: string | null;
-  liveHasEntities: boolean;
-}): HeartbeatIgnoreReason;
-```
+`src/pages/Live.tsx` — in `testBackendFrame`, when `appMode === "hse"`, build the request with a `reasoningPreferencesOverride` that sets `force_reason: true` (same shape as `buildHeartbeatMonitoringRequest`). This makes `forceReasonSent` true in the summary and proves the worker honored the override.
 
-Returns `"stale"` when outside TTL, `"session-mismatch"` when both session IDs are non-empty and differ, `"frame-mismatch"` when live currently has no entities, else `null`.
+### 2. Visible heartbeat runtime diagnostics
 
-### 2. `src/features/hse-monitoring/hooks/useQwenHeartbeat.ts`
-Already exposes `sessionId` on the response. No change needed except documenting that the consumer should pass it back into `heartbeatIgnoreReason`.
+`src/pages/Live.tsx`
+- Add state for last diagnostic: `{ atMs, outcome, sceneRisks, warnings, rawReasonerStatus, error }` + small rolling counters (`okCount`, `errorCount`, `skippedInflightCount`, `noVideoCount`, `consecutiveFailures`).
+- Wire `onDiagnostic` on `useQwenHeartbeat` to update them.
 
-### 3. `src/pages/Live.tsx`
-- Track `heartbeatSessionId` alongside `heartbeatRisk`/`heartbeatAtMs`.
-- Compute `heartbeatIgnoreReason(...)` and use it to gate `applyHeartbeatRisks` (replaces the current `heartbeatFresh` boolean — `applyHeartbeatRisks = ignoreReason == null`).
-- Surface ignore reason as a small diagnostic string in the reasoner probe / dry-run verdict:
-  - `"Qwen heartbeat result received but ignored: stale"`
-  - `"Qwen heartbeat result received but ignored: session/frame mismatch"`
+`src/components/live/HeartbeatDiagnosticsPanel.tsx` (new, dev-only)
+- Compact panel rendered in the same Diagnostics section as `ReasonerContractProbe`, HSE-only, `import.meta.env.DEV` gated.
+- Shows: enabled flag, interval/backoff, last tick (age in ms), last outcome, last error, counters, current ignore reason. Pure presentation; no alerts/incidents.
 
-### 4. `src/__tests__/qwenHeartbeat.test.ts` (extend)
-Add timer-based tests using `vi.useFakeTimers()`:
-- `unavailable` reasoner status → next tick scheduled at `backoffMs`, not `intervalMs`
-- `qwen_unavailable` warning → backoff
-- Recovery (ready) → returns to normal `intervalMs`
-- `document.visibilityState = "hidden"` → tick re-schedules without calling `postDetectFrame`
-- `enabled = false` (re-render) → no further ticks (cleanup ran)
+### 3. Real `liveSessionId` for session-mismatch guard
 
-(Mock `postDetectFrame`, `captureVideoFrameBase64`, `parseDetectRiskFields`, `hasRiskAwareData` via `vi.mock`.)
+- Surface the active live session id from `useDetectionSession` (read whichever id the live HTTP/stream client already tags frames with — `BackendStatus.sessionId` or detector session field; check first, fall back to a new return value if absent).
+- Replace `liveSessionId: null` in `Live.tsx` L401 with the real id.
+- No behavior change in `mergeParsedRisk` — it already accepts the field.
 
-### 5. `src/__tests__/mergeParsedRisk.test.ts` (extend)
-- `heartbeatIgnoreReason` returns `"stale"` outside TTL
-- returns `"session-mismatch"` when ids differ
-- returns `"frame-mismatch"` when `liveHasEntities=false`
-- returns `null` for the happy path
+### 4. Extended 30s failure backoff
 
-### 6. `src/__tests__/hseLiveRiskViewModel.test.ts` (extend, integration-style)
-Three new cases composing `mergeParsedRisk` + the view model:
-- Live detector entities + fresh linked heartbeat risk → matching entity upgrades from GREEN to the heartbeat risk level
-- Live detector entities + stale heartbeat linked risk (skipped via `applyHeartbeatRisks: false`) → boxes stay GREEN
-- Live detector entities + unlinked heartbeat risk → boxes stay GREEN, risk only visible in `sceneRisks`
+`src/features/hse-monitoring/hooks/useQwenHeartbeat.ts`
+- Add `extendedBackoffMs` option (default 30000) and `extendedBackoffAfter` (default 3 consecutive failures).
+- Track `consecutiveFailures` inside the effect. On failure: `failures++`; on success: reset to 0.
+- Extend pure helper `pickHeartbeatDelay` to take `consecutiveFailures`, `backoffMs`, `extendedBackoffMs`, `extendedBackoffAfter`; return `extendedBackoffMs` once threshold reached.
+- Expose `consecutiveFailures` on `QwenHeartbeatDiagnostic` so the new panel can display it.
+- Flag plumbing: extend `readHseQwenHeartbeatFlags` with the two new values (env-overridable, sensible defaults).
 
-## Out of scope (per spec)
-- No changes to detector overlay, `BackendEntityOverlay`, `CameraView`, `SceneRiskPanel`.
-- No Cloudflare or RunPod worker repo changes.
-- No new secrets or env additions (reuses existing `VITE_HSE_QWEN_HEARTBEAT_*`).
-- No changes to alert/incident/haptic pipelines.
+### 5. Tests
 
-## Acceptance
-- All 8 acceptance bullets from the original heartbeat plan satisfied AND verified by tests.
-- `bun run lint` and `bun run test` pass.
-- Explicit "ignored: stale" / "ignored: session/frame mismatch" diagnostic text appears in the probe when applicable.
+- `src/__tests__/qwenHeartbeat.test.ts`: add cases for `pickHeartbeatDelay` extended tier (below threshold → backoff; at/above → extended); failure-counter reset on success.
+- `src/__tests__/mergeParsedRisk.test.ts`: add a `session-mismatch` case with both ids set to different values (currently only TTL + frame-mismatch are covered when `liveSessionId=null`).
+- No snapshot changes needed for the new panel; render-only.
+
+### Out of scope (unchanged)
+
+- Cloudflare worker, RunPod worker repo, secrets, Supabase config.
+- Live detector loop / overlays / box colors.
+- Heartbeat merge rules (already correct: diagnostics-only when ignored).
+
+### Acceptance
+
+- Clicking "Test detect frame" in HSE mode produces a probe block where `manual force_reason sent: yes`.
+- Diagnostics panel shows heartbeat ticking every ~2s with `ok` outcome when Qwen is healthy; flips to `error` + `consecutiveFailures` counter on worker failure.
+- After 3 consecutive failures, next tick is scheduled ~30s out (visible via "next tick in" or just observed gap).
+- When a stale or different-session heartbeat arrives, the existing amber ignore banner now also fires for `session-mismatch`, not just `stale` / `frame-mismatch`.
+- `bun run lint` + `bun run test` green; Prettier-formatted.

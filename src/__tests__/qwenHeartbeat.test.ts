@@ -98,4 +98,44 @@ describe("pickHeartbeatDelay", () => {
     expect(pickHeartbeatDelay({ failed: true, intervalMs: 2000, backoffMs: 10000 })).toBe(10000);
     expect(pickHeartbeatDelay({ failed: false, intervalMs: 2000, backoffMs: 10000 })).toBe(2000);
   });
+
+  it("uses extendedBackoffMs once consecutiveFailures reaches extendedBackoffAfter", () => {
+    const base = {
+      failed: true,
+      intervalMs: 2000,
+      backoffMs: 10000,
+      extendedBackoffMs: 30000,
+      extendedBackoffAfter: 3,
+    };
+    expect(pickHeartbeatDelay({ ...base, consecutiveFailures: 1 })).toBe(10000);
+    expect(pickHeartbeatDelay({ ...base, consecutiveFailures: 2 })).toBe(10000);
+    expect(pickHeartbeatDelay({ ...base, consecutiveFailures: 3 })).toBe(30000);
+    expect(pickHeartbeatDelay({ ...base, consecutiveFailures: 10 })).toBe(30000);
+  });
+
+  it("on success returns interval even if consecutiveFailures is high (caller resets)", () => {
+    expect(
+      pickHeartbeatDelay({
+        failed: false,
+        intervalMs: 2000,
+        backoffMs: 10000,
+        extendedBackoffMs: 30000,
+        extendedBackoffAfter: 3,
+        consecutiveFailures: 5,
+      }),
+    ).toBe(2000);
+  });
+
+  it("clamps extendedBackoffMs to >= backoffMs", () => {
+    expect(
+      pickHeartbeatDelay({
+        failed: true,
+        intervalMs: 2000,
+        backoffMs: 10000,
+        extendedBackoffMs: 1000,
+        extendedBackoffAfter: 1,
+        consecutiveFailures: 5,
+      }),
+    ).toBe(10000);
+  });
 });

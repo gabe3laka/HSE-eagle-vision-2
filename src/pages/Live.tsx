@@ -69,7 +69,14 @@ import {
   computeQwenDiagnostic,
   formatRouteStatus,
 } from "@/components/live/ReasonerContractProbe";
-import { useQwenHeartbeat } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+import {
+  useQwenHeartbeat,
+  type QwenHeartbeatDiagnostic,
+} from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+import {
+  HeartbeatDiagnosticsPanel,
+  type HeartbeatCounters,
+} from "@/components/live/HeartbeatDiagnosticsPanel";
 import {
   mergeParsedRisk,
   isHeartbeatFresh,
@@ -366,6 +373,14 @@ export default function Live() {
   const [heartbeatRaw, setHeartbeatRaw] = useState<unknown>(null);
   const [heartbeatAtMs, setHeartbeatAtMs] = useState<number | null>(null);
   const [heartbeatSessionId, setHeartbeatSessionId] = useState<string | null>(null);
+  const [currentHeartbeatSessionId, setCurrentHeartbeatSessionId] = useState<string | null>(null);
+  const [heartbeatLastDiag, setHeartbeatLastDiag] = useState<QwenHeartbeatDiagnostic | null>(null);
+  const [heartbeatCounters, setHeartbeatCounters] = useState<HeartbeatCounters>({
+    okCount: 0,
+    errorCount: 0,
+    skippedInflightCount: 0,
+    noVideoCount: 0,
+  });
   useQwenHeartbeat({
     enabled: hseActive && heartbeatFlags.enabled,
     videoRef,
@@ -373,6 +388,8 @@ export default function Live() {
     roi: hse.roi,
     intervalMs: heartbeatFlags.intervalMs,
     backoffMs: heartbeatFlags.backoffMs,
+    extendedBackoffMs: heartbeatFlags.extendedBackoffMs,
+    extendedBackoffAfter: heartbeatFlags.extendedBackoffAfter,
     forceReason: heartbeatFlags.forceReason,
     onResponse: useCallback(
       (r: {
@@ -388,6 +405,19 @@ export default function Live() {
       },
       [],
     ),
+    onSessionStart: useCallback((sid: string) => {
+      setCurrentHeartbeatSessionId(sid);
+    }, []),
+    onDiagnostic: useCallback((d: QwenHeartbeatDiagnostic) => {
+      setHeartbeatLastDiag(d);
+      setHeartbeatCounters((prev) => ({
+        okCount: prev.okCount + (d.outcome === "ok" ? 1 : 0),
+        errorCount: prev.errorCount + (d.outcome === "error" ? 1 : 0),
+        skippedInflightCount:
+          prev.skippedInflightCount + (d.outcome === "skipped-inflight" ? 1 : 0),
+        noVideoCount: prev.noVideoCount + (d.outcome === "no-video" ? 1 : 0),
+      }));
+    }, []),
   });
 
   const nowMsForVm = Date.now();
@@ -398,7 +428,7 @@ export default function Live() {
         ttlMs: heartbeatFlags.resultTtlMs,
         nowMs: nowMsForVm,
         heartbeatSessionId,
-        liveSessionId: null,
+        liveSessionId: currentHeartbeatSessionId,
         liveHasEntities: (backendEntities as BackendEntity[]).length > 0,
       })
     : null;
@@ -733,8 +763,28 @@ export default function Live() {
         // In HSE mode, send the SAME monitoring/reasoning context the live
         // stream uses so the test exercises the full worker contract.
         // Build/Plan stays detection-only.
+        // Manual test must exercise Qwen — apply the same force_reason
+        // override the heartbeat uses so the worker prefers Qwen reasoning
+        // and the probe block reports `manual force_reason sent: yes`.
         const monitoringRequest =
-          appMode === "hse" ? buildHseDetectRequest(hse.profile, hse.roi, "manual-test") : null;
+          appMode === "hse"
+            ? {
+                ...buildHseDetectRequest(hse.profile, hse.roi, "manual-test"),
+                reasoningPreferencesOverride: {
+                  force_reason: true,
+                  prefer_low_latency: true,
+                  require_visual_evidence: true,
+                  allow_no_active_risk: true,
+                  return_scene_risks: true,
+                  return_linked_entities: true,
+                  return_reasoner_status: true,
+                  return_scene_context: true,
+                  return_semantic_corrections: true,
+                  avoid_repeating_unconfirmed_risks: true,
+                  verify_current_frame_before_reusing_cached_risk: true,
+                },
+              }
+            : null;
         const t0 = performance.now();
         const resp = await postDetectFrame(image_b64, {
           conf: 0.15,
@@ -1286,6 +1336,21 @@ export default function Live() {
                           riskLinkedEntityCount={hseRiskViewModel.riskLinkedEntityCount}
                           riskLinkedPoseCount={hseRiskViewModel.riskLinkedPoseCount}
                           forceReasonSent={heartbeatFlags.forceReason && heartbeatAtMs != null}
+                        />
+                      )}
+                      {import.meta.env.DEV && appMode === "hse" && (
+                        <HeartbeatDiagnosticsPanel
+                          enabled={hseActive && heartbeatFlags.enabled}
+                          intervalMs={heartbeatFlags.intervalMs}
+                          backoffMs={heartbeatFlags.backoffMs}
+                          extendedBackoffMs={heartbeatFlags.extendedBackoffMs}
+                          extendedBackoffAfter={heartbeatFlags.extendedBackoffAfter}
+                          forceReason={heartbeatFlags.forceReason}
+                          currentSessionId={currentHeartbeatSessionId}
+                          lastDiagnostic={heartbeatLastDiag}
+                          counters={heartbeatCounters}
+                          ignoreReason={hbIgnoreReason}
+                          nowMs={nowMsForVm}
                         />
                       )}
                       {import.meta.env.DEV && appMode === "hse" && hbIgnoreReason && (
