@@ -59,7 +59,10 @@ export function heartbeatIgnoreReason(args: {
 export function heartbeatIgnoreMessage(reason: HeartbeatIgnoreReason): string | null {
   if (reason == null) return null;
   if (reason === "stale") return "Qwen heartbeat result received but ignored: stale";
-  return "Qwen heartbeat result received but ignored: session/frame mismatch";
+  if (reason === "session-mismatch")
+    return "Qwen heartbeat result received but ignored: session mismatch";
+  // "frame-mismatch": live detector currently has no entities to color.
+  return "Qwen heartbeat result received but ignored: no current detector entities";
 }
 
 function dedupKey(r: SceneRisk): string {

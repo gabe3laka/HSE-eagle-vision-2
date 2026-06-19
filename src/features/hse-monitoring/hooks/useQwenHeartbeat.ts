@@ -16,6 +16,12 @@
  * Lifecycle: stops on unmount, when `enabled` flips false, when the document
  * is hidden, when monitoring stops, when the camera stops, or when the app
  * leaves HSE mode.
+ *
+ * Cloudflare session token (sent as `?token=` by `postDetectFrame`) authorizes
+ * the gateway request. Worker `session_id` is SEPARATE: it carries
+ * temporal/Qwen memory continuity. When the live detector exposes an active
+ * session id, the heartbeat should adopt it via `sessionIdOverride` so both
+ * loops share the SAME worker memory window.
  */
 
 import { useEffect, useRef } from "react";
@@ -35,6 +41,11 @@ export interface QwenHeartbeatResponse {
   receivedAtMs: number;
   sessionId: string;
   frameId: string;
+  /**
+   * Exact value of `reasoning_preferences.force_reason` sent on THIS request.
+   * Mirrors `forceReason` at call time — never derived from response shape.
+   */
+  forceReasonSent: boolean;
 }
 
 export interface QwenHeartbeatDiagnostic {
@@ -68,6 +79,14 @@ export interface UseQwenHeartbeatOptions {
   extendedBackoffAfter?: number;
   /** Force Qwen reasoning on each tick. Default true. */
   forceReason?: boolean;
+  /**
+   * Worker `session_id` to use for heartbeat requests. When provided & non-empty
+   * the heartbeat ADOPTS it (shared temporal/Qwen memory with the live
+   * detector). When null/empty/whitespace, the hook mints a fallback
+   * `hse-qwen-hb-…` session id. Changes restart the heartbeat loop so the new
+   * session id is applied immediately.
+   */
+  sessionIdOverride?: string | null;
   onResponse?: (r: QwenHeartbeatResponse) => void;
   onDiagnostic?: (d: QwenHeartbeatDiagnostic) => void;
   /** Fires once per effect-run with the current heartbeat session id. */
@@ -168,6 +187,18 @@ export function buildHeartbeatMonitoringRequest(
   };
 }
 
+/**
+ * PURE: pick the effective worker session_id for the heartbeat. Adopts the
+ * live-detector override when it's a non-empty/trimmed string; otherwise falls
+ * back to the minted heartbeat session id (`hse-qwen-hb-…`).
+ */
+export function pickEffectiveHeartbeatSessionId(
+  override: string | null | undefined,
+  fallback: string,
+): string {
+  return typeof override === "string" && override.trim().length > 0 ? override : fallback;
+}
+
 export function useQwenHeartbeat({
   enabled,
   videoRef,
@@ -178,6 +209,7 @@ export function useQwenHeartbeat({
   extendedBackoffMs = 30000,
   extendedBackoffAfter = 3,
   forceReason = true,
+  sessionIdOverride = null,
   onResponse,
   onDiagnostic,
   onSessionStart,
@@ -212,9 +244,13 @@ export function useQwenHeartbeat({
     let inFlight = false;
     let currentDelay = intervalRef.current;
     let consecutiveFailures = 0;
-    const sessionId = `hse-qwen-hb-${Date.now().toString(36)}-${Math.random()
+    const fallbackSessionId = `hse-qwen-hb-${Date.now().toString(36)}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
+    // Adopt the live detector's worker session_id when available so the
+    // heartbeat and live loop share the SAME temporal/Qwen memory window.
+    // Cloudflare's `?token=` (set in postDetectFrame) is unrelated.
+    const sessionId = pickEffectiveHeartbeatSessionId(sessionIdOverride, fallbackSessionId);
     let frameCounter = 0;
     onSessionStartRef.current?.(sessionId);
 
@@ -294,11 +330,14 @@ export function useQwenHeartbeat({
           return;
         }
         frameCounter += 1;
-        const frameId = `${sessionId}-${frameCounter}`;
+        // Keep frame ids heartbeat-specific even when the session id is shared
+        // with the live detector, so the worker can tell heartbeat frames apart.
+        const frameId = `${sessionId}-hb-${frameCounter}`;
+        const forceReasonSent = forceReasonRef.current;
         const monitoringRequest = buildHeartbeatMonitoringRequest(
           profileRef.current,
           roiRef.current,
-          forceReasonRef.current,
+          forceReasonSent,
         );
         const raw = await postDetectFrame(captured.image_b64, {
           conf: 0.15,
@@ -313,7 +352,14 @@ export function useQwenHeartbeat({
         const normalized = parsed?.reasonerStatus ?? null;
         const warnings = parsed?.warnings ?? [];
         const sceneRisks = parsed?.sceneRisks.length ?? 0;
-        onResponseRef.current?.({ parsed, raw, receivedAtMs, sessionId, frameId });
+        onResponseRef.current?.({
+          parsed,
+          raw,
+          receivedAtMs,
+          sessionId,
+          frameId,
+          forceReasonSent,
+        });
         const failed = isQwenFailureResponse({
           warnings: [...warnings],
           normalizedReasonerStatus: normalized,
@@ -381,5 +427,8 @@ export function useQwenHeartbeat({
       timer = null;
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [enabled, videoRef]);
+    // sessionIdOverride is intentionally in deps: when the live detector mints
+    // (or rotates) its worker session_id, the heartbeat restarts so the new id
+    // is adopted on the very next tick.
+  }, [enabled, videoRef, sessionIdOverride]);
 }

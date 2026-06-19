@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildHeartbeatMonitoringRequest,
   isQwenFailureResponse,
+  pickEffectiveHeartbeatSessionId,
   pickHeartbeatDelay,
 } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
 

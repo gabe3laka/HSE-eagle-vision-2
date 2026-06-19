@@ -114,10 +114,16 @@ describe("heartbeatIgnoreReason", () => {
 });
 
 describe("heartbeatIgnoreMessage", () => {
-  it("maps reasons to human-readable strings", () => {
+  it("maps reasons to distinct human-readable strings", () => {
     expect(heartbeatIgnoreMessage(null)).toBeNull();
-    expect(heartbeatIgnoreMessage("stale")).toMatch(/stale/);
-    expect(heartbeatIgnoreMessage("session-mismatch")).toMatch(/session\/frame mismatch/);
-    expect(heartbeatIgnoreMessage("frame-mismatch")).toMatch(/session\/frame mismatch/);
+    expect(heartbeatIgnoreMessage("stale")).toBe(
+      "Qwen heartbeat result received but ignored: stale",
+    );
+    expect(heartbeatIgnoreMessage("session-mismatch")).toBe(
+      "Qwen heartbeat result received but ignored: session mismatch",
+    );
+    expect(heartbeatIgnoreMessage("frame-mismatch")).toBe(
+      "Qwen heartbeat result received but ignored: no current detector entities",
+    );
   });
 });
