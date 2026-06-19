@@ -350,13 +350,41 @@ export default function Live() {
   // HSE Live Risk View Model — single selector for what the HSE UI shows
   // (priority list, scene panel, overlay entities/poses, Qwen badge). Only
   // built in HSE mode so Build/Plan are byte-for-byte unchanged.
-  const parsedRiskForVm = (backendRisk as ParsedDetectRisk | null) ?? null;
+  const liveBackendRisk = (backendRisk as ParsedDetectRisk | null) ?? null;
+
+  // Qwen scene-reasoning heartbeat (HSE only). Runs at a low frequency, never
+  // replaces backendEntities/backendPoses/backendSegments. Merged into the HSE
+  // view model only when the result is fresh; otherwise updates diagnostics.
+  const heartbeatFlags = useMemo(() => readHseQwenHeartbeatFlags(), []);
+  const [heartbeatRisk, setHeartbeatRisk] = useState<ParsedDetectRisk | null>(null);
+  const [heartbeatRaw, setHeartbeatRaw] = useState<unknown>(null);
+  const [heartbeatAtMs, setHeartbeatAtMs] = useState<number | null>(null);
+  useQwenHeartbeat({
+    enabled: hseActive && heartbeatFlags.enabled,
+    videoRef,
+    profile: hse.profile,
+    roi: hse.roi,
+    intervalMs: heartbeatFlags.intervalMs,
+    backoffMs: heartbeatFlags.backoffMs,
+    forceReason: heartbeatFlags.forceReason,
+    onResponse: useCallback((r) => {
+      setHeartbeatRisk(r.parsed);
+      setHeartbeatRaw(r.raw);
+      setHeartbeatAtMs(r.receivedAtMs);
+    }, []),
+  });
+
+  const nowMsForVm = Date.now();
+  const heartbeatFresh = isHeartbeatFresh(heartbeatAtMs, heartbeatFlags.resultTtlMs, nowMsForVm);
+  const parsedRiskForVm = heartbeatRisk
+    ? mergeParsedRisk(liveBackendRisk, heartbeatRisk, { applyHeartbeatRisks: heartbeatFresh })
+    : liveBackendRisk;
   const hseRiskViewModel = useHseLiveRiskViewModel({
     entities: backendEntities as BackendEntity[],
     poses: backendPoses as BackendPose[],
     parsedRisk: parsedRiskForVm,
     localActiveAlerts: hse.activeAlerts,
-    nowMs: Date.now(),
+    nowMs: nowMsForVm,
     qwenCandidateLaneEnabled: hseFlags.qwenCandidateLaneEnabled,
     showQwenCandidates: hseFlags.showQwenCandidates,
     localAlertsEnabled: hseFlags.localAlertsEnabled,
