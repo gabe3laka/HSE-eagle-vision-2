@@ -1089,6 +1089,20 @@ export function summarizeDetectResponse(
   };
 }
 
+/**
+ * PURE: derive whether Qwen actually returned scene understanding for this
+ * frame. `temporal_reasoning` alone never flips this true.
+ */
+export function qwenResultReceivedFromSummary(s: DetectResponseSummary): boolean {
+  const status = (s.reasoner.reasonerStatus ?? "").toLowerCase();
+  const ready = ["ready", "ok", "done", "completed", "success", "cached"].includes(status);
+  if (ready) return true;
+  if (s.reasoner.sceneContextPresent) return true;
+  if (s.reasoner.semanticCorrections > 0) return true;
+  if (s.qwenOriginScenes) return true;
+  return false;
+}
+
 /** Format a DetectResponseSummary as a multi-line plain-text block for the
  *  Test Detect Frame readout. */
 export function formatDetectSummary(s: DetectResponseSummary): string {
