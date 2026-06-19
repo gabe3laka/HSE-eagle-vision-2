@@ -86,6 +86,37 @@ function rawReasonerStatusToken(resp: unknown): string | null {
 }
 
 /**
+ * PURE: decide if a heartbeat response indicates a Qwen failure that should
+ * trigger backoff. Exposed for unit tests.
+ */
+export function isQwenFailureResponse(args: {
+  warnings: string[];
+  normalizedReasonerStatus: string | null;
+  rawReasonerStatus: string | null;
+}): boolean {
+  const { warnings, normalizedReasonerStatus, rawReasonerStatus } = args;
+  if (warnings.includes("qwen_unavailable")) return true;
+  if (normalizedReasonerStatus && FAILURE_STATES.has(normalizedReasonerStatus.toLowerCase())) {
+    return true;
+  }
+  if (rawReasonerStatus && FAILURE_STATES.has(rawReasonerStatus.toLowerCase())) {
+    return true;
+  }
+  return false;
+}
+
+/** PURE: pick the next-tick delay given heartbeat config and last response. */
+export function pickHeartbeatDelay(args: {
+  failed: boolean;
+  intervalMs: number;
+  backoffMs: number;
+}): number {
+  const interval = Math.max(1000, args.intervalMs);
+  const backoff = Math.max(interval, args.backoffMs);
+  return args.failed ? backoff : interval;
+}
+
+/**
  * PURE: build the per-tick monitoring request used by the Qwen heartbeat.
  * Reuses `buildHseDetectRequest` with `requestReason: "hse-qwen-heartbeat"`,
  * and (when `forceReason` is true) merges a per-call
@@ -239,11 +270,16 @@ export function useQwenHeartbeat({
           sceneRisks,
           outcome: "ok",
         });
-        const failed =
-          warnings.includes("qwen_unavailable") ||
-          (normalized != null && FAILURE_STATES.has(normalized.toLowerCase())) ||
-          (rawStatus != null && FAILURE_STATES.has(rawStatus.toLowerCase()));
-        currentDelay = failed ? backoffRef.current : intervalRef.current;
+        const failed = isQwenFailureResponse({
+          warnings: [...warnings],
+          normalizedReasonerStatus: normalized,
+          rawReasonerStatus: rawStatus,
+        });
+        currentDelay = pickHeartbeatDelay({
+          failed,
+          intervalMs: intervalRef.current,
+          backoffMs: backoffRef.current,
+        });
       } catch (e) {
         onDiagnosticRef.current?.({
           receivedAtMs: Date.now(),

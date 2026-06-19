@@ -1,41 +1,65 @@
 ## Goal
-Stop recurring CI failures caused by `prettier/prettier` ESLint errors by auto-formatting code before it ever reaches CI.
+Close the remaining gaps from the "Safe Qwen Heartbeat Merge + Stale/Race Guards" plan. The core implementation is already done; what's missing is the explicit tests, the session-id mismatch guard, and the human-readable ignore reasons.
 
-## Root cause
-`eslint-plugin-prettier` makes every formatting drift a hard CI error. The Lovable agent (and humans) write files without running Prettier, so any whitespace/wrap difference fails `bun run lint` in GitHub Actions.
+## Changes
 
-## Fix strategy: defense in depth
+### 1. `src/features/hse-monitoring/lib/mergeParsedRisk.ts`
+Add a thin helper used by Live.tsx to derive an explicit `ignoreReason`:
 
-### 1. Pre-push safety net in CI workflow (primary fix)
-Add a "Format check + auto-fix suggestion" step that runs `prettier --write` then fails with a clear diff if anything changed. More importantly, add a **pre-lint format step locally**: change the `lint` script so contributors get auto-fix.
+```ts
+export type HeartbeatIgnoreReason = null | "stale" | "session-mismatch" | "frame-mismatch";
 
-Actually better — keep CI strict but make it self-healing for the agent:
+export function heartbeatIgnoreReason(args: {
+  receivedAtMs: number | null;
+  ttlMs: number;
+  nowMs?: number;
+  heartbeatSessionId?: string | null;
+  liveSessionId?: string | null;
+  liveHasEntities: boolean;
+}): HeartbeatIgnoreReason;
+```
 
-**Add an `agents/format` step** that runs automatically as part of the existing pre-PR flow. Concretely:
-- Update `package.json` scripts:
-  - `"lint": "eslint ."` (unchanged — CI guardrail stays strict)
-  - `"lint:fix": "eslint . --fix"` (new)
-  - `"format": "prettier --write ."` (already exists)
-  - `"preflight": "bun run format && bun run lint:fix && bun run lint"` (new — one command before commit)
+Returns `"stale"` when outside TTL, `"session-mismatch"` when both session IDs are non-empty and differ, `"frame-mismatch"` when live currently has no entities, else `null`.
 
-### 2. Add Lovable agent instruction memory
-Save a `mem://` rule so the agent always runs `bunx prettier --write` on any file it edits **before finishing the turn**. This is the most reliable fix given the agent is the main author. Memory entry:
-- `mem://preferences/formatting` — "Always run `bunx prettier --write <changed files>` after editing TS/TSX/JS/JSON/MD. Never finish a turn with unformatted files."
-- Add a one-liner to Core in `mem://index.md`.
+### 2. `src/features/hse-monitoring/hooks/useQwenHeartbeat.ts`
+Already exposes `sessionId` on the response. No change needed except documenting that the consumer should pass it back into `heartbeatIgnoreReason`.
 
-### 3. Optional: Husky + lint-staged (only if user wants local enforcement)
-For human contributors editing outside Lovable. Adds `.husky/pre-commit` that runs `lint-staged` → prettier+eslint on staged files. Skip if user only edits via Lovable.
+### 3. `src/pages/Live.tsx`
+- Track `heartbeatSessionId` alongside `heartbeatRisk`/`heartbeatAtMs`.
+- Compute `heartbeatIgnoreReason(...)` and use it to gate `applyHeartbeatRisks` (replaces the current `heartbeatFresh` boolean — `applyHeartbeatRisks = ignoreReason == null`).
+- Surface ignore reason as a small diagnostic string in the reasoner probe / dry-run verdict:
+  - `"Qwen heartbeat result received but ignored: stale"`
+  - `"Qwen heartbeat result received but ignored: session/frame mismatch"`
 
-### 4. Fix the 7 pre-existing warnings (optional cleanup)
-- `react-refresh/only-export-components` in `CameraView.tsx`, `ReasonerContractProbe.tsx`, `AuthContext.tsx` — move non-component exports (constants, helpers, types) into sibling `*.helpers.ts` files.
-- `react-hooks/exhaustive-deps` in `useMediaPipeHands.ts` — copy `videoRef.current` into a local before cleanup.
+### 4. `src/__tests__/qwenHeartbeat.test.ts` (extend)
+Add timer-based tests using `vi.useFakeTimers()`:
+- `unavailable` reasoner status → next tick scheduled at `backoffMs`, not `intervalMs`
+- `qwen_unavailable` warning → backoff
+- Recovery (ready) → returns to normal `intervalMs`
+- `document.visibilityState = "hidden"` → tick re-schedules without calling `postDetectFrame`
+- `enabled = false` (re-render) → no further ticks (cleanup ran)
 
-These are warnings, not blockers. Recommend leaving them unless user wants a clean log.
+(Mock `postDetectFrame`, `captureVideoFrameBase64`, `parseDetectRiskFields`, `hasRiskAwareData` via `vi.mock`.)
 
-## Proposed deliverable (minimum to stop recurrence)
-1. Update `package.json` to add `lint:fix` and `preflight` scripts.
-2. Save persistent agent memory rules so Lovable auto-formats on every edit.
-3. (Skip Husky and warning cleanup unless you ask.)
+### 5. `src/__tests__/mergeParsedRisk.test.ts` (extend)
+- `heartbeatIgnoreReason` returns `"stale"` outside TTL
+- returns `"session-mismatch"` when ids differ
+- returns `"frame-mismatch"` when `liveHasEntities=false`
+- returns `null` for the happy path
 
-## Questions
-- Do you want **(A)** just the memory rule + script additions (lightweight, fixes the agent's behavior going forward), or **(B)** also add Husky + lint-staged for local commits, or **(C)** also clean up the 7 pre-existing warnings?
+### 6. `src/__tests__/hseLiveRiskViewModel.test.ts` (extend, integration-style)
+Three new cases composing `mergeParsedRisk` + the view model:
+- Live detector entities + fresh linked heartbeat risk → matching entity upgrades from GREEN to the heartbeat risk level
+- Live detector entities + stale heartbeat linked risk (skipped via `applyHeartbeatRisks: false`) → boxes stay GREEN
+- Live detector entities + unlinked heartbeat risk → boxes stay GREEN, risk only visible in `sceneRisks`
+
+## Out of scope (per spec)
+- No changes to detector overlay, `BackendEntityOverlay`, `CameraView`, `SceneRiskPanel`.
+- No Cloudflare or RunPod worker repo changes.
+- No new secrets or env additions (reuses existing `VITE_HSE_QWEN_HEARTBEAT_*`).
+- No changes to alert/incident/haptic pipelines.
+
+## Acceptance
+- All 8 acceptance bullets from the original heartbeat plan satisfied AND verified by tests.
+- `bun run lint` and `bun run test` pass.
+- Explicit "ignored: stale" / "ignored: session/frame mismatch" diagnostic text appears in the probe when applicable.

@@ -70,7 +70,12 @@ import {
   formatRouteStatus,
 } from "@/components/live/ReasonerContractProbe";
 import { useQwenHeartbeat } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
-import { mergeParsedRisk, isHeartbeatFresh } from "@/features/hse-monitoring/lib/mergeParsedRisk";
+import {
+  mergeParsedRisk,
+  isHeartbeatFresh,
+  heartbeatIgnoreReason,
+  heartbeatIgnoreMessage,
+} from "@/features/hse-monitoring/lib/mergeParsedRisk";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
 import { ARRecordButton } from "@/features/build-mode/components/ARRecordButton";
 import { ExtractableCandidateOverlay } from "@/features/build-mode/components/ExtractableCandidateOverlay";
@@ -360,6 +365,7 @@ export default function Live() {
   const [heartbeatRisk, setHeartbeatRisk] = useState<ParsedDetectRisk | null>(null);
   const [heartbeatRaw, setHeartbeatRaw] = useState<unknown>(null);
   const [heartbeatAtMs, setHeartbeatAtMs] = useState<number | null>(null);
+  const [heartbeatSessionId, setHeartbeatSessionId] = useState<string | null>(null);
   useQwenHeartbeat({
     enabled: hseActive && heartbeatFlags.enabled,
     videoRef,
@@ -369,10 +375,16 @@ export default function Live() {
     backoffMs: heartbeatFlags.backoffMs,
     forceReason: heartbeatFlags.forceReason,
     onResponse: useCallback(
-      (r: { parsed: ParsedDetectRisk | null; raw: unknown; receivedAtMs: number }) => {
+      (r: {
+        parsed: ParsedDetectRisk | null;
+        raw: unknown;
+        receivedAtMs: number;
+        sessionId: string;
+      }) => {
         setHeartbeatRisk(r.parsed);
         setHeartbeatRaw(r.raw);
         setHeartbeatAtMs(r.receivedAtMs);
+        setHeartbeatSessionId(r.sessionId);
       },
       [],
     ),
@@ -380,8 +392,21 @@ export default function Live() {
 
   const nowMsForVm = Date.now();
   const heartbeatFresh = isHeartbeatFresh(heartbeatAtMs, heartbeatFlags.resultTtlMs, nowMsForVm);
+  const hbIgnoreReason = heartbeatRisk
+    ? heartbeatIgnoreReason({
+        receivedAtMs: heartbeatAtMs,
+        ttlMs: heartbeatFlags.resultTtlMs,
+        nowMs: nowMsForVm,
+        heartbeatSessionId,
+        liveSessionId: null,
+        liveHasEntities: (backendEntities as BackendEntity[]).length > 0,
+      })
+    : null;
+  void heartbeatFresh;
   const parsedRiskForVm = heartbeatRisk
-    ? mergeParsedRisk(liveBackendRisk, heartbeatRisk, { applyHeartbeatRisks: heartbeatFresh })
+    ? mergeParsedRisk(liveBackendRisk, heartbeatRisk, {
+        applyHeartbeatRisks: hbIgnoreReason == null,
+      })
     : liveBackendRisk;
   const hseRiskViewModel = useHseLiveRiskViewModel({
     entities: backendEntities as BackendEntity[],
@@ -1262,6 +1287,11 @@ export default function Live() {
                           riskLinkedPoseCount={hseRiskViewModel.riskLinkedPoseCount}
                           forceReasonSent={heartbeatFlags.forceReason && heartbeatAtMs != null}
                         />
+                      )}
+                      {import.meta.env.DEV && appMode === "hse" && hbIgnoreReason && (
+                        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-200">
+                          {heartbeatIgnoreMessage(hbIgnoreReason)}
+                        </div>
                       )}
                       {showFrameTest && (
                         <div className="rounded-xl border border-border bg-background/40 p-3">

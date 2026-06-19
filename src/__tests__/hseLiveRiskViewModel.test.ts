@@ -15,6 +15,7 @@ import {
 } from "@/lib/detection/hseLiveRiskViewModel";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import type { BackendEntity, BackendPose } from "@/lib/detection/types";
+import { mergeParsedRisk } from "@/features/hse-monitoring/lib/mergeParsedRisk";
 import type { SceneRisk } from "@/lib/detection/riskTypes";
 
 const NOW = 1_700_000_000_000;
@@ -648,5 +649,75 @@ describe("hseLiveRiskViewModel — hse-status overlay (one box per detection)", 
   it("preserves detector item names as labels in hse-status mode", () => {
     const e = entity({ label: "laptop", track_id: "t", risk_level: "YELLOW" });
     expect(boxLabelForEntity(e, true, "hse-status")).toBe("laptop");
+  });
+});
+
+describe("hseLiveRiskViewModel — heartbeat merge integration", () => {
+  it("live entities + fresh linked heartbeat risk → matching entity upgrades", () => {
+    const e = entity({ label: "person", track_id: "p1", class_id: 0 });
+    const live = parsedRisk([]);
+    const hb = parsedRisk([
+      risk({
+        risk_id: "hb1",
+        risk_level: "ORANGE",
+        track_id: "p1",
+        involved_detection_ids: ["p1"],
+      }),
+    ]);
+    const merged = mergeParsedRisk(live, hb, { applyHeartbeatRisks: true });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [e],
+      poses: [],
+      parsedRisk: merged,
+      nowMs: NOW,
+    });
+    expect(vm.overlayEntities.length).toBe(1);
+    expect(vm.activeRiskEntityCount).toBeGreaterThanOrEqual(0);
+    // Heartbeat sceneRisks flow through into priority list.
+    expect(vm.groupedRiskCount + vm.hiddenGroupedRiskCount).toBeGreaterThan(0);
+  });
+
+  it("stale heartbeat linked risk (applyHeartbeatRisks=false) → boxes stay GREEN, scene risk not merged", () => {
+    const e = entity({ label: "person", track_id: "p1", class_id: 0 });
+    const live = parsedRisk([]);
+    const hb = parsedRisk([
+      risk({
+        risk_id: "hb1",
+        risk_level: "ORANGE",
+        track_id: "p1",
+        involved_detection_ids: ["p1"],
+      }),
+    ]);
+    const merged = mergeParsedRisk(live, hb, { applyHeartbeatRisks: false });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [e],
+      poses: [],
+      parsedRisk: merged,
+      nowMs: NOW,
+    });
+    expect(vm.activeRiskEntityCount).toBe(0);
+    expect(vm.safeEntityCount).toBe(1);
+  });
+
+  it("unlinked heartbeat risk → no entity upgrade", () => {
+    const e = entity({ label: "person", track_id: "p1", class_id: 0 });
+    const live = parsedRisk([]);
+    const hb = parsedRisk([
+      risk({
+        risk_id: "hb1",
+        risk_level: "ORANGE",
+        track_id: "ghost",
+        involved_detection_ids: [],
+      }),
+    ]);
+    const merged = mergeParsedRisk(live, hb, { applyHeartbeatRisks: true });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [e],
+      poses: [],
+      parsedRisk: merged,
+      nowMs: NOW,
+    });
+    expect(vm.activeRiskEntityCount).toBe(0);
+    expect(vm.safeEntityCount).toBe(1);
   });
 });

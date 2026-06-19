@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildHeartbeatMonitoringRequest } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+import {
+  buildHeartbeatMonitoringRequest,
+  isQwenFailureResponse,
+  pickHeartbeatDelay,
+} from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
 
 describe("buildHeartbeatMonitoringRequest", () => {
   it("uses requestReason 'hse-qwen-heartbeat'", () => {
@@ -29,5 +33,69 @@ describe("buildHeartbeatMonitoringRequest", () => {
   it("when forceReason=false, no override applied", () => {
     const req = buildHeartbeatMonitoringRequest("balanced", null, false);
     expect(req.reasoningPreferencesOverride).toBeUndefined();
+  });
+});
+
+describe("isQwenFailureResponse", () => {
+  it("true on qwen_unavailable warning", () => {
+    expect(
+      isQwenFailureResponse({
+        warnings: ["qwen_unavailable"],
+        normalizedReasonerStatus: "ready",
+        rawReasonerStatus: "ready",
+      }),
+    ).toBe(true);
+  });
+
+  it("true on failure status (normalized or raw, any case)", () => {
+    for (const s of ["unavailable", "ERROR", "Timeout", "disabled", "not_run", "schema_error"]) {
+      expect(
+        isQwenFailureResponse({
+          warnings: [],
+          normalizedReasonerStatus: s,
+          rawReasonerStatus: null,
+        }),
+      ).toBe(true);
+      expect(
+        isQwenFailureResponse({
+          warnings: [],
+          normalizedReasonerStatus: null,
+          rawReasonerStatus: s,
+        }),
+      ).toBe(true);
+    }
+  });
+
+  it("false on ready/running/queued", () => {
+    for (const s of ["ready", "running", "queued"]) {
+      expect(
+        isQwenFailureResponse({
+          warnings: [],
+          normalizedReasonerStatus: s,
+          rawReasonerStatus: s,
+        }),
+      ).toBe(false);
+    }
+  });
+});
+
+describe("pickHeartbeatDelay", () => {
+  it("uses intervalMs on success, backoffMs on failure", () => {
+    expect(pickHeartbeatDelay({ failed: false, intervalMs: 2000, backoffMs: 10000 })).toBe(2000);
+    expect(pickHeartbeatDelay({ failed: true, intervalMs: 2000, backoffMs: 10000 })).toBe(10000);
+  });
+
+  it("clamps intervalMs to >= 1000", () => {
+    expect(pickHeartbeatDelay({ failed: false, intervalMs: 100, backoffMs: 10000 })).toBe(1000);
+  });
+
+  it("clamps backoffMs to >= intervalMs", () => {
+    expect(pickHeartbeatDelay({ failed: true, intervalMs: 5000, backoffMs: 1000 })).toBe(5000);
+  });
+
+  it("recovery returns to intervalMs", () => {
+    // Simulate failed → recovered sequence
+    expect(pickHeartbeatDelay({ failed: true, intervalMs: 2000, backoffMs: 10000 })).toBe(10000);
+    expect(pickHeartbeatDelay({ failed: false, intervalMs: 2000, backoffMs: 10000 })).toBe(2000);
   });
 });

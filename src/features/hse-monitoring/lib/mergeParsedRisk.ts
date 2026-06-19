@@ -24,6 +24,44 @@ export function isHeartbeatFresh(
   return nowMs - receivedAtMs <= ttlMs;
 }
 
+/**
+ * Reason a heartbeat result is NOT applied to box coloring. `null` = apply.
+ * `"stale"` outside TTL, `"session-mismatch"` when heartbeat/live session ids
+ * differ, `"frame-mismatch"` when the live detector has no entities right now.
+ */
+export type HeartbeatIgnoreReason = null | "stale" | "session-mismatch" | "frame-mismatch";
+
+export function heartbeatIgnoreReason(args: {
+  receivedAtMs: number | null;
+  ttlMs?: number;
+  nowMs?: number;
+  heartbeatSessionId?: string | null;
+  liveSessionId?: string | null;
+  liveHasEntities: boolean;
+}): HeartbeatIgnoreReason {
+  const {
+    receivedAtMs,
+    ttlMs = HSE_QWEN_HEARTBEAT_RESULT_TTL_MS_DEFAULT,
+    nowMs = Date.now(),
+    heartbeatSessionId,
+    liveSessionId,
+    liveHasEntities,
+  } = args;
+  if (!isHeartbeatFresh(receivedAtMs, ttlMs, nowMs)) return "stale";
+  if (heartbeatSessionId && liveSessionId && heartbeatSessionId !== liveSessionId) {
+    return "session-mismatch";
+  }
+  if (!liveHasEntities) return "frame-mismatch";
+  return null;
+}
+
+/** Human-readable diagnostic for the probe / dry-run verdict. */
+export function heartbeatIgnoreMessage(reason: HeartbeatIgnoreReason): string | null {
+  if (reason == null) return null;
+  if (reason === "stale") return "Qwen heartbeat result received but ignored: stale";
+  return "Qwen heartbeat result received but ignored: session/frame mismatch";
+}
+
 function dedupKey(r: SceneRisk): string {
   if (typeof r.risk_id === "string" && r.risk_id) return `id:${r.risk_id}`;
   if (typeof r.source_risk_id === "string" && r.source_risk_id) return `src:${r.source_risk_id}`;

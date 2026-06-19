@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { mergeParsedRisk, isHeartbeatFresh } from "@/features/hse-monitoring/lib/mergeParsedRisk";
+import {
+  mergeParsedRisk,
+  isHeartbeatFresh,
+  heartbeatIgnoreReason,
+  heartbeatIgnoreMessage,
+} from "@/features/hse-monitoring/lib/mergeParsedRisk";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 
 function risk(over: Partial<Record<string, unknown>>): ParsedDetectRisk["sceneRisks"][number] {
@@ -61,5 +66,58 @@ describe("mergeParsedRisk", () => {
     expect(merged?.reasonerStatus).toBe("ready");
     expect(merged?.semanticCorrections?.length).toBe(1);
     expect(merged?.warnings).toContain("qwen_unavailable");
+  });
+});
+
+describe("heartbeatIgnoreReason", () => {
+  const base = {
+    receivedAtMs: 10_000,
+    ttlMs: 3000,
+    nowMs: 11_000,
+    heartbeatSessionId: "s1",
+    liveSessionId: "s1",
+    liveHasEntities: true,
+  };
+
+  it("returns null on the happy path", () => {
+    expect(heartbeatIgnoreReason(base)).toBeNull();
+  });
+
+  it("returns 'stale' outside TTL or when receivedAtMs is null", () => {
+    expect(heartbeatIgnoreReason({ ...base, nowMs: 20_000 })).toBe("stale");
+    expect(heartbeatIgnoreReason({ ...base, receivedAtMs: null })).toBe("stale");
+  });
+
+  it("returns 'session-mismatch' when both ids differ", () => {
+    expect(heartbeatIgnoreReason({ ...base, liveSessionId: "other" })).toBe("session-mismatch");
+  });
+
+  it("ignores session id when either side is missing", () => {
+    expect(heartbeatIgnoreReason({ ...base, liveSessionId: null })).toBeNull();
+    expect(heartbeatIgnoreReason({ ...base, heartbeatSessionId: null })).toBeNull();
+  });
+
+  it("returns 'frame-mismatch' when live has no entities", () => {
+    expect(heartbeatIgnoreReason({ ...base, liveHasEntities: false })).toBe("frame-mismatch");
+  });
+
+  it("stale takes precedence over session/frame mismatch", () => {
+    expect(
+      heartbeatIgnoreReason({
+        ...base,
+        nowMs: 20_000,
+        liveSessionId: "other",
+        liveHasEntities: false,
+      }),
+    ).toBe("stale");
+  });
+});
+
+describe("heartbeatIgnoreMessage", () => {
+  it("maps reasons to human-readable strings", () => {
+    expect(heartbeatIgnoreMessage(null)).toBeNull();
+    expect(heartbeatIgnoreMessage("stale")).toMatch(/stale/);
+    expect(heartbeatIgnoreMessage("session-mismatch")).toMatch(/session\/frame mismatch/);
+    expect(heartbeatIgnoreMessage("frame-mismatch")).toMatch(/session\/frame mismatch/);
   });
 });
