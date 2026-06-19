@@ -1,0 +1,68 @@
+import { describe, it, expect } from "vitest";
+import {
+  mergeParsedRisk,
+  isHeartbeatFresh,
+} from "@/features/hse-monitoring/lib/mergeParsedRisk";
+import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
+
+function risk(over: Partial<Record<string, unknown>>): ParsedDetectRisk["sceneRisks"][number] {
+  return { hazard: "blocked_path", risk_level: "YELLOW", ...over } as never;
+}
+
+const empty = (over: Partial<ParsedDetectRisk> = {}): ParsedDetectRisk => ({
+  sceneRisks: [],
+  degraded: false,
+  warnings: [],
+  ...over,
+});
+
+describe("isHeartbeatFresh", () => {
+  it("true within TTL, false outside, false for null", () => {
+    const now = 10_000;
+    expect(isHeartbeatFresh(now - 1000, 3000, now)).toBe(true);
+    expect(isHeartbeatFresh(now - 5000, 3000, now)).toBe(false);
+    expect(isHeartbeatFresh(null, 3000, now)).toBe(false);
+  });
+});
+
+describe("mergeParsedRisk", () => {
+  it("returns live unchanged when heartbeat is null", () => {
+    const live = empty({ sceneRisks: [risk({ risk_id: "a" })] });
+    expect(mergeParsedRisk(live, null)).toBe(live);
+  });
+
+  it("appends heartbeat sceneRisks when fresh, deduped by risk_id", () => {
+    const live = empty({ sceneRisks: [risk({ risk_id: "a" })] });
+    const hb = empty({
+      sceneRisks: [risk({ risk_id: "a" }), risk({ risk_id: "b" })],
+    });
+    const merged = mergeParsedRisk(live, hb, { applyHeartbeatRisks: true });
+    expect(merged?.sceneRisks.map((r) => r.risk_id)).toEqual(["a", "b"]);
+  });
+
+  it("dedupes by hazard + sorted linked ids when ids are absent", () => {
+    const live = empty({
+      sceneRisks: [risk({ hazard: "blocked_path", involved_detection_ids: ["e2", "e1"] })],
+    });
+    const hb = empty({
+      sceneRisks: [risk({ hazard: "blocked_path", involved_detection_ids: ["e1", "e2"] })],
+    });
+    const merged = mergeParsedRisk(live, hb, { applyHeartbeatRisks: true });
+    expect(merged?.sceneRisks).toHaveLength(1);
+  });
+
+  it("does not append heartbeat risks when stale (applyHeartbeatRisks=false), but flows diagnostics", () => {
+    const live = empty({ sceneRisks: [risk({ risk_id: "a" })] });
+    const hb = empty({
+      sceneRisks: [risk({ risk_id: "b" })],
+      reasonerStatus: "ready",
+      semanticCorrections: [{ explanation: "x" } as never],
+      warnings: ["qwen_unavailable"],
+    });
+    const merged = mergeParsedRisk(live, hb, { applyHeartbeatRisks: false });
+    expect(merged?.sceneRisks.map((r) => r.risk_id)).toEqual(["a"]);
+    expect(merged?.reasonerStatus).toBe("ready");
+    expect(merged?.semanticCorrections?.length).toBe(1);
+    expect(merged?.warnings).toContain("qwen_unavailable");
+  });
+});
