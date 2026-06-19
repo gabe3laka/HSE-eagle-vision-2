@@ -403,7 +403,6 @@ export default function Live() {
       })
     : null;
   void heartbeatFresh;
-  void heartbeatIgnoreMessage;
   const parsedRiskForVm = heartbeatRisk
     ? mergeParsedRisk(liveBackendRisk, heartbeatRisk, {
         applyHeartbeatRisks: hbIgnoreReason == null,
