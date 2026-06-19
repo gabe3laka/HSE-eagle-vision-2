@@ -1169,7 +1169,8 @@ export function formatDetectSummary(s: DetectResponseSummary): string {
   lines.push(`  transport: ${s.gateway.transport ?? "—"}`);
   lines.push(`  upstream_status: ${s.gateway.upstreamStatus ?? "—"}`);
   lines.push(`  latency_ms: ${s.gateway.latencyMs ?? "—"}`);
-  lines.push(`  model: ${s.gateway.model ?? "—"}`);
+  lines.push(`  response label (model): ${s.gateway.model ?? "—"}`);
+  lines.push(`  detector model id: ${s.gateway.detModelId ?? "—"}`);
   lines.push(`  backend: ${s.gateway.backend ?? "—"}`);
   return lines.join("\n");
 }
