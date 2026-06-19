@@ -35,4 +35,11 @@ interface ImportMetaEnv {
   readonly VITE_HSE_LOCAL_ALERTS_ENABLED?: string;
   readonly VITE_HSE_REQUEST_POSE?: string;
   readonly VITE_BUILD_BACKEND_WRIST_FALLBACK?: string;
+  /** Qwen scene-reasoning heartbeat (HSE Live). Defaults: enabled=true,
+   *  interval=2000 ms, backoff=10000 ms, force_reason=true, ttl=3000 ms. */
+  readonly VITE_HSE_QWEN_HEARTBEAT_ENABLED?: string;
+  readonly VITE_HSE_QWEN_HEARTBEAT_MS?: string;
+  readonly VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS?: string;
+  readonly VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON?: string;
+  readonly VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS?: string;
 }
