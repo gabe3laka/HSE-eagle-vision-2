@@ -117,15 +117,23 @@ export function isQwenFailureResponse(args: {
   return false;
 }
 
-/** PURE: pick the next-tick delay given heartbeat config and last response. */
+/** PURE: pick the next-tick delay given heartbeat config and observed failure run. */
 export function pickHeartbeatDelay(args: {
   failed: boolean;
   intervalMs: number;
   backoffMs: number;
+  consecutiveFailures?: number;
+  extendedBackoffMs?: number;
+  extendedBackoffAfter?: number;
 }): number {
   const interval = Math.max(1000, args.intervalMs);
   const backoff = Math.max(interval, args.backoffMs);
-  return args.failed ? backoff : interval;
+  const extended = Math.max(backoff, args.extendedBackoffMs ?? backoff);
+  const threshold = Math.max(1, args.extendedBackoffAfter ?? Number.POSITIVE_INFINITY);
+  const failures = args.consecutiveFailures ?? 0;
+  if (!args.failed) return interval;
+  if (failures >= threshold) return extended;
+  return backoff;
 }
 
 /**
@@ -167,14 +175,19 @@ export function useQwenHeartbeat({
   roi,
   intervalMs = 2000,
   backoffMs = 10000,
+  extendedBackoffMs = 30000,
+  extendedBackoffAfter = 3,
   forceReason = true,
   onResponse,
   onDiagnostic,
+  onSessionStart,
 }: UseQwenHeartbeatOptions): void {
   const onResponseRef = useRef(onResponse);
   onResponseRef.current = onResponse;
   const onDiagnosticRef = useRef(onDiagnostic);
   onDiagnosticRef.current = onDiagnostic;
+  const onSessionStartRef = useRef(onSessionStart);
+  onSessionStartRef.current = onSessionStart;
   const profileRef = useRef(profile);
   profileRef.current = profile;
   const roiRef = useRef(roi);
@@ -185,6 +198,10 @@ export function useQwenHeartbeat({
   intervalRef.current = Math.max(1000, intervalMs);
   const backoffRef = useRef(Math.max(intervalRef.current, backoffMs));
   backoffRef.current = Math.max(intervalRef.current, backoffMs);
+  const extendedBackoffRef = useRef(Math.max(backoffRef.current, extendedBackoffMs));
+  extendedBackoffRef.current = Math.max(backoffRef.current, extendedBackoffMs);
+  const extendedBackoffAfterRef = useRef(Math.max(1, extendedBackoffAfter));
+  extendedBackoffAfterRef.current = Math.max(1, extendedBackoffAfter);
 
   useEffect(() => {
     if (!enabled) return;
@@ -194,10 +211,24 @@ export function useQwenHeartbeat({
     let timer: ReturnType<typeof setTimeout> | null = null;
     let inFlight = false;
     let currentDelay = intervalRef.current;
+    let consecutiveFailures = 0;
     const sessionId = `hse-qwen-hb-${Date.now().toString(36)}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
     let frameCounter = 0;
+    onSessionStartRef.current?.(sessionId);
+
+    const emit = (
+      partial: Omit<QwenHeartbeatDiagnostic, "sessionId" | "consecutiveFailures" | "nextDelayMs">,
+      nextDelayMs: number,
+    ) => {
+      onDiagnosticRef.current?.({
+        ...partial,
+        sessionId,
+        consecutiveFailures,
+        nextDelayMs,
+      });
+    };
 
     const schedule = (delay: number) => {
       if (stopped) return;
@@ -215,27 +246,33 @@ export function useQwenHeartbeat({
         return;
       }
       if (inFlight) {
-        onDiagnosticRef.current?.({
-          receivedAtMs: Date.now(),
-          rawReasonerStatus: null,
-          normalizedReasonerStatus: null,
-          warnings: [],
-          sceneRisks: 0,
-          outcome: "skipped-inflight",
-        });
+        emit(
+          {
+            receivedAtMs: Date.now(),
+            rawReasonerStatus: null,
+            normalizedReasonerStatus: null,
+            warnings: [],
+            sceneRisks: 0,
+            outcome: "skipped-inflight",
+          },
+          currentDelay,
+        );
         schedule(currentDelay);
         return;
       }
       const video = videoRef.current;
       if (!video || !video.videoWidth) {
-        onDiagnosticRef.current?.({
-          receivedAtMs: Date.now(),
-          rawReasonerStatus: null,
-          normalizedReasonerStatus: null,
-          warnings: [],
-          sceneRisks: 0,
-          outcome: "no-video",
-        });
+        emit(
+          {
+            receivedAtMs: Date.now(),
+            rawReasonerStatus: null,
+            normalizedReasonerStatus: null,
+            warnings: [],
+            sceneRisks: 0,
+            outcome: "no-video",
+          },
+          currentDelay,
+        );
         schedule(currentDelay);
         return;
       }
@@ -243,14 +280,17 @@ export function useQwenHeartbeat({
       try {
         const captured = captureVideoFrameBase64(video);
         if (!captured) {
-          onDiagnosticRef.current?.({
-            receivedAtMs: Date.now(),
-            rawReasonerStatus: null,
-            normalizedReasonerStatus: null,
-            warnings: [],
-            sceneRisks: 0,
-            outcome: "no-video",
-          });
+          emit(
+            {
+              receivedAtMs: Date.now(),
+              rawReasonerStatus: null,
+              normalizedReasonerStatus: null,
+              warnings: [],
+              sceneRisks: 0,
+              outcome: "no-video",
+            },
+            currentDelay,
+          );
           return;
         }
         frameCounter += 1;
@@ -274,35 +314,53 @@ export function useQwenHeartbeat({
         const warnings = parsed?.warnings ?? [];
         const sceneRisks = parsed?.sceneRisks.length ?? 0;
         onResponseRef.current?.({ parsed, raw, receivedAtMs, sessionId, frameId });
-        onDiagnosticRef.current?.({
-          receivedAtMs,
-          rawReasonerStatus: rawStatus,
-          normalizedReasonerStatus: normalized,
-          warnings,
-          sceneRisks,
-          outcome: "ok",
-        });
         const failed = isQwenFailureResponse({
           warnings: [...warnings],
           normalizedReasonerStatus: normalized,
           rawReasonerStatus: rawStatus,
         });
+        consecutiveFailures = failed ? consecutiveFailures + 1 : 0;
         currentDelay = pickHeartbeatDelay({
           failed,
           intervalMs: intervalRef.current,
           backoffMs: backoffRef.current,
+          extendedBackoffMs: extendedBackoffRef.current,
+          extendedBackoffAfter: extendedBackoffAfterRef.current,
+          consecutiveFailures,
         });
+        emit(
+          {
+            receivedAtMs,
+            rawReasonerStatus: rawStatus,
+            normalizedReasonerStatus: normalized,
+            warnings,
+            sceneRisks,
+            outcome: "ok",
+          },
+          currentDelay,
+        );
       } catch (e) {
-        onDiagnosticRef.current?.({
-          receivedAtMs: Date.now(),
-          rawReasonerStatus: null,
-          normalizedReasonerStatus: null,
-          warnings: [],
-          sceneRisks: 0,
-          outcome: "error",
-          error: e instanceof Error ? e.message : String(e),
+        consecutiveFailures += 1;
+        currentDelay = pickHeartbeatDelay({
+          failed: true,
+          intervalMs: intervalRef.current,
+          backoffMs: backoffRef.current,
+          extendedBackoffMs: extendedBackoffRef.current,
+          extendedBackoffAfter: extendedBackoffAfterRef.current,
+          consecutiveFailures,
         });
-        currentDelay = backoffRef.current;
+        emit(
+          {
+            receivedAtMs: Date.now(),
+            rawReasonerStatus: null,
+            normalizedReasonerStatus: null,
+            warnings: [],
+            sceneRisks: 0,
+            outcome: "error",
+            error: e instanceof Error ? e.message : String(e),
+          },
+          currentDelay,
+        );
       } finally {
         inFlight = false;
         schedule(currentDelay);
@@ -325,3 +383,4 @@ export function useQwenHeartbeat({
     };
   }, [enabled, videoRef]);
 }
+
