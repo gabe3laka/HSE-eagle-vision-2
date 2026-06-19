@@ -2,19 +2,19 @@
  * useQwenHeartbeat — low-frequency, single-in-flight, visibility-aware
  * "scene reasoning heartbeat" for HSE Live mode.
  *
- * Purpose: keep Qwen scene reasoning fresh without per-frame Qwen calls. The
- * heartbeat NEVER replaces the live detector loop — it only enriches scene
- * reasoning diagnostics (sceneRisks, sceneContext, reasonerStatus, semantic
- * corrections, temporalReasoning, warnings). Cloudflare/RunPod paths and
- * signed-session flow are unchanged: the heartbeat reuses the same
- * `postDetectFrame` and `buildHseDetectRequest` helpers as the rest of the app.
+ * Keeps Qwen scene reasoning fresh without per-frame Qwen calls. The heartbeat
+ * NEVER replaces the live detector loop — it only enriches scene-reasoning
+ * diagnostics (sceneRisks, sceneContext, reasonerStatus, semanticCorrections,
+ * temporalReasoning, warnings). The same `postDetectFrame` /
+ * `buildHseDetectRequest` helpers (and signed-session flow) are reused; no
+ * Cloudflare/RunPod paths change.
  *
  * Backoff: on a Qwen failure status (unavailable / error / timeout / disabled)
- * the next tick is delayed by `backoffMs`. On any recovery state the normal
- * `intervalMs` is restored.
+ * the next tick is delayed by `backoffMs`. On recovery the normal interval
+ * resumes.
  *
- * Lifecycle: stops on unmount, when `enabled` flips false, when monitoring
- * stops, when the camera stops, when the document is hidden, or when the app
+ * Lifecycle: stops on unmount, when `enabled` flips false, when the document
+ * is hidden, when monitoring stops, when the camera stops, or when the app
  * leaves HSE mode.
  */
 
@@ -27,7 +27,7 @@ import {
   type ParsedDetectRisk,
 } from "@/lib/detection/backendVisionHttpDetector";
 import { buildHseDetectRequest } from "@/lib/detection/hseDetectProfile";
-import type { HSEDetectionProfile, HSERoi } from "@/lib/detection/hseTypes";
+import type { HSEDetectionProfile, HSEDetectRequest, HSERoi } from "@/lib/detection/hseTypes";
 
 export interface QwenHeartbeatResponse {
   parsed: ParsedDetectRisk | null;
@@ -43,7 +43,6 @@ export interface QwenHeartbeatDiagnostic {
   normalizedReasonerStatus: string | null;
   warnings: string[];
   sceneRisks: number;
-  /** "ok" | "no-video" | "error" | "skipped-inflight" */
   outcome: "ok" | "no-video" | "error" | "skipped-inflight";
   error?: string;
 }
@@ -53,7 +52,7 @@ export interface UseQwenHeartbeatOptions {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   profile: HSEDetectionProfile;
   roi: HSERoi | null;
-  /** Normal tick interval. Clamped to ≥1000 ms. Default 2000. */
+  /** Clamped ≥1000 ms. Default 2000. */
   intervalMs?: number;
   /** Backoff after Qwen failure. Default 10000. */
   backoffMs?: number;
@@ -97,7 +96,7 @@ export function buildHeartbeatMonitoringRequest(
   profile: HSEDetectionProfile,
   roi: HSERoi | null,
   forceReason: boolean,
-) {
+): HSEDetectRequest {
   const base = buildHseDetectRequest(profile, roi, "hse-qwen-heartbeat");
   if (!forceReason) return base;
   return {
@@ -118,6 +117,7 @@ export function buildHeartbeatMonitoringRequest(
   };
 }
 
+export function useQwenHeartbeat({
   enabled,
   videoRef,
   profile,
@@ -267,7 +267,6 @@ export function buildHeartbeatMonitoringRequest(
     };
     document.addEventListener("visibilitychange", onVisibility);
 
-    // First tick on the normal interval.
     schedule(currentDelay);
 
     return () => {
