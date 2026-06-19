@@ -56,11 +56,20 @@ import {
   RiskDebugPanel,
   CameraPrivacyNotice,
 } from "@/components/live/SceneRiskPanel";
-import { readRiskFeatureFlags, readHseFeatureFlags } from "@/lib/featureFlags";
+import { readRiskFeatureFlags, readHseFeatureFlags, readHseQwenHeartbeatFlags } from "@/lib/featureFlags";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import { WearableAlertOverlay } from "@/components/live/WearableAlertOverlay";
 import { HseMonitoringPanel } from "@/components/live/HseMonitoringPanel";
-import { ReasonerContractProbe } from "@/components/live/ReasonerContractProbe";
+import {
+  ReasonerContractProbe,
+  computeQwenDiagnostic,
+  formatRouteStatus,
+} from "@/components/live/ReasonerContractProbe";
+import { useQwenHeartbeat } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+import {
+  mergeParsedRisk,
+  isHeartbeatFresh,
+} from "@/features/hse-monitoring/lib/mergeParsedRisk";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
 import { ARRecordButton } from "@/features/build-mode/components/ARRecordButton";
 import { ExtractableCandidateOverlay } from "@/features/build-mode/components/ExtractableCandidateOverlay";
