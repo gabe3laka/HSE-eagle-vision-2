@@ -920,6 +920,8 @@ export interface DetectResponseSummary {
   };
   reasoner: {
     reasonerStatus: string | null;
+    /** Raw reasoner_status token (or `state`/`status`/`mode` for objects) before normalization. */
+    rawReasonerStatus: string | null;
     sceneContextPresent: boolean;
     semanticCorrections: number;
     temporalReasoningPresent: boolean;
@@ -940,12 +942,25 @@ export interface DetectResponseSummary {
     model: string | null;
     backend: string | null;
   };
+  /** Worker-supplied warnings list (e.g. ["qwen_unavailable"]). */
+  warnings: string[];
+  /** True when ANY risk-aware field is present in the raw response. */
+  riskAwareFieldsPresent: boolean;
+  /** True iff the caller's monitoringRequest set reasoning_preferences.force_reason = true. */
+  forceReasonSent: boolean;
+  /** True iff scene_risks contain ANY Qwen-origin risk (produced_by / reasoner_model). */
+  qwenOriginScenes: boolean;
 }
 
 export function summarizeDetectResponse(
   resp: unknown,
   parsed: ParsedDetectRisk | null,
-  ctx: { latencyMs?: number | null; proxy?: string | null; transport?: string | null } = {},
+  ctx: {
+    latencyMs?: number | null;
+    proxy?: string | null;
+    transport?: string | null;
+    forceReasonSent?: boolean;
+  } = {},
 ): DetectResponseSummary {
   const r = (resp && typeof resp === "object" ? resp : {}) as Record<string, unknown>;
   const entities = Array.isArray(r.entities) ? (r.entities as unknown[]).length : 0;
@@ -955,6 +970,7 @@ export function summarizeDetectResponse(
   const riskList = Array.isArray(r.risks) ? (r.risks as unknown[]) : [];
 
   const sources = { rules: 0, qwen: 0, rulesAndQwen: 0, unknown: 0 };
+  let qwenOriginScenes = false;
   const link = {
     withLinkedEntityId: 0,
     withInvolvedDetectionIds: 0,
@@ -967,6 +983,8 @@ export function summarizeDetectResponse(
   let highestLabel: string | null = null;
   for (const risk of sceneRisks) {
     const p = (risk.produced_by ?? "").toLowerCase();
+    const m = (risk.reasoner_model ?? "").toLowerCase();
+    if (p.includes("qwen") || p.includes("vlm") || m.includes("qwen")) qwenOriginScenes = true;
     if (p.includes("vlm") || p.includes("qwen")) {
       if (p.includes("rules")) sources.rulesAndQwen += 1;
       else sources.qwen += 1;
@@ -1009,14 +1027,29 @@ export function summarizeDetectResponse(
   }
 
   // Reasoner: prefer parsed, fall back to raw response so the probe still
-  // surfaces reasoner-only payloads when parsed is null.
+  // surfaces reasoner-only payloads when parsed is null. Raw token is captured
+  // verbatim (`reasoner_status` string, or object's `state`/`status`/`mode`)
+  // so the probe can distinguish "raw" vs "normalized".
   const rawReasonerNorm = normalizeReasonerStatus(r.reasoner_status);
+  const rawReasonerRaw: string | null = (() => {
+    const v = r.reasoner_status;
+    if (typeof v === "string") return v;
+    if (v && typeof v === "object") {
+      const o = v as Record<string, unknown>;
+      const cand = o.state ?? o.status ?? o.mode;
+      if (typeof cand === "string") return cand;
+    }
+    return null;
+  })();
   const rawSceneCtx =
     r.scene_context && typeof r.scene_context === "object" ? r.scene_context : null;
   const rawSemCorr = Array.isArray(r.semantic_corrections)
     ? (r.semantic_corrections as unknown[]).length
     : 0;
   const rawTempReasoning = r.temporal_reasoning;
+  const warnings: string[] = Array.isArray(r.warnings)
+    ? (r.warnings as unknown[]).filter((w): w is string => typeof w === "string")
+    : (parsed?.warnings ?? []);
 
   return {
     detection: { entities, poses, segments },
@@ -1034,6 +1067,7 @@ export function summarizeDetectResponse(
     },
     reasoner: {
       reasonerStatus: parsed?.reasonerStatus ?? rawReasonerNorm ?? null,
+      rawReasonerStatus: rawReasonerRaw,
       sceneContextPresent: !!parsed?.sceneContext || !!rawSceneCtx,
       semanticCorrections: parsed?.semanticCorrections?.length ?? rawSemCorr,
       temporalReasoningPresent: parsed?.temporalReasoning != null || rawTempReasoning != null,
@@ -1048,7 +1082,25 @@ export function summarizeDetectResponse(
       model: typeof r.model === "string" ? (r.model as string) : null,
       backend: typeof r.backend === "string" ? (r.backend as string) : null,
     },
+    warnings,
+    riskAwareFieldsPresent: hasRiskAwareData(resp),
+    forceReasonSent: !!ctx.forceReasonSent,
+    qwenOriginScenes,
   };
+}
+
+/**
+ * PURE: derive whether Qwen actually returned scene understanding for this
+ * frame. `temporal_reasoning` alone never flips this true.
+ */
+export function qwenResultReceivedFromSummary(s: DetectResponseSummary): boolean {
+  const status = (s.reasoner.reasonerStatus ?? "").toLowerCase();
+  const ready = ["ready", "ok", "done", "completed", "success", "cached"].includes(status);
+  if (ready) return true;
+  if (s.reasoner.sceneContextPresent) return true;
+  if (s.reasoner.semanticCorrections > 0) return true;
+  if (s.qwenOriginScenes) return true;
+  return false;
 }
 
 /** Format a DetectResponseSummary as a multi-line plain-text block for the
@@ -1065,10 +1117,16 @@ export function formatDetectSummary(s: DetectResponseSummary): string {
   lines.push(`  scene_risks: ${s.risk.sceneRisks}`);
   lines.push(`  risk_summary: ${s.risk.hasRiskSummary ? "yes" : "no"}`);
   lines.push(`  highest_level: ${s.risk.highestLevel ?? "missing"}`);
-  lines.push(`  reasoner_status: ${s.reasoner.reasonerStatus ?? "missing"}`);
+  lines.push(`  raw_reasoner_status: ${s.reasoner.rawReasonerStatus ?? "missing"}`);
+  lines.push(`  normalized_reasoner_status: ${s.reasoner.reasonerStatus ?? "missing"}`);
   lines.push(`  scene_context: ${s.reasoner.sceneContextPresent ? "yes" : "no"}`);
   lines.push(`  semantic_corrections: ${s.reasoner.semanticCorrections}`);
   lines.push(`  temporal_reasoning: ${s.reasoner.temporalReasoningPresent ? "yes" : "no"}`);
+  lines.push(`  qwen_result_received: ${qwenResultReceivedFromSummary(s) ? "yes" : "no"}`);
+  lines.push(
+    `  qwen_unavailable_warning: ${s.warnings.includes("qwen_unavailable") ? "yes" : "no"}`,
+  );
+  lines.push(`  manual force_reason sent: ${s.forceReasonSent ? "yes" : "no"}`);
   lines.push("");
   lines.push("Gateway:");
   lines.push(`  proxy: ${s.gateway.proxy ?? "—"}`);

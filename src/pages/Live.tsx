@@ -56,11 +56,20 @@ import {
   RiskDebugPanel,
   CameraPrivacyNotice,
 } from "@/components/live/SceneRiskPanel";
-import { readRiskFeatureFlags, readHseFeatureFlags } from "@/lib/featureFlags";
+import { readRiskFeatureFlags, readHseFeatureFlags, readHseQwenHeartbeatFlags } from "@/lib/featureFlags";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import { WearableAlertOverlay } from "@/components/live/WearableAlertOverlay";
 import { HseMonitoringPanel } from "@/components/live/HseMonitoringPanel";
-import { ReasonerContractProbe } from "@/components/live/ReasonerContractProbe";
+import {
+  ReasonerContractProbe,
+  computeQwenDiagnostic,
+  formatRouteStatus,
+} from "@/components/live/ReasonerContractProbe";
+import { useQwenHeartbeat } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+import {
+  mergeParsedRisk,
+  isHeartbeatFresh,
+} from "@/features/hse-monitoring/lib/mergeParsedRisk";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
 import { ARRecordButton } from "@/features/build-mode/components/ARRecordButton";
 import { ExtractableCandidateOverlay } from "@/features/build-mode/components/ExtractableCandidateOverlay";
@@ -341,13 +350,45 @@ export default function Live() {
   // HSE Live Risk View Model — single selector for what the HSE UI shows
   // (priority list, scene panel, overlay entities/poses, Qwen badge). Only
   // built in HSE mode so Build/Plan are byte-for-byte unchanged.
-  const parsedRiskForVm = (backendRisk as ParsedDetectRisk | null) ?? null;
+  const liveBackendRisk = (backendRisk as ParsedDetectRisk | null) ?? null;
+
+  // Qwen scene-reasoning heartbeat (HSE only). Runs at a low frequency, never
+  // replaces backendEntities/backendPoses/backendSegments. Merged into the HSE
+  // view model only when the result is fresh; otherwise updates diagnostics.
+  const heartbeatFlags = useMemo(() => readHseQwenHeartbeatFlags(), []);
+  const [heartbeatRisk, setHeartbeatRisk] = useState<ParsedDetectRisk | null>(null);
+  const [heartbeatRaw, setHeartbeatRaw] = useState<unknown>(null);
+  const [heartbeatAtMs, setHeartbeatAtMs] = useState<number | null>(null);
+  useQwenHeartbeat({
+    enabled: hseActive && heartbeatFlags.enabled,
+    videoRef,
+    profile: hse.profile,
+    roi: hse.roi,
+    intervalMs: heartbeatFlags.intervalMs,
+    backoffMs: heartbeatFlags.backoffMs,
+    forceReason: heartbeatFlags.forceReason,
+    onResponse: useCallback((r: {
+      parsed: ParsedDetectRisk | null;
+      raw: unknown;
+      receivedAtMs: number;
+    }) => {
+      setHeartbeatRisk(r.parsed);
+      setHeartbeatRaw(r.raw);
+      setHeartbeatAtMs(r.receivedAtMs);
+    }, []),
+  });
+
+  const nowMsForVm = Date.now();
+  const heartbeatFresh = isHeartbeatFresh(heartbeatAtMs, heartbeatFlags.resultTtlMs, nowMsForVm);
+  const parsedRiskForVm = heartbeatRisk
+    ? mergeParsedRisk(liveBackendRisk, heartbeatRisk, { applyHeartbeatRisks: heartbeatFresh })
+    : liveBackendRisk;
   const hseRiskViewModel = useHseLiveRiskViewModel({
     entities: backendEntities as BackendEntity[],
     poses: backendPoses as BackendPose[],
     parsedRisk: parsedRiskForVm,
     localActiveAlerts: hse.activeAlerts,
-    nowMs: Date.now(),
+    nowMs: nowMsForVm,
     qwenCandidateLaneEnabled: hseFlags.qwenCandidateLaneEnabled,
     showQwenCandidates: hseFlags.showQwenCandidates,
     localAlertsEnabled: hseFlags.localAlertsEnabled,
@@ -620,7 +661,7 @@ export default function Live() {
 
   // Parsed risk-aware view from the HTTP detector (null for legacy responses).
   // Only consumed when a risk-aware flag is on — otherwise it's inert.
-  const risk = (backendRisk as ParsedDetectRisk | null) ?? null;
+  const risk = appMode === "hse" ? parsedRiskForVm : liveBackendRisk;
   const showSceneRiskPanel =
     appMode === "hse" &&
     riskFlags.workerSceneRisks &&
@@ -677,17 +718,20 @@ export default function Live() {
         const latency = Math.round(performance.now() - t0);
         if (appMode === "hse") {
           const parsed = hasRiskAwareData(resp) ? parseDetectRiskFields(resp) : null;
+          const forceReasonSent =
+            (monitoringRequest?.reasoningPreferencesOverride as { force_reason?: unknown } | undefined)
+              ?.force_reason === true;
           const summary = summarizeDetectResponse(resp, parsed, {
             latencyMs: latency,
             proxy: "cloudflare",
             transport: "http-cloudflare",
+            forceReasonSent,
           });
-          const verdict =
-            summary.risk.sceneRisks > 0 || summary.risk.risks > 0 || summary.risk.hasRiskSummary
-              ? "Worker scene risk fields returned and are available to the HSE view model."
-              : "Detection is connected, but no worker scene risk fields were returned for this frame.";
+          const diag = computeQwenDiagnostic(summary);
           setBackendTest(
-            `capture ${cw}×${ch} · round-trip ${latency} ms\n\n${formatDetectSummary(summary)}\n\n${verdict}`,
+            `capture ${cw}×${ch} · round-trip ${latency} ms\n\n${formatDetectSummary(
+              summary,
+            )}\n\nRoute status:\n${formatRouteStatus(summary, diag)}\n\n${diag.message}`,
           );
         } else {
           setBackendTest(
@@ -1196,20 +1240,24 @@ export default function Live() {
                           Diagnostic only: never creates alerts/boxes/incidents. */}
                       {import.meta.env.DEV && appMode === "hse" && (
                         <ReasonerContractProbe
-                          parsedRisk={risk}
-                          rawResp={(() => {
-                            const raw = (backendStatus as BackendStatus | null)?.lastRawResponse;
-                            if (typeof raw !== "string" || !raw) return null;
-                            try {
-                              return JSON.parse(raw);
-                            } catch {
-                              return null;
-                            }
-                          })()}
+                          parsedRisk={parsedRiskForVm}
+                          rawResp={
+                            heartbeatRaw ??
+                            (() => {
+                              const raw = (backendStatus as BackendStatus | null)?.lastRawResponse;
+                              if (typeof raw !== "string" || !raw) return null;
+                              try {
+                                return JSON.parse(raw);
+                              } catch {
+                                return null;
+                              }
+                            })()
+                          }
                           status={(backendStatus as BackendStatus | null) ?? null}
                           localAlertsEnabled={hseFlags.localAlertsEnabled}
                           riskLinkedEntityCount={hseRiskViewModel.riskLinkedEntityCount}
                           riskLinkedPoseCount={hseRiskViewModel.riskLinkedPoseCount}
+                          forceReasonSent={heartbeatFlags.forceReason && heartbeatAtMs != null}
                         />
                       )}
                       {showFrameTest && (
