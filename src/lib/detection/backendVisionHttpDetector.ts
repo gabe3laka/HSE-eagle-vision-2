@@ -983,6 +983,8 @@ export function summarizeDetectResponse(
   let highestLabel: string | null = null;
   for (const risk of sceneRisks) {
     const p = (risk.produced_by ?? "").toLowerCase();
+    const m = (risk.reasoner_model ?? "").toLowerCase();
+    if (p.includes("qwen") || p.includes("vlm") || m.includes("qwen")) qwenOriginScenes = true;
     if (p.includes("vlm") || p.includes("qwen")) {
       if (p.includes("rules")) sources.rulesAndQwen += 1;
       else sources.qwen += 1;
@@ -1025,14 +1027,29 @@ export function summarizeDetectResponse(
   }
 
   // Reasoner: prefer parsed, fall back to raw response so the probe still
-  // surfaces reasoner-only payloads when parsed is null.
+  // surfaces reasoner-only payloads when parsed is null. Raw token is captured
+  // verbatim (`reasoner_status` string, or object's `state`/`status`/`mode`)
+  // so the probe can distinguish "raw" vs "normalized".
   const rawReasonerNorm = normalizeReasonerStatus(r.reasoner_status);
+  const rawReasonerRaw: string | null = (() => {
+    const v = r.reasoner_status;
+    if (typeof v === "string") return v;
+    if (v && typeof v === "object") {
+      const o = v as Record<string, unknown>;
+      const cand = o.state ?? o.status ?? o.mode;
+      if (typeof cand === "string") return cand;
+    }
+    return null;
+  })();
   const rawSceneCtx =
     r.scene_context && typeof r.scene_context === "object" ? r.scene_context : null;
   const rawSemCorr = Array.isArray(r.semantic_corrections)
     ? (r.semantic_corrections as unknown[]).length
     : 0;
   const rawTempReasoning = r.temporal_reasoning;
+  const warnings: string[] = Array.isArray(r.warnings)
+    ? (r.warnings as unknown[]).filter((w): w is string => typeof w === "string")
+    : (parsed?.warnings ?? []);
 
   return {
     detection: { entities, poses, segments },
@@ -1050,6 +1067,7 @@ export function summarizeDetectResponse(
     },
     reasoner: {
       reasonerStatus: parsed?.reasonerStatus ?? rawReasonerNorm ?? null,
+      rawReasonerStatus: rawReasonerRaw,
       sceneContextPresent: !!parsed?.sceneContext || !!rawSceneCtx,
       semanticCorrections: parsed?.semanticCorrections?.length ?? rawSemCorr,
       temporalReasoningPresent: parsed?.temporalReasoning != null || rawTempReasoning != null,
@@ -1064,6 +1082,10 @@ export function summarizeDetectResponse(
       model: typeof r.model === "string" ? (r.model as string) : null,
       backend: typeof r.backend === "string" ? (r.backend as string) : null,
     },
+    warnings,
+    riskAwareFieldsPresent: hasRiskAwareData(resp),
+    forceReasonSent: !!ctx.forceReasonSent,
+    qwenOriginScenes,
   };
 }
 
