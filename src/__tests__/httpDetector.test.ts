@@ -194,8 +194,7 @@ describe("clampNumber + capture env knobs", () => {
   });
 
   it("captureVideoFrameBase64 honors maxSide + quality and preserves aspect", async () => {
-    const { captureVideoFrameBase64 } =
-      await import("../lib/detection/backendVisionHttpDetector");
+    const { captureVideoFrameBase64 } = await import("../lib/detection/backendVisionHttpDetector");
     await withFakeDocument(async () => {
       const vid = { videoWidth: 1920, videoHeight: 1080 } as unknown as HTMLVideoElement;
       // Pass targetAspect: null so the cover-crop path doesn't run in node tests.

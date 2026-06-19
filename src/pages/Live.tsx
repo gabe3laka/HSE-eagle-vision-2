@@ -386,8 +386,7 @@ export default function Live() {
   // loops use the SAME temporal/Qwen memory window on the worker. Cloudflare
   // `?token=` (set inside postDetectFrame) authorizes the gateway request and
   // is independent of this session id.
-  const liveDetectorSessionId =
-    (backendStatus as BackendStatus | null)?.sessionId ?? null;
+  const liveDetectorSessionId = (backendStatus as BackendStatus | null)?.sessionId ?? null;
   useQwenHeartbeat({
     enabled: hseActive && heartbeatFlags.enabled,
     videoRef,
