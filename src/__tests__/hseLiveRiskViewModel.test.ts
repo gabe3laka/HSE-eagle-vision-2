@@ -15,6 +15,7 @@ import {
 } from "@/lib/detection/hseLiveRiskViewModel";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import type { BackendEntity, BackendPose } from "@/lib/detection/types";
+import { mergeParsedRisk } from "@/features/hse-monitoring/lib/mergeParsedRisk";
 import type { SceneRisk } from "@/lib/detection/riskTypes";
 
 const NOW = 1_700_000_000_000;
