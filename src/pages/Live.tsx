@@ -714,17 +714,20 @@ export default function Live() {
         const latency = Math.round(performance.now() - t0);
         if (appMode === "hse") {
           const parsed = hasRiskAwareData(resp) ? parseDetectRiskFields(resp) : null;
+          const forceReasonSent =
+            (monitoringRequest?.reasoningPreferencesOverride as { force_reason?: unknown } | undefined)
+              ?.force_reason === true;
           const summary = summarizeDetectResponse(resp, parsed, {
             latencyMs: latency,
             proxy: "cloudflare",
             transport: "http-cloudflare",
+            forceReasonSent,
           });
-          const verdict =
-            summary.risk.sceneRisks > 0 || summary.risk.risks > 0 || summary.risk.hasRiskSummary
-              ? "Worker scene risk fields returned and are available to the HSE view model."
-              : "Detection is connected, but no worker scene risk fields were returned for this frame.";
+          const diag = computeQwenDiagnostic(summary);
           setBackendTest(
-            `capture ${cw}×${ch} · round-trip ${latency} ms\n\n${formatDetectSummary(summary)}\n\n${verdict}`,
+            `capture ${cw}×${ch} · round-trip ${latency} ms\n\n${formatDetectSummary(
+              summary,
+            )}\n\nRoute status:\n${formatRouteStatus(summary, diag)}\n\n${diag.message}`,
           );
         } else {
           setBackendTest(
