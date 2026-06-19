@@ -653,8 +653,6 @@ describe("hseLiveRiskViewModel — hse-status overlay (one box per detection)", 
 });
 
 describe("hseLiveRiskViewModel — heartbeat merge integration", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { mergeParsedRisk } = require("@/features/hse-monitoring/lib/mergeParsedRisk");
 
   it("live entities + fresh linked heartbeat risk → matching entity upgrades", () => {
     const e = entity({ label: "person", track_id: "p1", class_id: 0 });
