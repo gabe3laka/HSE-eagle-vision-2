@@ -30,7 +30,7 @@ function dedupKey(r: SceneRisk): string {
   const hazard = r.hazard_type ?? r.hazard ?? "unknown";
   const linked = Array.isArray(r.involved_detection_ids)
     ? [...r.involved_detection_ids].sort().join(",")
-    : r.linked_entity_id ?? r.entity_id ?? "";
+    : (r.linked_entity_id ?? r.entity_id ?? "");
   return `h:${hazard}|${linked}`;
 }
 
@@ -52,12 +52,11 @@ export function mergeParsedRisk(
 ): ParsedDetectRisk | null {
   const { applyHeartbeatRisks = true } = options;
   if (!heartbeat) return live;
-  const base: ParsedDetectRisk =
-    live ?? {
-      sceneRisks: [],
-      degraded: false,
-      warnings: [],
-    };
+  const base: ParsedDetectRisk = live ?? {
+    sceneRisks: [],
+    degraded: false,
+    warnings: [],
+  };
 
   const merged: ParsedDetectRisk = {
     ...base,

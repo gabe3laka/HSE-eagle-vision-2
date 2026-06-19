@@ -190,11 +190,7 @@ export function buildReasonerDiagnostic(probe: ReasonerProbe): ReasonerDiagnosti
   if (!d.detectionOk) {
     message =
       "Detection route: error or unavailable. No entities returned from the latest /detect.";
-  } else if (
-    qwenState === "unavailable" ||
-    qwenState === "error" ||
-    qwenState === "disabled"
-  ) {
+  } else if (qwenState === "unavailable" || qwenState === "error" || qwenState === "disabled") {
     message = "Detection is working. Qwen reasoning is not available from the worker response.";
   } else if (qwenState === "queued") {
     message =
@@ -231,10 +227,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 /** PURE: render the multi-line "Route status" block for Probe + dry-run. */
-export function formatRouteStatus(
-  s: DetectResponseSummary,
-  d: QwenDiagnostic,
-): string {
+export function formatRouteStatus(s: DetectResponseSummary, d: QwenDiagnostic): string {
   return [
     `Detection route: ${d.detectionOk ? "working" : "error"}`,
     `Detector backend: ${s.gateway.backend ?? "—"}`,
@@ -338,10 +331,7 @@ export function ReasonerContractProbe({
           <Row label="raw_reasoner_status" value={diag.rawReasonerStatus ?? "missing"} />
           <Row label="normalized" value={diag.normalizedReasonerStatus ?? "missing"} />
           <Row label="qwen_state" value={diag.state} />
-          <Row
-            label="qwen_result_received"
-            value={diag.qwenResultReceived ? "yes" : "no"}
-          />
+          <Row label="qwen_result_received" value={diag.qwenResultReceived ? "yes" : "no"} />
           <Row
             label="qwen_unavailable_warning"
             value={diag.qwenUnavailableWarning ? "yes" : "no"}

@@ -9,7 +9,9 @@ describe("buildHeartbeatMonitoringRequest", () => {
 
   it("includes scene_reasoning + detect/track/risk in tasks", () => {
     const req = buildHeartbeatMonitoringRequest("balanced", null, true);
-    expect(req.tasks).toEqual(expect.arrayContaining(["detect", "track", "risk", "scene_reasoning"]));
+    expect(req.tasks).toEqual(
+      expect.arrayContaining(["detect", "track", "risk", "scene_reasoning"]),
+    );
   });
 
   it("when forceReason=true, sets reasoningPreferencesOverride.force_reason=true and key prefs", () => {

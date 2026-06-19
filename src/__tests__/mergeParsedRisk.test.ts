@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  mergeParsedRisk,
-  isHeartbeatFresh,
-} from "@/features/hse-monitoring/lib/mergeParsedRisk";
+import { mergeParsedRisk, isHeartbeatFresh } from "@/features/hse-monitoring/lib/mergeParsedRisk";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 
 function risk(over: Partial<Record<string, unknown>>): ParsedDetectRisk["sceneRisks"][number] {
