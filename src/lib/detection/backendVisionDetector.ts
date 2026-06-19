@@ -83,6 +83,9 @@ export interface BackendStatus {
   backend: string | null; // "yolo26" | "edgecrafter" | "deimv2" | ...
   tasks: string[] | null; // ["det"] | ["det","seg"] | ["det","pose"]
   model: string | null;
+  /** Worker-reported underlying detector model id (e.g. "yolo11s.pt").
+   *  Distinct from `model` (response label, e.g. "YOLO26"). Optional. */
+  detModelId?: string | null;
   entityCount: number;
   poseCount: number;
   error: string | null;
