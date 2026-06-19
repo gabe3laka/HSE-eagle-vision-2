@@ -920,6 +920,8 @@ export interface DetectResponseSummary {
   };
   reasoner: {
     reasonerStatus: string | null;
+    /** Raw reasoner_status token (or `state`/`status`/`mode` for objects) before normalization. */
+    rawReasonerStatus: string | null;
     sceneContextPresent: boolean;
     semanticCorrections: number;
     temporalReasoningPresent: boolean;
@@ -940,6 +942,14 @@ export interface DetectResponseSummary {
     model: string | null;
     backend: string | null;
   };
+  /** Worker-supplied warnings list (e.g. ["qwen_unavailable"]). */
+  warnings: string[];
+  /** True when ANY risk-aware field is present in the raw response. */
+  riskAwareFieldsPresent: boolean;
+  /** True iff the caller's monitoringRequest set reasoning_preferences.force_reason = true. */
+  forceReasonSent: boolean;
+  /** True iff scene_risks contain ANY Qwen-origin risk (produced_by / reasoner_model). */
+  qwenOriginScenes: boolean;
 }
 
 export function summarizeDetectResponse(
