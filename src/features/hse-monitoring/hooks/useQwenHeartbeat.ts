@@ -181,11 +181,6 @@ export function useQwenHeartbeat({
         }
         frameCounter += 1;
         const frameId = `${sessionId}-${frameCounter}`;
-        const baseReq = buildHseDetectRequest(
-          profileRef.current,
-          roiRef.current,
-          "hse-qwen-heartbeat",
-        );
         const monitoringRequest = buildHeartbeatMonitoringRequest(
           profileRef.current,
           roiRef.current,
