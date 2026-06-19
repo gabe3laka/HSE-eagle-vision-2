@@ -111,12 +111,7 @@ export function readHseQwenHeartbeatFlags(
   env: Record<string, unknown> = safeEnv(),
 ): HseQwenHeartbeatFlags {
   const intervalMs = readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_MS", 2000, 1000);
-  const backoffMs = readNumberEnv(
-    env,
-    "VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS",
-    10000,
-    intervalMs,
-  );
+  const backoffMs = readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS", 10000, intervalMs);
   return {
     enabled: readFlag("VITE_HSE_QWEN_HEARTBEAT_ENABLED", env, true),
     intervalMs,

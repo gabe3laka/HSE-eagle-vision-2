@@ -74,9 +74,7 @@ export function HeartbeatDiagnosticsPanel(props: HeartbeatDiagnosticsPanelProps)
         <span
           className={
             "ml-auto rounded px-1.5 py-0.5 text-[9px] uppercase tracking-wider " +
-            (enabled
-              ? "bg-emerald-400/15 text-emerald-200"
-              : "bg-muted/40 text-muted-foreground")
+            (enabled ? "bg-emerald-400/15 text-emerald-200" : "bg-muted/40 text-muted-foreground")
           }
         >
           {enabled ? "enabled" : "disabled"}
@@ -92,27 +90,16 @@ export function HeartbeatDiagnosticsPanel(props: HeartbeatDiagnosticsPanelProps)
           <Row label="session_id" value={currentSessionId ?? "—"} />
         </div>
         <div className="space-y-0.5">
-          <Row
-            label="last_outcome"
-            value={<span className={outcomeClass}>{outcome}</span>}
-          />
-          <Row
-            label="last_tick_age_ms"
-            value={lastAgeMs == null ? "—" : `${lastAgeMs}`}
-          />
+          <Row label="last_outcome" value={<span className={outcomeClass}>{outcome}</span>} />
+          <Row label="last_tick_age_ms" value={lastAgeMs == null ? "—" : `${lastAgeMs}`} />
           <Row label="last_scene_risks" value={lastDiagnostic?.sceneRisks ?? "—"} />
           <Row
             label="last_reasoner_status"
             value={
-              lastDiagnostic?.normalizedReasonerStatus ??
-              lastDiagnostic?.rawReasonerStatus ??
-              "—"
+              lastDiagnostic?.normalizedReasonerStatus ?? lastDiagnostic?.rawReasonerStatus ?? "—"
             }
           />
-          <Row
-            label="consecutive_failures"
-            value={lastDiagnostic?.consecutiveFailures ?? 0}
-          />
+          <Row label="consecutive_failures" value={lastDiagnostic?.consecutiveFailures ?? 0} />
           <Row label="next_delay_ms" value={lastDiagnostic?.nextDelayMs ?? "—"} />
         </div>
         <div className="space-y-0.5">

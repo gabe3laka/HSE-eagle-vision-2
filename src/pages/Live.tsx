@@ -373,12 +373,8 @@ export default function Live() {
   const [heartbeatRaw, setHeartbeatRaw] = useState<unknown>(null);
   const [heartbeatAtMs, setHeartbeatAtMs] = useState<number | null>(null);
   const [heartbeatSessionId, setHeartbeatSessionId] = useState<string | null>(null);
-  const [currentHeartbeatSessionId, setCurrentHeartbeatSessionId] = useState<string | null>(
-    null,
-  );
-  const [heartbeatLastDiag, setHeartbeatLastDiag] = useState<QwenHeartbeatDiagnostic | null>(
-    null,
-  );
+  const [currentHeartbeatSessionId, setCurrentHeartbeatSessionId] = useState<string | null>(null);
+  const [heartbeatLastDiag, setHeartbeatLastDiag] = useState<QwenHeartbeatDiagnostic | null>(null);
   const [heartbeatCounters, setHeartbeatCounters] = useState<HeartbeatCounters>({
     okCount: 0,
     errorCount: 0,
