@@ -202,4 +202,8 @@ export interface HSEDetectRequest {
   quality: { imgSize: number; conf: number; iou: number; maxDetections: number };
   roi?: HSERoi;
   requestReason: string;
+  /** Optional per-call override merged on top of NEUTRAL_HSE_REASONING_PREFERENCES.
+   *  Used by the Qwen heartbeat to set force_reason: true without mutating the
+   *  global default the live monitoring loop sends. */
+  reasoningPreferencesOverride?: Record<string, unknown>;
 }

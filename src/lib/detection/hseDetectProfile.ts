@@ -173,6 +173,9 @@ export function applyHseRequestToBody(
 ): Record<string, unknown> {
   if (!req) return base;
   const imageB64 = typeof base.image_b64 === "string" ? (base.image_b64 as string) : undefined;
+  const reasoningPrefs = req.reasoningPreferencesOverride
+    ? { ...NEUTRAL_HSE_REASONING_PREFERENCES, ...req.reasoningPreferencesOverride }
+    : NEUTRAL_HSE_REASONING_PREFERENCES;
   return {
     ...base,
     ...(imageB64 ? { frame_b64: imageB64 } : {}),
@@ -186,7 +189,7 @@ export function applyHseRequestToBody(
     ...(req.roi ? { roi: req.roi } : {}),
     requestReason: req.requestReason,
     site_context: NEUTRAL_HSE_SITE_CONTEXT,
-    reasoning_preferences: NEUTRAL_HSE_REASONING_PREFERENCES,
+    reasoning_preferences: reasoningPrefs,
     camera_context: {
       source: "browser-live-camera",
       mode: "hse",

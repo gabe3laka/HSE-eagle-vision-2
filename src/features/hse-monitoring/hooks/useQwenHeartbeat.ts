@@ -189,8 +189,7 @@ export function useQwenHeartbeat({
         const monitoringRequest = forceReasonRef.current
           ? {
               ...baseReq,
-              reasoning_preferences: {
-                ...(baseReq.reasoning_preferences ?? {}),
+              reasoningPreferencesOverride: {
                 force_reason: true,
                 prefer_low_latency: true,
                 require_visual_evidence: true,
