@@ -657,7 +657,7 @@ export default function Live() {
 
   // Parsed risk-aware view from the HTTP detector (null for legacy responses).
   // Only consumed when a risk-aware flag is on — otherwise it's inert.
-  const risk = (backendRisk as ParsedDetectRisk | null) ?? null;
+  const risk = appMode === "hse" ? parsedRiskForVm : liveBackendRisk;
   const showSceneRiskPanel =
     appMode === "hse" &&
     riskFlags.workerSceneRisks &&
