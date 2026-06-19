@@ -955,7 +955,12 @@ export interface DetectResponseSummary {
 export function summarizeDetectResponse(
   resp: unknown,
   parsed: ParsedDetectRisk | null,
-  ctx: { latencyMs?: number | null; proxy?: string | null; transport?: string | null } = {},
+  ctx: {
+    latencyMs?: number | null;
+    proxy?: string | null;
+    transport?: string | null;
+    forceReasonSent?: boolean;
+  } = {},
 ): DetectResponseSummary {
   const r = (resp && typeof resp === "object" ? resp : {}) as Record<string, unknown>;
   const entities = Array.isArray(r.entities) ? (r.entities as unknown[]).length : 0;
@@ -965,6 +970,7 @@ export function summarizeDetectResponse(
   const riskList = Array.isArray(r.risks) ? (r.risks as unknown[]) : [];
 
   const sources = { rules: 0, qwen: 0, rulesAndQwen: 0, unknown: 0 };
+  let qwenOriginScenes = false;
   const link = {
     withLinkedEntityId: 0,
     withInvolvedDetectionIds: 0,
