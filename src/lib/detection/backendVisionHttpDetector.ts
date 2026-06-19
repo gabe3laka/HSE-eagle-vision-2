@@ -62,8 +62,33 @@ const TARGET_FPS = Math.round(1000 / TARGET_INTERVAL_MS); // ~4
 // frame we send mirrors the visible video's shape (portrait → portrait,
 // landscape → landscape). Avoids the 4:3-only 640×480 distortion that
 // mis-aligned overlays on phones.
-const CAPTURE_MAX_SIDE = 512;
-const CAPTURE_QUALITY = 0.7;
+//
+// HSE capture defaults are env-tunable via VITE_HSE_CAPTURE_MAX_SIDE (256–1280)
+// and VITE_HSE_CAPTURE_QUALITY (0.4–0.92). Defaults preserve the prior 512/0.7
+// behaviour; raising the side helps small-object recall (cup/can/glass edges)
+// without breaking overlay alignment (aspect is always preserved by
+// computeCaptureSize, and the same constants drive both the live loop and the
+// shared captureVideoFrameBase64 helper).
+
+/** PURE: clamp `n` into [lo, hi]; fall back to `fallback` when `n` is NaN. */
+export function clampNumber(n: number, lo: number, hi: number, fallback: number): number {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function readEnvNumber(key: "VITE_HSE_CAPTURE_MAX_SIDE" | "VITE_HSE_CAPTURE_QUALITY"): number {
+  try {
+    const v = (import.meta.env as Record<string, unknown> | undefined)?.[key];
+    if (typeof v === "string" && v.trim() !== "") return Number(v);
+    if (typeof v === "number") return v;
+  } catch {
+    /* ignore — falls through to NaN */
+  }
+  return Number.NaN;
+}
+
+const CAPTURE_MAX_SIDE = clampNumber(readEnvNumber("VITE_HSE_CAPTURE_MAX_SIDE"), 256, 1280, 512);
+const CAPTURE_QUALITY = clampNumber(readEnvNumber("VITE_HSE_CAPTURE_QUALITY"), 0.4, 0.92, 0.7);
 // Dry-run confidence — kept low so more entities surface for visual validation.
 const DRY_RUN_CONF = 0.2;
 const CAMERA_ID = "browser-http";
@@ -491,6 +516,9 @@ export class BackendVisionHttpDetector implements Detector {
       entityCount: this.lastEntities.length,
       poseCount: this.lastPoses.length,
       targetFps: TARGET_FPS,
+      // Surface the active worker session_id so the Qwen heartbeat can re-use it
+      // (shared temporal/Qwen memory continuity). Null while stopped.
+      sessionId: this.sessionId,
     };
   }
 

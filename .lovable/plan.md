@@ -1,59 +1,95 @@
-## Audit result — all 4 gaps confirmed open
+# Implement Audit Fixes — H1, H2, M1, M2
 
-| Gap | Status | Evidence |
-|---|---|---|
-| Manual test forces Qwen (`force_reason=true`) | ❌ Not done | `Live.tsx` L737 calls `buildHseDetectRequest(hse.profile, hse.roi, "manual-test")` with no `reasoningPreferencesOverride`. `NEUTRAL_HSE_REASONING_PREFERENCES.force_reason = false` (`hseDetectProfile.ts` L148), so `forceReasonSent` is always `false` for manual tests. |
-| Heartbeat runtime diagnostics visible | ❌ Partial | `useQwenHeartbeat` already emits `onDiagnostic` per tick (outcome: `ok` / `no-video` / `error` / `skipped-inflight`, warnings, sceneRisks, status). `Live.tsx` never subscribes — no UI shows "heartbeat ticking / last outcome / last error". Only the ignore-reason amber banner exists. |
-| Session mismatch guard usable | ❌ Hardcoded null | `Live.tsx` L401 passes `liveSessionId: null` to `heartbeatIgnoreReason`, so `session-mismatch` can never fire. Live session id is not threaded out of `useDetectionSession`. |
-| Extended 30s failure backoff | ❌ Single-tier only | `pickHeartbeatDelay` returns `intervalMs` or `backoffMs` (default 10s). No escalation after consecutive failures. |
+Scope-locked to the four approved fixes. No Cloudflare/RunPod/Supabase-auth/Build/Plan/HSE-overlay changes. All existing behavior (one box per detection, GREEN default, YELLOW/ORANGE/RED only when linked, detector labels preserved, no duplicate boxes, Priority Scene Risks YELLOW+ only, heartbeat via `postDetectFrame`) is preserved.
 
-## Plan
+## Files changed
 
-### 1. Manual test forces Qwen (highest priority)
+1. `src/lib/detection/backendVisionDetector.ts` — add `sessionId?: string | null` to `BackendStatus`.
+2. `src/lib/detection/backendVisionHttpDetector.ts` — env-tunable HSE capture; expose `sessionId` in `getBackendStatus()`; export `clampNumber`.
+3. `src/features/hse-monitoring/hooks/useQwenHeartbeat.ts` — add `sessionIdOverride`, add `forceReasonSent` to response, export pure `pickEffectiveHeartbeatSessionId`, add doc comment on token-vs-session_id.
+4. `src/features/hse-monitoring/lib/mergeParsedRisk.ts` — split `session-mismatch` vs `frame-mismatch` messages.
+5. `src/pages/Live.tsx` — pass live detector `sessionId` to heartbeat; use real live `sessionId` in `heartbeatIgnoreReason`; track `heartbeatForceReasonSent` and wire to probe.
+6. `src/build-env.d.ts` — declare `VITE_HSE_CAPTURE_MAX_SIDE`, `VITE_HSE_CAPTURE_QUALITY`.
+7. `.env.example` — document the two new public envs.
+8. `src/__tests__/mergeParsedRisk.test.ts` — assert distinct strings.
+9. `src/__tests__/qwenHeartbeat.test.ts` — tests for `pickEffectiveHeartbeatSessionId`.
+10. `src/__tests__/httpDetector.test.ts` — tests for `clampNumber` and `captureVideoFrameBase64({maxSide, quality})` (aspect preserved, no RunPod URL).
 
-`src/pages/Live.tsx` — in `testBackendFrame`, when `appMode === "hse"`, build the request with a `reasoningPreferencesOverride` that sets `force_reason: true` (same shape as `buildHeartbeatMonitoringRequest`). This makes `forceReasonSent` true in the summary and proves the worker honored the override.
+## H1 — Shared worker session_id
 
-### 2. Visible heartbeat runtime diagnostics
+- `BackendStatus.sessionId?: string | null` added (typed, optional → byte-compat).
+- `BackendVisionHttpDetector.getBackendStatus()` returns `sessionId: this.sessionId` (already minted as `hse-sess-…` in `start()`).
+- `useQwenHeartbeat` gains `sessionIdOverride?: string | null`. New pure helper:
+  ```ts
+  export function pickEffectiveHeartbeatSessionId(
+    override: string | null | undefined,
+    fallback: string,
+  ): string {
+    return typeof override === "string" && override.trim().length > 0 ? override : fallback;
+  }
+  ```
+- Effect computes `effectiveSessionId = pickEffectiveHeartbeatSessionId(overrideRef.current, mintedFallback)`; frame ids stay heartbeat-specific (`${effectiveSessionId}-hb-${counter}`). `sessionIdOverride` is added to effect deps so a live-session change restarts the heartbeat with the new id. `onSessionStart` fires with `effectiveSessionId`.
+- Clarifying comment added at the top of the hook:
+  ```
+  // Cloudflare session token authorizes the gateway request.
+  // Worker session_id is separate and is used for temporal/Qwen memory continuity.
+  ```
+- `Live.tsx` passes `sessionIdOverride: (backendStatus as BackendStatus | null)?.sessionId ?? null`, and uses that same id as `liveSessionId` in `heartbeatIgnoreReason` (replacing the previous self-comparison via `currentHeartbeatSessionId`).
 
-`src/pages/Live.tsx`
-- Add state for last diagnostic: `{ atMs, outcome, sceneRisks, warnings, rawReasonerStatus, error }` + small rolling counters (`okCount`, `errorCount`, `skippedInflightCount`, `noVideoCount`, `consecutiveFailures`).
-- Wire `onDiagnostic` on `useQwenHeartbeat` to update them.
+## H2 — Distinct ignore messages
 
-`src/components/live/HeartbeatDiagnosticsPanel.tsx` (new, dev-only)
-- Compact panel rendered in the same Diagnostics section as `ReasonerContractProbe`, HSE-only, `import.meta.env.DEV` gated.
-- Shows: enabled flag, interval/backoff, last tick (age in ms), last outcome, last error, counters, current ignore reason. Pure presentation; no alerts/incidents.
+```ts
+if (reason === "stale")
+  return "Qwen heartbeat result received but ignored: stale";
+if (reason === "session-mismatch")
+  return "Qwen heartbeat result received but ignored: session mismatch";
+return "Qwen heartbeat result received but ignored: no current detector entities";
+```
 
-### 3. Real `liveSessionId` for session-mismatch guard
+Test updated to assert each exact string.
 
-- Surface the active live session id from `useDetectionSession` (read whichever id the live HTTP/stream client already tags frames with — `BackendStatus.sessionId` or detector session field; check first, fall back to a new return value if absent).
-- Replace `liveSessionId: null` in `Live.tsx` L401 with the real id.
-- No behavior change in `mergeParsedRisk` — it already accepts the field.
+## M1 — Env-tunable HSE capture
 
-### 4. Extended 30s failure backoff
+```ts
+export function clampNumber(n: number, lo: number, hi: number, fallback: number): number {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(lo, Math.min(hi, n));
+}
+const CAPTURE_MAX_SIDE = clampNumber(readEnvNumber("VITE_HSE_CAPTURE_MAX_SIDE"), 256, 1280, 512);
+const CAPTURE_QUALITY  = clampNumber(readEnvNumber("VITE_HSE_CAPTURE_QUALITY"),  0.4, 0.92, 0.7);
+```
 
-`src/features/hse-monitoring/hooks/useQwenHeartbeat.ts`
-- Add `extendedBackoffMs` option (default 30000) and `extendedBackoffAfter` (default 3 consecutive failures).
-- Track `consecutiveFailures` inside the effect. On failure: `failures++`; on success: reset to 0.
-- Extend pure helper `pickHeartbeatDelay` to take `consecutiveFailures`, `backoffMs`, `extendedBackoffMs`, `extendedBackoffAfter`; return `extendedBackoffMs` once threshold reached.
-- Expose `consecutiveFailures` on `QwenHeartbeatDiagnostic` so the new panel can display it.
-- Flag plumbing: extend `readHseQwenHeartbeatFlags` with the two new values (env-overridable, sensible defaults).
+- Replaces the two hard-coded constants. Detector class and `captureVideoFrameBase64` defaults both inherit (no other call sites). `computeCaptureSize` already preserves aspect, so overlay alignment is unchanged.
+- `.env.example` adds:
+  ```
+  # HSE capture (optional). Defaults: 512 / 0.7. Recommended for cup/can/glass: 960 / 0.78.
+  VITE_HSE_CAPTURE_MAX_SIDE=
+  VITE_HSE_CAPTURE_QUALITY=
+  ```
+- `build-env.d.ts` declares both as optional strings.
 
-### 5. Tests
+## M2 — Exact `forceReasonSent`
 
-- `src/__tests__/qwenHeartbeat.test.ts`: add cases for `pickHeartbeatDelay` extended tier (below threshold → backoff; at/above → extended); failure-counter reset on success.
-- `src/__tests__/mergeParsedRisk.test.ts`: add a `session-mismatch` case with both ids set to different values (currently only TTL + frame-mismatch are covered when `liveSessionId=null`).
-- No snapshot changes needed for the new panel; render-only.
+- `QwenHeartbeatResponse` gains `forceReasonSent: boolean`. Hook reads `forceReasonRef.current` at the call site and passes it. (Manual test already computes its own `forceReasonSent` from `monitoringRequest.reasoningPreferencesOverride?.force_reason` — unchanged.)
+- `Live.tsx`: new `const [heartbeatForceReasonSent, setHeartbeatForceReasonSent] = useState(false);` written in `onResponse`; passed as `forceReasonSent={heartbeatForceReasonSent}` to `<ReasonerContractProbe />`. Replaces the `heartbeatFlags.forceReason && heartbeatAtMs != null` heuristic.
 
-### Out of scope (unchanged)
+## Tests
 
-- Cloudflare worker, RunPod worker repo, secrets, Supabase config.
-- Live detector loop / overlays / box colors.
-- Heartbeat merge rules (already correct: diagnostics-only when ignored).
+- `mergeParsedRisk.test.ts` — `heartbeatIgnoreMessage("session-mismatch")` → exact string; `("frame-mismatch")` → exact string.
+- `qwenHeartbeat.test.ts` — `pickEffectiveHeartbeatSessionId`:
+  - returns override when non-empty
+  - falls back to fallback when override is `null`/`undefined`/`""`/`"   "`
+- `httpDetector.test.ts` — `clampNumber` covers NaN / below / above / inside; `captureVideoFrameBase64` with `{maxSide: 960, quality: 0.8}` returns capture with `max(cw,ch) ≤ 960` and preserves aspect (uses the existing fake `document` shim).
+- Re-run `bunx prettier --write` on every edited file, then `bun run lint` and `bun run test`. Report any non-blocking React refresh warnings explicitly.
 
-### Acceptance
+## Confirmations (already true by construction)
 
-- Clicking "Test detect frame" in HSE mode produces a probe block where `manual force_reason sent: yes`.
-- Diagnostics panel shows heartbeat ticking every ~2s with `ok` outcome when Qwen is healthy; flips to `error` + `consecutiveFailures` counter on worker failure.
-- After 3 consecutive failures, next tick is scheduled ~30s out (visible via "next tick in" or just observed gap).
-- When a stale or different-session heartbeat arrives, the existing amber ignore banner now also fires for `session-mismatch`, not just `stale` / `frame-mismatch`.
-- `bun run lint` + `bun run test` green; Prettier-formatted.
+- Cloudflare auth/token flow unchanged: heartbeat still calls `postDetectFrame` → `fetchDetectSession` → `/detect?token=…`. No new URL.
+- No secrets introduced; all envs are public `VITE_*`.
+- RunPod worker repo untouched.
+- HSE overlay color/label rules untouched; H1 only changes the worker session id forwarded in the body, H2 changes diagnostic text only, M1 changes capture dims only (aspect preserved), M2 changes a display value only.
+- Build mode / Plan mode untouched (all new wiring is HSE-gated as before).
+
+## Risk
+
+Low. H1 and M2 only forward extra metadata; H2 is text-only; M1 defaults to current values. The only behavior change at default env is heartbeat session continuity with the live detector — which is the explicit goal.
