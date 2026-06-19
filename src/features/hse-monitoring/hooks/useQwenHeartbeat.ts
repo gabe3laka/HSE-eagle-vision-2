@@ -86,7 +86,38 @@ function rawReasonerStatusToken(resp: unknown): string | null {
   return null;
 }
 
-export function useQwenHeartbeat({
+/**
+ * PURE: build the per-tick monitoring request used by the Qwen heartbeat.
+ * Reuses `buildHseDetectRequest` with `requestReason: "hse-qwen-heartbeat"`,
+ * and (when `forceReason` is true) merges a per-call
+ * `reasoningPreferencesOverride.force_reason = true` so the worker prefers
+ * Qwen reasoning for this tick without mutating the live monitoring loop.
+ */
+export function buildHeartbeatMonitoringRequest(
+  profile: HSEDetectionProfile,
+  roi: HSERoi | null,
+  forceReason: boolean,
+) {
+  const base = buildHseDetectRequest(profile, roi, "hse-qwen-heartbeat");
+  if (!forceReason) return base;
+  return {
+    ...base,
+    reasoningPreferencesOverride: {
+      force_reason: true,
+      prefer_low_latency: true,
+      require_visual_evidence: true,
+      allow_no_active_risk: true,
+      return_scene_risks: true,
+      return_linked_entities: true,
+      return_reasoner_status: true,
+      return_scene_context: true,
+      return_semantic_corrections: true,
+      avoid_repeating_unconfirmed_risks: true,
+      verify_current_frame_before_reusing_cached_risk: true,
+    },
+  };
+}
+
   enabled,
   videoRef,
   profile,
