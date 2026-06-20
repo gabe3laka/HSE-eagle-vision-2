@@ -69,8 +69,10 @@ export interface UseQwenHeartbeatOptions {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   profile: HSEDetectionProfile;
   roi: HSERoi | null;
-  /** Clamped ≥1000 ms. Default 2000. */
+  /** Clamped ≥ `minIntervalMs` (hard floor 1000 ms). Default 2000. */
   intervalMs?: number;
+  /** Hard floor used to clamp `intervalMs` (≥1000). Default 1000. */
+  minIntervalMs?: number;
   /** Backoff after Qwen failure. Default 10000. */
   backoffMs?: number;
   /** Extended backoff after `extendedBackoffAfter` consecutive failures. Default 30000. */
