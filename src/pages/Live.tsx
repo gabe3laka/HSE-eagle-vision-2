@@ -807,8 +807,11 @@ export default function Live() {
     testFrameCounterRef.current = 0;
     testFramePendingRef.current = false;
     testFramePendingSinceMsRef.current = 0;
+    testFrameSkippedCountRef.current = 0;
     setTestFrameSessionId(null);
     setTestFramePending(false);
+    setTestFramePendingSinceMs(null);
+    setTestFrameSkippedCount(0);
   }, []);
 
   // Dev/debug: capture the current frame and send one request, showing the raw
