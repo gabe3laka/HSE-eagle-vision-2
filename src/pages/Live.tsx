@@ -845,11 +845,16 @@ export default function Live() {
           testFramePendingRef.current = false;
           testFramePendingSinceMsRef.current = 0;
           setTestFramePending(false);
+          setTestFramePendingSinceMs(null);
         }
         // While Qwen is still working on a previous Test Frame in THIS
         // session, the next click must POLL the cached result instead of
         // starting (and replacing) a new reasoning job.
         const pollingPending = appMode === "hse" && testFramePendingRef.current;
+        if (pollingPending) {
+          testFrameSkippedCountRef.current += 1;
+          setTestFrameSkippedCount(testFrameSkippedCountRef.current);
+        }
         // In HSE mode, send the SAME monitoring/reasoning context the live
         // stream uses so the test exercises the full worker contract.
         // Build/Plan stays detection-only.
