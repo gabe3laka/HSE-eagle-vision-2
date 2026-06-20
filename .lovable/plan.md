@@ -1,95 +1,103 @@
-# Implement Audit Fixes — H1, H2, M1, M2
+## Audit summary
 
-Scope-locked to the four approved fixes. No Cloudflare/RunPod/Supabase-auth/Build/Plan/HSE-overlay changes. All existing behavior (one box per detection, GREEN default, YELLOW/ORANGE/RED only when linked, detector labels preserved, no duplicate boxes, Priority Scene Risks YELLOW+ only, heartbeat via `postDetectFrame`) is preserved.
+The Live HSE Qwen heartbeat is already implemented and meets most of the prompt's architecture:
 
-## Files changed
+- ✅ HSE‑mode‑only heartbeat (`hseActive && heartbeatFlags.enabled`), single‑in‑flight, latest‑frame‑only (frame is captured fresh inside each tick, never queued).
+- ✅ Skip‑if‑busy emits a `skipped-inflight` diagnostic and re‑schedules without sending.
+- ✅ Visibility / monitoring / camera / mode‑change pause via the effect's enable gate + `visibilitychange` listener.
+- ✅ Shares worker `session_id` with the live detector via `sessionIdOverride: liveDetectorSessionId`; falls back to a minted `hse-qwen-hb-…` when no live session; heartbeat frame ids stay distinct (`<session>-hb-<n>`).
+- ✅ Uses the existing Cloudflare token flow (`postDetectFrame` only). No RunPod or Worker changes.
+- ✅ 3‑tier backoff (interval → backoff → extended).
+- ✅ `mergeParsedRisk` never replaces detector entities; only enriches scene‑reasoning fields.
+- ✅ Heartbeat ignore reasons (`stale` / `session-mismatch` / `frame-mismatch`) and stickiness window already in place.
+- ✅ Qwen‑only candidates gated by `VITE_HSE_SHOW_QWEN_CANDIDATES` / `VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED`.
 
-1. `src/lib/detection/backendVisionDetector.ts` — add `sessionId?: string | null` to `BackendStatus`.
-2. `src/lib/detection/backendVisionHttpDetector.ts` — env-tunable HSE capture; expose `sessionId` in `getBackendStatus()`; export `clampNumber`.
-3. `src/features/hse-monitoring/hooks/useQwenHeartbeat.ts` — add `sessionIdOverride`, add `forceReasonSent` to response, export pure `pickEffectiveHeartbeatSessionId`, add doc comment on token-vs-session_id.
-4. `src/features/hse-monitoring/lib/mergeParsedRisk.ts` — split `session-mismatch` vs `frame-mismatch` messages.
-5. `src/pages/Live.tsx` — pass live detector `sessionId` to heartbeat; use real live `sessionId` in `heartbeatIgnoreReason`; track `heartbeatForceReasonSent` and wire to probe.
-6. `src/build-env.d.ts` — declare `VITE_HSE_CAPTURE_MAX_SIDE`, `VITE_HSE_CAPTURE_QUALITY`.
-7. `.env.example` — document the two new public envs.
-8. `src/__tests__/mergeParsedRisk.test.ts` — assert distinct strings.
-9. `src/__tests__/qwenHeartbeat.test.ts` — tests for `pickEffectiveHeartbeatSessionId`.
-10. `src/__tests__/httpDetector.test.ts` — tests for `clampNumber` and `captureVideoFrameBase64({maxSide, quality})` (aspect preserved, no RunPod URL).
+### Gaps vs the new prompt
 
-## H1 — Shared worker session_id
+1. **Public flag names / defaults don't match the prompt's spec**:
+   - Prompt: `VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS` → code uses `VITE_HSE_QWEN_HEARTBEAT_MS`.
+   - Prompt: `VITE_HSE_QWEN_HEARTBEAT_MIN_INTERVAL_MS` (clamp floor) → not present; floor is hard‑coded 1000.
+   - Prompt: `VITE_HSE_QWEN_RESULT_TTL_MS` default 8000 → code uses `VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS` default 3000.
+2. **Heartbeat reasoning payload** missing two fields required by the prompt: `target_reasoning_interval_ms: 1500` and `max_candidate_age_ms: 1500`.
+3. **Sticky thresholds** in `useHseLiveRiskViewModel` are slightly under prompt's stale caps:
+   - `YELLOW_HARD_MAX_MS = 2000` → prompt wants 2500.
+   - `RED_STALE_MAX_MS = 4500` → prompt wants 5000 (ORANGE/RED, dashed only).
+4. **Tests**: existing tests cover most behaviors but need to be extended for the new flag aliases, new payload fields, the new TTL default, the new stale caps, and the cadence/clamp.
 
-- `BackendStatus.sessionId?: string | null` added (typed, optional → byte-compat).
-- `BackendVisionHttpDetector.getBackendStatus()` returns `sessionId: this.sessionId` (already minted as `hse-sess-…` in `start()`).
-- `useQwenHeartbeat` gains `sessionIdOverride?: string | null`. New pure helper:
-  ```ts
-  export function pickEffectiveHeartbeatSessionId(
-    override: string | null | undefined,
-    fallback: string,
-  ): string {
-    return typeof override === "string" && override.trim().length > 0 ? override : fallback;
-  }
-  ```
-- Effect computes `effectiveSessionId = pickEffectiveHeartbeatSessionId(overrideRef.current, mintedFallback)`; frame ids stay heartbeat-specific (`${effectiveSessionId}-hb-${counter}`). `sessionIdOverride` is added to effect deps so a live-session change restarts the heartbeat with the new id. `onSessionStart` fires with `effectiveSessionId`.
-- Clarifying comment added at the top of the hook:
-  ```
-  // Cloudflare session token authorizes the gateway request.
-  // Worker session_id is separate and is used for temporal/Qwen memory continuity.
-  ```
-- `Live.tsx` passes `sessionIdOverride: (backendStatus as BackendStatus | null)?.sessionId ?? null`, and uses that same id as `liveSessionId` in `heartbeatIgnoreReason` (replacing the previous self-comparison via `currentHeartbeatSessionId`).
+Everything else (matching order via `dedupKey` + view‑model linkage, drift handling via sticky entries, Cloudflare token via `postDetectFrame`, Build/Plan mode untouched, no Vite secrets) already complies.
 
-## H2 — Distinct ignore messages
+---
+
+## Implementation plan
+
+Build mode is unchanged. Plan mode is unchanged. No secrets added. No Cloudflare Worker or RunPod worker code touched.
+
+### 1. Public Vite flag aliases & new clamp floor
+
+**`src/build-env.d.ts`** — declare the three new public flags alongside the existing ones (keep old names as accepted aliases to avoid breaking existing `.env` files):
+- `VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS`
+- `VITE_HSE_QWEN_HEARTBEAT_MIN_INTERVAL_MS`
+- `VITE_HSE_QWEN_RESULT_TTL_MS`
+
+**`src/lib/featureFlags.ts → readHseQwenHeartbeatFlags`**:
+- Read interval from `VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS` first, then fall back to `VITE_HSE_QWEN_HEARTBEAT_MS` (legacy), default 2000.
+- New `minIntervalMs` from `VITE_HSE_QWEN_HEARTBEAT_MIN_INTERVAL_MS`, default 1000, hard floor 1000.
+- Effective interval = `max(minIntervalMs, intervalMs)`.
+- Read TTL from `VITE_HSE_QWEN_RESULT_TTL_MS` first, then fall back to `VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS`, default **8000** (per prompt). Floor 500.
+
+**`src/features/hse-monitoring/hooks/useQwenHeartbeat.ts`**:
+- Accept optional `minIntervalMs` prop; replace the hard‑coded `Math.max(1000, intervalMs)` clamp with `Math.max(minIntervalMs ?? 1000, intervalMs)` (still ≥1000 hard floor).
+- Plumb the new value from `Live.tsx`.
+
+**`.env.example`** — add documented entries for the three new flags with default values from the prompt.
+
+### 2. Heartbeat reasoning payload — add missing fields
+
+In `buildHeartbeatMonitoringRequest` (`useQwenHeartbeat.ts`), extend `reasoningPreferencesOverride` with:
 
 ```ts
-if (reason === "stale")
-  return "Qwen heartbeat result received but ignored: stale";
-if (reason === "session-mismatch")
-  return "Qwen heartbeat result received but ignored: session mismatch";
-return "Qwen heartbeat result received but ignored: no current detector entities";
+target_reasoning_interval_ms: 1500,
+max_candidate_age_ms: 1500,
 ```
 
-Test updated to assert each exact string.
+All existing keys preserved. The base request from `buildHseDetectRequest("hse-qwen-heartbeat")` already carries `session_id`, `frame_id`, `camera_id`, `camera_context`, `site_context`, and `scene_hint`, so no other payload changes are needed.
 
-## M1 — Env-tunable HSE capture
+### 3. Sticky stale caps
 
-```ts
-export function clampNumber(n: number, lo: number, hi: number, fallback: number): number {
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(lo, Math.min(hi, n));
-}
-const CAPTURE_MAX_SIDE = clampNumber(readEnvNumber("VITE_HSE_CAPTURE_MAX_SIDE"), 256, 1280, 512);
-const CAPTURE_QUALITY  = clampNumber(readEnvNumber("VITE_HSE_CAPTURE_QUALITY"),  0.4, 0.92, 0.7);
-```
+In `src/features/hse-monitoring/hooks/useHseLiveRiskViewModel.ts`:
+- `YELLOW_HARD_MAX_MS` → `2500`.
+- `RED_STALE_MAX_MS` → `5000`.
+- `MIN_VISIBLE_RISK_MS` stays `1000`.
 
-- Replaces the two hard-coded constants. Detector class and `captureVideoFrameBase64` defaults both inherit (no other call sites). `computeCaptureSize` already preserves aspect, so overlay alignment is unchanged.
-- `.env.example` adds:
-  ```
-  # HSE capture (optional). Defaults: 512 / 0.7. Recommended for cup/can/glass: 960 / 0.78.
-  VITE_HSE_CAPTURE_MAX_SIDE=
-  VITE_HSE_CAPTURE_QUALITY=
-  ```
-- `build-env.d.ts` declares both as optional strings.
+(No new render logic — dashed/stale rendering already keyed off these values downstream.)
 
-## M2 — Exact `forceReasonSent`
+### 4. Tests
 
-- `QwenHeartbeatResponse` gains `forceReasonSent: boolean`. Hook reads `forceReasonRef.current` at the call site and passes it. (Manual test already computes its own `forceReasonSent` from `monitoringRequest.reasoningPreferencesOverride?.force_reason` — unchanged.)
-- `Live.tsx`: new `const [heartbeatForceReasonSent, setHeartbeatForceReasonSent] = useState(false);` written in `onResponse`; passed as `forceReasonSent={heartbeatForceReasonSent}` to `<ReasonerContractProbe />`. Replaces the `heartbeatFlags.forceReason && heartbeatAtMs != null` heuristic.
+Extend / add Vitest cases:
 
-## Tests
+- `src/__tests__/featureFlags.test.ts` (or equivalent) — read alias precedence, new `minIntervalMs`, new TTL default 8000.
+- `src/__tests__/qwenHeartbeat.test.ts`:
+   - `buildHeartbeatMonitoringRequest` now contains `target_reasoning_interval_ms` and `max_candidate_age_ms`.
+   - Interval clamp uses `minIntervalMs` floor.
+   - Existing single‑in‑flight, session‑adoption, frame‑id, backoff tests stay green.
+- `src/__tests__/mergeParsedRisk.test.ts` — keep stale/session/frame‑mismatch guards green at the new 8000 ms TTL default.
+- New small test (or extend) for `useHseLiveRiskViewModel` thresholds (assert exported constants = 1000/2500/5000).
 
-- `mergeParsedRisk.test.ts` — `heartbeatIgnoreMessage("session-mismatch")` → exact string; `("frame-mismatch")` → exact string.
-- `qwenHeartbeat.test.ts` — `pickEffectiveHeartbeatSessionId`:
-  - returns override when non-empty
-  - falls back to fallback when override is `null`/`undefined`/`""`/`"   "`
-- `httpDetector.test.ts` — `clampNumber` covers NaN / below / above / inside; `captureVideoFrameBase64` with `{maxSide: 960, quality: 0.8}` returns capture with `max(cw,ch) ≤ 960` and preserves aspect (uses the existing fake `document` shim).
-- Re-run `bunx prettier --write` on every edited file, then `bun run lint` and `bun run test`. Report any non-blocking React refresh warnings explicitly.
+Run `bun run lint` and `bun run test`.
 
-## Confirmations (already true by construction)
+---
 
-- Cloudflare auth/token flow unchanged: heartbeat still calls `postDetectFrame` → `fetchDetectSession` → `/detect?token=…`. No new URL.
-- No secrets introduced; all envs are public `VITE_*`.
-- RunPod worker repo untouched.
-- HSE overlay color/label rules untouched; H1 only changes the worker session id forwarded in the body, H2 changes diagnostic text only, M1 changes capture dims only (aspect preserved), M2 changes a display value only.
-- Build mode / Plan mode untouched (all new wiring is HSE-gated as before).
+## Out of scope (explicitly not changing)
 
-## Risk
+- Cloudflare Worker code.
+- RunPod worker code.
+- `postDetectFrame` / signed session token flow.
+- Build mode, Plan mode.
+- HSE overlay rendering rules (detector boxes remain coordinate authority; Qwen‑only candidates still hidden by default).
+- Adding any new secrets.
 
-Low. H1 and M2 only forward extra metadata; H2 is text-only; M1 defaults to current values. The only behavior change at default env is heartbeat session continuity with the live detector — which is the explicit goal.
+---
+
+## Final response format
+
+After implementation: files changed, Vite flags added/checked, confirmations (no secrets, Build/Plan unchanged, Cloudflare/RunPod untouched), how cadence + session sharing + matching + stale‑ignore work, and `bun run lint` / `bun run test` results.

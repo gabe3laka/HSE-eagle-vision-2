@@ -20,8 +20,8 @@ import { riskLevelRank } from "@/lib/detection/riskTypes";
 
 export const MIN_VISIBLE_RISK_MS = 1000;
 export const YELLOW_RESOLVING_MS = 500;
-export const YELLOW_HARD_MAX_MS = 2000;
-export const RED_STALE_MAX_MS = 4500;
+export const YELLOW_HARD_MAX_MS = 2500;
+export const RED_STALE_MAX_MS = 5000;
 
 interface StickyEntry {
   key: string;

@@ -85,7 +85,10 @@ export function readHseFeatureFlags(env: Record<string, unknown> = safeEnv()): H
 /** Qwen scene-reasoning heartbeat (low-frequency Qwen loop) configuration. */
 export interface HseQwenHeartbeatFlags {
   enabled: boolean;
+  /** Effective tick interval (≥ minIntervalMs, hard floor 1000 ms). */
   intervalMs: number;
+  /** Hard floor used to clamp `intervalMs` (≥1000 ms). */
+  minIntervalMs: number;
   backoffMs: number;
   /** Delay after `extendedBackoffAfter` consecutive Qwen failures. */
   extendedBackoffMs: number;
@@ -107,14 +110,43 @@ function readNumberEnv(
   return Math.max(min, n);
 }
 
+/**
+ * Read the first env key that parses to a finite number; falls back to
+ * `fallback` if none are set. Clamped to `min`. Used to honor the prompt's
+ * canonical flag names while keeping legacy aliases working.
+ */
+function readNumberEnvAlias(
+  env: Record<string, unknown>,
+  keys: readonly string[],
+  fallback: number,
+  min: number,
+): number {
+  for (const key of keys) {
+    const v = env[key];
+    const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN;
+    if (Number.isFinite(n)) return Math.max(min, n);
+  }
+  return Math.max(min, fallback);
+}
+
 export function readHseQwenHeartbeatFlags(
   env: Record<string, unknown> = safeEnv(),
 ): HseQwenHeartbeatFlags {
-  const intervalMs = readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_MS", 2000, 1000);
+  // Hard floor 1000 ms per prompt; configurable via MIN_INTERVAL_MS env.
+  const minIntervalMs = readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_MIN_INTERVAL_MS", 1000, 1000);
+  // Canonical: VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS. Legacy alias: ..._MS.
+  const rawInterval = readNumberEnvAlias(
+    env,
+    ["VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS", "VITE_HSE_QWEN_HEARTBEAT_MS"],
+    2000,
+    minIntervalMs,
+  );
+  const intervalMs = Math.max(minIntervalMs, rawInterval);
   const backoffMs = readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS", 10000, intervalMs);
   return {
     enabled: readFlag("VITE_HSE_QWEN_HEARTBEAT_ENABLED", env, true),
     intervalMs,
+    minIntervalMs,
     backoffMs,
     extendedBackoffMs: readNumberEnv(
       env,
@@ -129,7 +161,14 @@ export function readHseQwenHeartbeatFlags(
       1,
     ),
     forceReason: readFlag("VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON", env, true),
-    resultTtlMs: readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS", 3000, 500),
+    // Canonical: VITE_HSE_QWEN_RESULT_TTL_MS (default 8000 per prompt).
+    // Legacy alias: VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS.
+    resultTtlMs: readNumberEnvAlias(
+      env,
+      ["VITE_HSE_QWEN_RESULT_TTL_MS", "VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS"],
+      8000,
+      500,
+    ),
   };
 }
 

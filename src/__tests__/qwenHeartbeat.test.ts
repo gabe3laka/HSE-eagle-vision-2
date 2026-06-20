@@ -31,6 +31,13 @@ describe("buildHeartbeatMonitoringRequest", () => {
     expect(o.verify_current_frame_before_reusing_cached_risk).toBe(true);
   });
 
+  it("includes target_reasoning_interval_ms and max_candidate_age_ms (cadence hints to worker)", () => {
+    const req = buildHeartbeatMonitoringRequest("balanced", null, true);
+    const o = req.reasoningPreferencesOverride!;
+    expect(o.target_reasoning_interval_ms).toBe(1500);
+    expect(o.max_candidate_age_ms).toBe(1500);
+  });
+
   it("when forceReason=false, no override applied", () => {
     const req = buildHeartbeatMonitoringRequest("balanced", null, false);
     expect(req.reasoningPreferencesOverride).toBeUndefined();

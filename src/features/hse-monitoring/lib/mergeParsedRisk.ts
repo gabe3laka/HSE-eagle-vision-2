@@ -11,7 +11,7 @@ import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector
 import type { SceneRisk } from "@/lib/detection/riskTypes";
 
 /** Default freshness window for a heartbeat scene-reasoning result. */
-export const HSE_QWEN_HEARTBEAT_RESULT_TTL_MS_DEFAULT = 3000;
+export const HSE_QWEN_HEARTBEAT_RESULT_TTL_MS_DEFAULT = 8000;
 
 /** PURE: true when the heartbeat result is recent enough to influence coloring. */
 export function isHeartbeatFresh(
