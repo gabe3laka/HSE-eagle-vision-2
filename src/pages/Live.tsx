@@ -401,7 +401,7 @@ export default function Live() {
   // `?token=` (set inside postDetectFrame) authorizes the gateway request and
   // is independent of this session id.
   const liveDetectorSessionId = (backendStatus as BackendStatus | null)?.sessionId ?? null;
-  useQwenHeartbeat({
+  const heartbeatHandle = useQwenHeartbeat({
     enabled: hseActive && heartbeatFlags.enabled,
     videoRef,
     profile: hse.profile,
@@ -413,22 +413,19 @@ export default function Live() {
     extendedBackoffAfter: heartbeatFlags.extendedBackoffAfter,
     forceReason: heartbeatFlags.forceReason,
     sessionIdOverride: liveDetectorSessionId,
-    onResponse: useCallback(
-      (r: {
-        parsed: ParsedDetectRisk | null;
-        raw: unknown;
-        receivedAtMs: number;
-        sessionId: string;
-        forceReasonSent: boolean;
-      }) => {
+    onResponse: useCallback((r: QwenHeartbeatResponse) => {
+      // Only adopt the heartbeat parsed risk into the view-model when the
+      // response actually carries a Qwen result. Pending/unknown responses
+      // (queued/running/stub) must not replace a previous good heartbeat risk
+      // because that would surface stale or empty scene reasoning.
+      if (r.lifecycle === "terminal-success") {
         setHeartbeatRisk(r.parsed);
         setHeartbeatRaw(r.raw);
         setHeartbeatAtMs(r.receivedAtMs);
         setHeartbeatSessionId(r.sessionId);
-        setHeartbeatForceReasonSent(r.forceReasonSent);
-      },
-      [],
-    ),
+      }
+      setHeartbeatForceReasonSent(r.forceReasonSent);
+    }, []),
     onSessionStart: useCallback((sid: string) => {
       setCurrentHeartbeatSessionId(sid);
     }, []),
