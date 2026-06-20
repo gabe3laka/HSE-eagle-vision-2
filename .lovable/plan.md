@@ -1,225 +1,100 @@
-# Gate Qwen Heartbeat Until Real Qwen Completion
+# Audit — Qwen Heartbeat Gating Plan
 
-## Problem
+## ✅ Already done
 
-`useQwenHeartbeat` currently treats the HTTP `/detect` response as proof Qwen finished. The Cloudflare worker often returns immediately with `reasoner_status = queued / queued_latest / running` while Qwen is still loading. The heartbeat then ticks again, sending another `force_reason=true` frame and replacing the worker's pending Qwen job. We need to gate the next heartbeat on a *terminal* Qwen status, not on HTTP completion — without touching the YOLO live loop.
+1. **Lifecycle classifier** — `QWEN_PENDING_STATES`, `QWEN_TERMINAL_SUCCESS_STATES`, `QWEN_TERMINAL_FAILURE_STATES`, `QwenLifecycle`, `classifyQwenLifecycle` exist in `src/features/hse-monitoring/hooks/useQwenHeartbeat.ts` with the warnings → status → sceneContext fallback → unknown order specified.
+2. **Pending gate** — Hook-level refs (`qwenPendingRef`, `pendingSinceMsRef`, `pendingFrameIdRef`, `lastLifecycleRef`, `skippedPendingCountRef`), `QWEN_PENDING_HARD_MAX_MS = 45000`, `tick()` gate emitting `skipped-qwen-pending` / `pending-timeout-client`, lifecycle-driven branches including the `unknown` safe-clear (no `onQwenComplete`, `qwenResultReceived=false`).
+3. **External clear** — `notifyQwenTerminalFromLive` returned from the hook; only terminal lifecycles clear pending; wakes the loop via internal `wakeRef`.
+4. **Live `/detect` cannot displace Qwen** — `NEUTRAL_HSE_REASONING_PREFERENCES.do_not_start_new_reasoning_job: true`, `HSE_LIVE_DETECT_REASON = "hse-live-detect"` exported; `useHseMonitoring.ts` passes that reason.
+5. **Live page wiring** — `Live.tsx` classifies `liveBackendRisk` and calls `heartbeatHandle.notifyQwenTerminalFromLive(...)` on transitions; heartbeat consumer only adopts `heartbeatRisk/Raw/AtMs` on `terminal-success`.
+6. **Test Frame stable session** — `testFrameSessionIdRef`, `testFrameCounterRef`, `testFramePendingRef`, `ensureTestFrameSessionId`, `resetTestFrameSession`; polling click drops `force_reason` override so neutral prefs apply; "Reset test session" button + session/pending pill in the Test Frame card.
+7. **Diagnostics panel** — Rows added for `last_lifecycle`, `qwen_pending`, `pending_since_ms`, `pending_frame_id`, `heartbeat_gated`, `next_heartbeat_allowed`, `skipped_pending_count`, `http_received`, `qwen_result_received`.
+8. **Tests (partial)** — `src/__tests__/qwenHeartbeatLifecycle.test.ts` (classifier truth-table incl. sceneContext fallback) and `src/__tests__/hseDetectProfileLiveReason.test.ts` exist. Full suite: 39 files / 515 tests passing.
 
-The same problem affects the **Test Frame** ("Test detect frame") button: each click mints a fresh `hse-test-…` `session_id` via `generateRandomId("hse-test")` in `postDetectFrame`, so a second click can never retrieve the cached Qwen result from the first click and can replace pending Qwen work on the worker.
+## ❌ Outstanding work
 
-## Scope
+### A. Mirror Test-Frame state into the Reasoner Contract Probe block
 
-Frontend only. No worker, RunPod, Cloudflare, or signed-session changes. Build / Plan modes unchanged. No Vite secrets. YOLO live detector loop keeps running unchanged.
+Plan §7 calls for `test_session_id`, `test_pending`, `test_pending_since_ms`, `test_skipped_count` rows inside `src/components/live/ReasonerContractProbe.tsx`. Currently surfaced only in the Test Frame card subtitle. Will:
 
-## Plan
+- Add optional props `testFrameSessionId?: string | null`, `testFramePending?: boolean`, `testFramePendingSinceMs?: number | null`, `testFrameSkippedCount?: number` to `ReasonerContractProbeProps`.
+- Render a small "Test Frame session" section with the four rows (humanized `pending_since_ms`).
+- Track `testFrameSkippedCountRef` + state in `Live.tsx` (bump each time a click is made while `testFramePendingRef.current === true`) and thread the four props into the probe.
 
-### 1. Status classification (pure)
+### B. `src/__tests__/qwenHeartbeatPending.test.ts` (new)
 
-In `src/features/hse-monitoring/hooks/useQwenHeartbeat.ts`, add two exported sets and a pure helper:
+Focused pending-gate tests using `@testing-library/react`'s `renderHook` + `vi.useFakeTimers()` + a `vi.mock("@/lib/detection/backendVisionHttpDetector")` that returns a scripted queue of responses. Cases (one per `it`):
 
-```ts
-export const QWEN_PENDING_STATES = new Set([
-  "queued", "queued_latest", "running", "throttled", "loading", "starting", "pending",
-]);
-export const QWEN_TERMINAL_SUCCESS_STATES = new Set([
-  "ready", "cached", "completed", "ok",
-]);
-export const QWEN_TERMINAL_FAILURE_STATES = new Set([
-  "timeout", "error", "unavailable", "disabled", "not_available", "missing",
-  "schema_error", "not_run",
-]);
-
-export type QwenLifecycle =
-  | "pending"
-  | "terminal-success"
-  | "terminal-failure"
-  | "unknown";
-
-export function classifyQwenLifecycle(args: {
-  rawReasonerStatus: string | null;
-  normalizedReasonerStatus: string | null;
-  warnings: string[];
-  hasSceneContext?: boolean;
-  hasSemanticCorrections?: boolean;
-  hasSceneRisks?: boolean;
-}): QwenLifecycle;
-```
-
-Resolution order: warnings (`qwen_unavailable` → failure) → normalized status → raw status (lowercased). If status is missing/unknown but the response carries real `sceneContext` / `sceneRisks` / `semanticCorrections`, classify as `terminal-success`. Otherwise return `unknown`.
-
-### 2. Pending gate in heartbeat loop (hook-level refs, not module-local)
-
-Inside `useQwenHeartbeat`, declare hook-level refs at the top of the component (not inside the `useEffect`, not module-local):
-
-```ts
-const qwenPendingRef = useRef(false);
-const pendingSinceMsRef = useRef(0);
-const pendingFrameIdRef = useRef<string | null>(null);
-const lastLifecycleRef = useRef<QwenLifecycle>("unknown");
-const skippedPendingCountRef = useRef(0);
-```
-
-> Why hook-level refs and not `let` inside the effect or at module scope: module-local `let` is shared across every mount of the hook (HMR, tests, two instances) and would leak pending state between component lifecycles. Refs are per-hook-instance, survive re-renders, and reset cleanly on unmount.
-
-Define `const QWEN_PENDING_HARD_MAX_MS = 45000;` as a module constant (single source).
-
-In `tick()`:
-
-- Before capturing a frame, if `qwenPendingRef.current === true`:
-  - If `Date.now() - pendingSinceMsRef.current >= QWEN_PENDING_HARD_MAX_MS`, force-clear the refs, emit a diagnostic with outcome `"pending-timeout-client"`, fall through to send the next heartbeat.
-  - Else: `skippedPendingCountRef.current += 1`, emit diagnostic outcome `"skipped-qwen-pending"` with `pendingSinceMs`, `pendingFrameId`. `schedule(currentDelay)` and return.
-- After response, derive lifecycle via `classifyQwenLifecycle`:
-  - `pending` → `qwenPendingRef.current = true`, `pendingSinceMsRef.current ||= now`, `pendingFrameIdRef.current = frameId`. Use `currentDelay = intervalRef.current`.
-  - `terminal-success` → clear refs, fire optional `onQwenComplete(parsed, raw, sessionId, frameId)`, set `qwenResultReceived=true` in diagnostic, normal interval.
-  - `terminal-failure` → clear refs, normal backoff via existing `pickHeartbeatDelay`, `qwenResultReceived=false`.
-  - `unknown` → **clear pending refs for safety** (so we don't hang forever on a stub response), but `qwenResultReceived=false` and **do NOT** fire `onQwenComplete`. Schedule normal interval. This avoids both deadlock and falsely claiming success on responses we can't classify.
-- `catch` (network error): clear pending refs and apply backoff.
-
-`onResponse` keeps firing for every HTTP response (callers can see queued responses too). `onQwenComplete` only fires on real `terminal-success`.
-
-Extend `QwenHeartbeatDiagnostic`:
-
-```ts
-qwenLifecycle: QwenLifecycle;
-qwenPending: boolean;
-pendingSinceMs: number | null;
-pendingFrameId: string | null;
-skippedPendingCount: number;
-httpReceived: boolean;        // true on every HTTP response (incl. queued)
-qwenResultReceived: boolean;  // ONLY on terminal-success
-```
-
-Extend `QwenHeartbeatDiagnostic["outcome"]` union with `"skipped-qwen-pending" | "pending-timeout-client"`.
-
-### 3. External "clear-pending" signal
-
-`useQwenHeartbeat` returns a stable handle:
-
-```ts
-return { notifyQwenTerminalFromLive: (lifecycle: QwenLifecycle) => void };
-```
-
-Only `terminal-success` clears `qwenPendingRef`; `terminal-failure` also clears (and triggers backoff); `unknown`/`pending` are no-ops. Stable identity via `useRef` + `useCallback`.
-
-### 4. Live detector requests must not replace Qwen jobs
-
-In `src/lib/detection/hseDetectProfile.ts`:
-
-- Add `do_not_start_new_reasoning_job: true` to `NEUTRAL_HSE_REASONING_PREFERENCES` (alongside `force_reason: false`, low-latency prefs, all `return_*` flags already requested).
-- Export `HSE_LIVE_DETECT_REASON = "hse-live-detect"`. Live caller in `useHseMonitoring.ts` passes that string to `buildHseDetectRequest`. Heartbeat keeps `"hse-qwen-heartbeat"`.
-
-Result: normal live frames send `force_reason=false` + `do_not_start_new_reasoning_job=true`, so the worker only returns cached Qwen results and never displaces a pending job. Heartbeat is the only path that ever sends `force_reason=true`.
-
-### 5. Live page wiring (`src/pages/Live.tsx`)
-
-- Capture `notifyQwenTerminalFromLive` from `useQwenHeartbeat`.
-- In a `useEffect` keyed on `liveBackendRisk?.reasonerStatus` (and presence of `sceneContext` / `semanticCorrections` / `sceneRisks`), classify the live response with `classifyQwenLifecycle` and call `notifyQwenTerminalFromLive(...)`.
-- When a live response delivers terminal-success, also update `heartbeatRisk` / `heartbeatRaw` / `heartbeatAtMs` so the cached Qwen result is surfaced through the same downstream pipeline.
-
-### 6. Test Frame: reuse a stable diagnostic session_id
-
-The "Test detect frame" button (`testBackendFrame` in `src/pages/Live.tsx`, calling `postDetectFrame` which defaults `sessionId = generateRandomId("hse-test")`) currently mints a brand-new session every click. Fix:
-
-- Add a stable session-id ref in `Live.tsx`:
-
-  ```ts
-  const testFrameSessionIdRef = useRef<string | null>(null);
-  const ensureTestFrameSessionId = () => {
-    if (!testFrameSessionIdRef.current) {
-      testFrameSessionIdRef.current = `hse-test-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
-    }
-    return testFrameSessionIdRef.current;
-  };
-  const resetTestFrameSession = () => { testFrameSessionIdRef.current = null; /* clear test pending state */ };
-  ```
-
-- Add a per-test pending ref mirroring the heartbeat gate:
-
-  ```ts
-  const testFramePendingRef = useRef(false);
-  const testFramePendingSinceMsRef = useRef(0);
-  const [testFramePending, setTestFramePending] = useState(false);
-  ```
-
-- In `testBackendFrame`:
-  - Pass `sessionId: ensureTestFrameSessionId()` and an incrementing `frameId` (`${sid}-${++counter}`) to `postDetectFrame`.
-  - **First call** in a session may send `reasoningPreferencesOverride.force_reason = true` (current behavior preserved).
-  - If the response classifies as `pending`, set `testFramePendingRef.current = true`, surface "Qwen pending — next Test Frame will poll cached result" in the probe block.
-  - **Subsequent calls** while `testFramePendingRef.current === true` must NOT send `force_reason=true` and MUST set `do_not_start_new_reasoning_job: true`. They reuse the same `sessionId`, so the worker can return cached Qwen result without starting a new job (Option A — preferred). Continue polling at the user's button cadence; each click is one poll.
-  - When a response classifies as `terminal-success` or `terminal-failure`, clear `testFramePendingRef`.
-  - Honor `QWEN_PENDING_HARD_MAX_MS` here too: if exceeded, clear pending and allow the next click to force again.
-
-- Add a small **"Reset test session"** button next to "Test detect frame" that calls `resetTestFrameSession()`. Disabled while no session exists.
-
-This guarantees a second Test Frame click never creates a new `hse-test-…` session and never replaces pending Qwen work on the worker.
-
-### 7. Diagnostics panel (`src/components/live/HeartbeatDiagnosticsPanel.tsx`)
-
-Add rows (driven by new diagnostic fields):
-
-- `qwen_pending` (yes/no)
-- `pending_since_ms` (+ humanized seconds)
-- `pending_frame_id`
-- `last_lifecycle` (`pending` / `terminal-success` / `terminal-failure` / `unknown`)
-- `heartbeat_gated` (yes when qwen_pending)
-- `next_heartbeat_allowed` ("on Qwen terminal response" when pending, else "scheduled")
-- `skipped_pending_count`
-- `http_received` vs `qwen_result_received` — visually distinct so a queued HTTP response is never confused with a Qwen result.
-
-Mirror the test-frame state into the Reasoner Contract Probe block: `test_session_id`, `test_pending`, `test_pending_since_ms`, `test_skipped_count`.
-
-### 8. Tests
-
-Add `src/__tests__/qwenHeartbeatPending.test.ts` and extend `qwenHeartbeat.test.ts` using fake timers + a scripted `postDetectFrame` mock:
-
-- `queued` response → `qwenPending=true`, next tick emits `skipped-qwen-pending`, no second HTTP call.
+- `queued` → on next scheduled tick `onDiagnostic` outcome is `skipped-qwen-pending`, `postDetectFrame` not called a second time.
 - `queued_latest` → same.
 - `running` → same.
-- `ready` clears pending and allows next heartbeat at normal interval.
+- `ready` after `queued` → pending cleared, third tick fires HTTP at normal interval, `onQwenComplete` called once.
 - `cached` clears pending and allows next heartbeat.
-- `timeout` / `error` clear pending and apply backoff via `pickHeartbeatDelay`.
-- After `QWEN_PENDING_HARD_MAX_MS`, force-clear and emit `pending-timeout-client`.
-- `notifyQwenTerminalFromLive("terminal-success")` clears pending mid-cycle.
-- **`unknown` clears pending but does NOT fire `onQwenComplete` and reports `qwenResultReceived=false`.**
-- Pure `classifyQwenLifecycle` truth-table including the sceneContext/sceneRisks/semanticCorrections success fallback.
+- `timeout` and `error` clear pending and select `backoffMs` via `pickHeartbeatDelay`; `onQwenComplete` NOT called.
+- After `QWEN_PENDING_HARD_MAX_MS`, force-clear: outcome `pending-timeout-client` then a real HTTP send on the next tick.
+- `notifyQwenTerminalFromLive("terminal-success")` mid-cycle clears pending and the next tick fires immediately.
+- `unknown` clears pending, `qwenResultReceived=false`, `onQwenComplete` NOT called.
 
-Add `src/__tests__/hseDetectProfileLiveReason.test.ts`:
+Provides a minimal fake `videoRef` (`{ current: { videoWidth: 640 } as any }`) and a `captureVideoFrameBase64` mock so the tick reaches `postDetectFrame`.
 
-- `buildHseDetectRequest(..., "hse-live-detect")` body carries `force_reason: false` and `do_not_start_new_reasoning_job: true`.
-- Heartbeat request (via `buildHeartbeatMonitoringRequest`) still carries `force_reason: true`.
+### C. `src/__tests__/testFrameSession.test.ts` (new) — needs a small refactor first
 
-Add `src/__tests__/testFrameSession.test.ts`:
+The Test Frame logic is inline inside `Live.tsx`'s `testBackendFrame` and depends on camera/video. To test it without mounting `Live`, extract a small pure helper into `src/features/hse-monitoring/lib/testFrameSession.ts`:
 
-- Two sequential `testBackendFrame` calls reuse the same `session_id`.
-- After a `queued` response, a second click sends `force_reason=false` and `do_not_start_new_reasoning_job=true`.
-- A `ready` response clears test-pending; the next click is allowed to `force_reason=true` again.
-- `resetTestFrameSession()` mints a new id on the next click.
+```ts
+export interface TestFrameSessionState {
+  sessionId: string | null;
+  counter: number;
+  pending: boolean;
+  pendingSinceMs: number;
+}
 
-### 9. Non-goals (explicit)
+export function createInitialTestFrameSessionState(): TestFrameSessionState;
+export function ensureTestFrameSession(
+  state: TestFrameSessionState,
+  nowMs: number,
+  rand?: () => string,
+): { state: TestFrameSessionState; sessionId: string };
+export function resetTestFrameSession(): TestFrameSessionState;
+export function planTestFrameRequest(
+  state: TestFrameSessionState,
+  nowMs: number,
+  hardMaxMs: number,
+): {
+  state: TestFrameSessionState;
+  polling: boolean;
+  forceReasonOverride: boolean;
+  sessionId: string;
+  frameId: string;
+};
+export function applyTestFrameResponse(
+  state: TestFrameSessionState,
+  lifecycle: QwenLifecycle,
+  nowMs: number,
+): TestFrameSessionState;
+```
 
-- No change to YOLO live detector cadence or transport.
-- No change to `mergeParsedRisk`, risk-anchor memory, view-model thresholds.
-- No new Vite secrets.
-- No change to Cloudflare worker or RunPod.
+Refactor `Live.tsx` to drive its refs through these helpers (no behavioral change). Test cases:
 
-## Files changed
+- Two sequential `planTestFrameRequest` calls reuse the same `sessionId`; `frameId` increments.
+- After `applyTestFrameResponse(state, "pending", t)`, the next `planTestFrameRequest` returns `polling: true` and `forceReasonOverride: false`.
+- After `applyTestFrameResponse(state, "terminal-success", t)`, the next call returns `polling: false` and may force again.
+- After `applyTestFrameResponse(state, "terminal-failure", t)`, pending cleared.
+- `resetTestFrameSession()` produces a fresh `sessionId` on the next `ensureTestFrameSession`.
+- `pendingSinceMs` older than `QWEN_PENDING_HARD_MAX_MS` triggers `planTestFrameRequest` to clear pending and allow `force_reason=true`.
 
-- `src/features/hse-monitoring/hooks/useQwenHeartbeat.ts` — hook-level pending refs, lifecycle classifier, `notifyQwenTerminalFromLive`, expanded diagnostic, `unknown` safe-clear behavior.
-- `src/lib/detection/hseDetectProfile.ts` — `do_not_start_new_reasoning_job: true` in neutral prefs, `HSE_LIVE_DETECT_REASON` constant.
-- `src/features/hse-monitoring/hooks/useHseMonitoring.ts` — pass `"hse-live-detect"` reason.
-- `src/pages/Live.tsx` — call `notifyQwenTerminalFromLive` from live parsed risk; stable `testFrameSessionIdRef` + pending gate for Test Frame; "Reset test session" button; thread new diagnostic fields into panels.
-- `src/components/live/HeartbeatDiagnosticsPanel.tsx` — pending/lifecycle/gated rows; HTTP-received vs Qwen-result-received distinction.
-- `src/components/live/ReasonerContractProbe.tsx` — surface test-frame session id + pending state.
-- `src/__tests__/qwenHeartbeat.test.ts` — extend with lifecycle/pending/unknown cases.
-- `src/__tests__/qwenHeartbeatPending.test.ts` (new) — focused pending-gate scenarios.
-- `src/__tests__/hseDetectProfileLiveReason.test.ts` (new) — live vs heartbeat prefs.
-- `src/__tests__/testFrameSession.test.ts` (new) — stable session id + pending poll behavior.
+### D. Run + verify
 
-## Acceptance check
+After A–C: `bunx prettier --write` on edited files, then `bunx vitest run` and confirm the full suite still passes (currently 515 tests, expecting 515 + the new cases).
 
-- Worker logs show 1 heartbeat frame then a gap until terminal status — no `hb-1, hb-2, hb-3` bursts while Qwen is queued.
-- YOLO `/detect` loop unchanged in cadence/payload shape (only `requestReason` string + `do_not_start_new_reasoning_job` added).
-- A cached/ready Qwen result arriving via the live response clears pending in the heartbeat hook.
-- `unknown` reasoner responses don't deadlock the heartbeat AND don't get reported as a Qwen success.
-- Test Frame reuses the same `session_id` across clicks until "Reset test session"; the second click polls instead of replacing pending Qwen work.
-- Diagnostics panel distinguishes HTTP-received from Qwen-result-received.
-- Build / Plan modes untouched.
+## Scope guard
+
+No changes to: YOLO loop, `mergeParsedRisk`, risk-anchor memory, view-model thresholds, Cloudflare worker, RunPod, Vite secrets, Build/Plan modes.
+
+## Files to change
+
+- `src/components/live/ReasonerContractProbe.tsx` — surface 4 test-frame rows.
+- `src/pages/Live.tsx` — add `testFrameSkippedCountRef`, thread props into `ReasonerContractProbe`; switch Test Frame logic to use the new pure helpers from `testFrameSession.ts`.
+- `src/features/hse-monitoring/lib/testFrameSession.ts` (new) — pure state machine.
+- `src/__tests__/qwenHeartbeatPending.test.ts` (new).
+- `src/__tests__/testFrameSession.test.ts` (new).
