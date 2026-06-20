@@ -19,10 +19,10 @@ const parseDetectRiskFields = vi.fn((raw: { reasoner_status?: string }) => ({
 }));
 
 vi.mock("@/lib/detection/backendVisionHttpDetector", () => ({
-  postDetectFrame: (...args: unknown[]) => postDetectFrame(...args),
-  captureVideoFrameBase64: (...args: unknown[]) => captureVideoFrameBase64(...args),
-  hasRiskAwareData: (...args: unknown[]) => hasRiskAwareData(...args),
-  parseDetectRiskFields: (...args: unknown[]) => parseDetectRiskFields(...args),
+  postDetectFrame: (...args: [unknown, unknown?]) => postDetectFrame(...args),
+  captureVideoFrameBase64: (...args: [unknown, unknown?]) => captureVideoFrameBase64(...args),
+  hasRiskAwareData: (...args: [unknown]) => hasRiskAwareData(...args),
+  parseDetectRiskFields: (...args: [unknown]) => parseDetectRiskFields(...args),
 }));
 
 import {
