@@ -785,6 +785,31 @@ export default function Live() {
     await start();
   }, [active, startCamera, start]);
 
+  // Mint (lazily) a stable Test Frame session id. Every "Test detect frame"
+  // click reuses it until the user presses "Reset test session", so a second
+  // click can RETRIEVE the cached Qwen result from the first click instead of
+  // starting a brand-new `hse-test-…` session on the worker and replacing the
+  // pending reasoning job.
+  const ensureTestFrameSessionId = useCallback(() => {
+    if (!testFrameSessionIdRef.current) {
+      const sid = `hse-test-${Date.now().toString(36)}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      testFrameSessionIdRef.current = sid;
+      testFrameCounterRef.current = 0;
+      setTestFrameSessionId(sid);
+    }
+    return testFrameSessionIdRef.current;
+  }, []);
+  const resetTestFrameSession = useCallback(() => {
+    testFrameSessionIdRef.current = null;
+    testFrameCounterRef.current = 0;
+    testFramePendingRef.current = false;
+    testFramePendingSinceMsRef.current = 0;
+    setTestFrameSessionId(null);
+    setTestFramePending(false);
+  }, []);
+
   // Dev/debug: capture the current frame and send one request, showing the raw
   // response. The fast mode hits the Cloudflare /detect Worker (with a token);
   // the legacy mode hits the Supabase deimv2-proxy. Dry-run only — never enters
@@ -806,35 +831,61 @@ export default function Live() {
       const { image_b64, cw, ch } = captured;
       setBackendTestImg(`data:image/jpeg;base64,${image_b64}`);
       if (isCloudflareHttp) {
+        // Safety: if Qwen is still pending past the hard cap, force-clear so
+        // the next click is allowed to start a new reasoning job again.
+        if (
+          testFramePendingRef.current &&
+          testFramePendingSinceMsRef.current > 0 &&
+          Date.now() - testFramePendingSinceMsRef.current >= QWEN_PENDING_HARD_MAX_MS
+        ) {
+          testFramePendingRef.current = false;
+          testFramePendingSinceMsRef.current = 0;
+          setTestFramePending(false);
+        }
+        // While Qwen is still working on a previous Test Frame in THIS
+        // session, the next click must POLL the cached result instead of
+        // starting (and replacing) a new reasoning job.
+        const pollingPending = appMode === "hse" && testFramePendingRef.current;
         // In HSE mode, send the SAME monitoring/reasoning context the live
         // stream uses so the test exercises the full worker contract.
         // Build/Plan stays detection-only.
-        // Manual test must exercise Qwen — apply the same force_reason
-        // override the heartbeat uses so the worker prefers Qwen reasoning
-        // and the probe block reports `manual force_reason sent: yes`.
         const monitoringRequest =
           appMode === "hse"
-            ? {
-                ...buildHseDetectRequest(hse.profile, hse.roi, "manual-test"),
-                reasoningPreferencesOverride: {
-                  force_reason: true,
-                  prefer_low_latency: true,
-                  require_visual_evidence: true,
-                  allow_no_active_risk: true,
-                  return_scene_risks: true,
-                  return_linked_entities: true,
-                  return_reasoner_status: true,
-                  return_scene_context: true,
-                  return_semantic_corrections: true,
-                  avoid_repeating_unconfirmed_risks: true,
-                  verify_current_frame_before_reusing_cached_risk: true,
-                },
-              }
+            ? pollingPending
+              ? {
+                  // Polling click: rely on NEUTRAL_HSE_REASONING_PREFERENCES,
+                  // which sets force_reason=false AND
+                  // do_not_start_new_reasoning_job=true.
+                  ...buildHseDetectRequest(hse.profile, hse.roi, "manual-test-poll"),
+                }
+              : {
+                  // First click in this session (or after a terminal result):
+                  // force a fresh Qwen pass.
+                  ...buildHseDetectRequest(hse.profile, hse.roi, "manual-test"),
+                  reasoningPreferencesOverride: {
+                    force_reason: true,
+                    prefer_low_latency: true,
+                    require_visual_evidence: true,
+                    allow_no_active_risk: true,
+                    return_scene_risks: true,
+                    return_linked_entities: true,
+                    return_reasoner_status: true,
+                    return_scene_context: true,
+                    return_semantic_corrections: true,
+                    avoid_repeating_unconfirmed_risks: true,
+                    verify_current_frame_before_reusing_cached_risk: true,
+                  },
+                }
             : null;
+        const sessionId = appMode === "hse" ? ensureTestFrameSessionId() : undefined;
+        testFrameCounterRef.current += 1;
+        const frameId = sessionId ? `${sessionId}-${testFrameCounterRef.current}` : undefined;
         const t0 = performance.now();
         const resp = await postDetectFrame(image_b64, {
           conf: 0.15,
           monitoringRequest,
+          sessionId,
+          frameId,
         });
         const latency = Math.round(performance.now() - t0);
         if (appMode === "hse") {
@@ -845,6 +896,26 @@ export default function Live() {
                 | { force_reason?: unknown }
                 | undefined
             )?.force_reason === true;
+          // Classify response and update test-frame pending gate.
+          const lifecycle = classifyQwenLifecycle({
+            rawReasonerStatus: null,
+            normalizedReasonerStatus: parsed?.reasonerStatus ?? null,
+            warnings: [...(parsed?.warnings ?? [])],
+            hasSceneContext: !!parsed?.sceneContext,
+            hasSemanticCorrections: (parsed?.semanticCorrections?.length ?? 0) > 0,
+            hasSceneRisks: (parsed?.sceneRisks?.length ?? 0) > 0,
+          });
+          if (lifecycle === "pending") {
+            testFramePendingRef.current = true;
+            if (testFramePendingSinceMsRef.current === 0) {
+              testFramePendingSinceMsRef.current = Date.now();
+            }
+            setTestFramePending(true);
+          } else if (lifecycle === "terminal-success" || lifecycle === "terminal-failure") {
+            testFramePendingRef.current = false;
+            testFramePendingSinceMsRef.current = 0;
+            setTestFramePending(false);
+          }
           const summary = summarizeDetectResponse(resp, parsed, {
             latencyMs: latency,
             proxy: "cloudflare",
@@ -852,10 +923,15 @@ export default function Live() {
             forceReasonSent,
           });
           const diag = computeQwenDiagnostic(summary);
+          const pendingNote = testFramePendingRef.current
+            ? "\n\nQwen pending — next Test Frame will poll cached result (no new reasoning job)."
+            : "";
           setBackendTest(
-            `capture ${cw}×${ch} · round-trip ${latency} ms\n\n${formatDetectSummary(
+            `capture ${cw}×${ch} · round-trip ${latency} ms · session ${sessionId} · frame ${frameId} · lifecycle ${lifecycle}${
+              pollingPending ? " (polling)" : ""
+            }\n\n${formatDetectSummary(
               summary,
-            )}\n\nRoute status:\n${formatRouteStatus(summary, diag)}\n\n${diag.message}`,
+            )}\n\nRoute status:\n${formatRouteStatus(summary, diag)}\n\n${diag.message}${pendingNote}`,
           );
         } else {
           setBackendTest(
