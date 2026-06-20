@@ -210,6 +210,7 @@ export function useQwenHeartbeat({
   profile,
   roi,
   intervalMs = 2000,
+  minIntervalMs = 1000,
   backoffMs = 10000,
   extendedBackoffMs = 30000,
   extendedBackoffAfter = 3,
@@ -231,8 +232,10 @@ export function useQwenHeartbeat({
   roiRef.current = roi;
   const forceReasonRef = useRef(forceReason);
   forceReasonRef.current = forceReason;
-  const intervalRef = useRef(Math.max(1000, intervalMs));
-  intervalRef.current = Math.max(1000, intervalMs);
+  // Floor is max(1000, minIntervalMs); effective interval clamps to that floor.
+  const minFloor = Math.max(1000, minIntervalMs);
+  const intervalRef = useRef(Math.max(minFloor, intervalMs));
+  intervalRef.current = Math.max(minFloor, intervalMs);
   const backoffRef = useRef(Math.max(intervalRef.current, backoffMs));
   backoffRef.current = Math.max(intervalRef.current, backoffMs);
   const extendedBackoffRef = useRef(Math.max(backoffRef.current, extendedBackoffMs));
