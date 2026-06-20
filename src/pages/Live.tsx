@@ -461,6 +461,29 @@ export default function Live() {
         applyHeartbeatRisks: hbIgnoreReason == null,
       })
     : liveBackendRisk;
+
+  // When the regular live /detect response carries a terminal Qwen result
+  // (because the worker returned a cached result on a non-force-reason live
+  // frame), notify the heartbeat so it can clear its pending gate immediately
+  // instead of waiting for its own terminal status.
+  const liveLifecycle = useMemo<QwenLifecycle>(() => {
+    if (!liveBackendRisk) return "unknown";
+    return classifyQwenLifecycle({
+      rawReasonerStatus: null,
+      normalizedReasonerStatus: liveBackendRisk.reasonerStatus ?? null,
+      warnings: [...(liveBackendRisk.warnings ?? [])],
+      hasSceneContext: !!liveBackendRisk.sceneContext,
+      hasSemanticCorrections: (liveBackendRisk.semanticCorrections?.length ?? 0) > 0,
+      hasSceneRisks: (liveBackendRisk.sceneRisks?.length ?? 0) > 0,
+    });
+  }, [liveBackendRisk]);
+  const lastNotifiedLiveLifecycleRef = useRef<QwenLifecycle>("unknown");
+  useEffect(() => {
+    if (liveLifecycle !== lastNotifiedLiveLifecycleRef.current) {
+      lastNotifiedLiveLifecycleRef.current = liveLifecycle;
+      heartbeatHandle.notifyQwenTerminalFromLive(liveLifecycle);
+    }
+  }, [liveLifecycle, heartbeatHandle]);
   const hseRiskViewModel = useHseLiveRiskViewModel({
     entities: backendEntities as BackendEntity[],
     poses: backendPoses as BackendPose[],
