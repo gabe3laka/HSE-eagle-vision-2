@@ -949,7 +949,7 @@ export default function Live() {
     } finally {
       setBackendTesting(false);
     }
-  }, [videoRef, isCloudflareHttp, appMode, hse.profile, hse.roi]);
+  }, [videoRef, isCloudflareHttp, appMode, hse.profile, hse.roi, ensureTestFrameSessionId]);
 
   // Plan Mode shows the holographic planning console (the two mockups): the
   // chrome panels arrange AROUND the unchanged camera card. We extract the
