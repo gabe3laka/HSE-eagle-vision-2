@@ -394,6 +394,7 @@ export default function Live() {
     profile: hse.profile,
     roi: hse.roi,
     intervalMs: heartbeatFlags.intervalMs,
+    minIntervalMs: heartbeatFlags.minIntervalMs,
     backoffMs: heartbeatFlags.backoffMs,
     extendedBackoffMs: heartbeatFlags.extendedBackoffMs,
     extendedBackoffAfter: heartbeatFlags.extendedBackoffAfter,
