@@ -40,6 +40,12 @@ function RiskCard({ risk, onAck }: { risk: HseGroupedRisk; onAck?: () => void })
           {risk.source}
         </span>
       </div>
+      {risk.anchorDisposition && risk.anchorDisposition !== "linked" && (
+        <p className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">
+          {risk.anchorDisposition.replace(/-/g, " ")}
+          {risk.anchorReason ? ` — ${risk.anchorReason}` : ""}
+        </p>
+      )}
       {risk.linkedItem && (
         <p className="mt-1 text-[10px] text-muted-foreground/85">
           Linked item: <span className="text-foreground/90">{risk.linkedItem}</span>
