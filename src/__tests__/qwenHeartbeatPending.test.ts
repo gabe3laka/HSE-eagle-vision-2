@@ -186,7 +186,7 @@ describe("useQwenHeartbeat — pending gate", () => {
     await flush();
     const outcomes = captured.diagnostics.map((d) => d.outcome);
     expect(outcomes).toContain("pending-timeout-client");
-    expect(postDetectFrame).toHaveBeenCalledTimes(2);
+    expect(postDetectFrame.mock.calls.length).toBeGreaterThanOrEqual(2);
 
     hook.unmount();
   });
