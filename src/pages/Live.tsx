@@ -1482,19 +1482,44 @@ export default function Live() {
                       )}
                       {showFrameTest && (
                         <div className="rounded-xl border border-border bg-background/40 p-3">
-                          <div className="flex items-center justify-between">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="text-sm font-medium">
                               Vision dry-run · single-frame test
                             </span>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={testBackendFrame}
-                              disabled={!active || backendTesting}
-                            >
-                              {backendTesting ? "Testing…" : "Test detect frame"}
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={testBackendFrame}
+                                disabled={!active || backendTesting}
+                              >
+                                {backendTesting
+                                  ? "Testing…"
+                                  : testFramePending
+                                    ? "Poll Qwen result"
+                                    : "Test detect frame"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={resetTestFrameSession}
+                                disabled={!testFrameSessionId}
+                                title="Mint a new Test Frame session_id on the next click"
+                              >
+                                Reset test session
+                              </Button>
+                            </div>
                           </div>
+                          {(testFrameSessionId || testFramePending) && (
+                            <div className="mt-1 text-[10px] text-muted-foreground">
+                              session: {testFrameSessionId ?? "—"}
+                              {testFramePending && (
+                                <span className="ml-2 text-amber-300">
+                                  qwen_pending — next click will poll cached result
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {(backendTestImg || backendTest) && (
                             <div className="mt-2 space-y-2">
                               {backendTestImg && (
