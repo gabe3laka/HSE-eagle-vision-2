@@ -46,12 +46,7 @@ export interface HseGroupedRisk {
   lastSeenMs: number;
   raw: SceneRisk[];
   /** Risk-anchor memory disposition (set by useHseLiveRiskViewModel). */
-  anchorDisposition?:
-    | "linked"
-    | "sticky-carried"
-    | "stale"
-    | "ignored"
-    | "unmatched-candidate";
+  anchorDisposition?: "linked" | "sticky-carried" | "stale" | "ignored" | "unmatched-candidate";
   /** One-line human reason for the disposition. */
   anchorReason?: string;
 }

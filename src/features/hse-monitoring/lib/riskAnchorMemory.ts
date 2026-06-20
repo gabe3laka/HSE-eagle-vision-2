@@ -140,11 +140,7 @@ export function rebindAnchor(
   // 1. exact id match against any current entity
   for (const e of currentEntities) {
     const ids = entityIds(e);
-    if (
-      ids.some(
-        (id) => entry.lastTrackIds.includes(id) || entry.lastEntityIds.includes(id),
-      )
-    ) {
+    if (ids.some((id) => entry.lastTrackIds.includes(id) || entry.lastEntityIds.includes(id))) {
       return { entity: e, path: "id" };
     }
   }

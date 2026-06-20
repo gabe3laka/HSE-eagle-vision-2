@@ -42,10 +42,7 @@ interface StickyEntry {
   resolving: boolean;
 }
 
-function findLinkedEntity(
-  g: HseGroupedRisk,
-  entities: BackendEntity[],
-): BackendEntity | null {
+function findLinkedEntity(g: HseGroupedRisk, entities: BackendEntity[]): BackendEntity | null {
   for (const e of entities) {
     if (e.track_id && g.linkedTrackIds.includes(String(e.track_id))) return e;
     const eid = (e as unknown as { id?: string }).id;
@@ -102,7 +99,11 @@ export function useHseLiveRiskViewModel(
     const carriedExtras: BackendEntity[] = [];
     for (const [key, entry] of [...anchors.entries()]) {
       if (dispositions.has(key)) continue;
-      const { entry: next, expired, rebound } = advanceAnchor({
+      const {
+        entry: next,
+        expired,
+        rebound,
+      } = advanceAnchor({
         entry,
         currentEntities: base.overlayEntities,
         nowMs: now,
