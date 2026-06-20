@@ -306,8 +306,11 @@ export default function Live() {
   const testFrameCounterRef = useRef(0);
   const testFramePendingRef = useRef(false);
   const testFramePendingSinceMsRef = useRef(0);
+  const testFrameSkippedCountRef = useRef(0);
   const [testFrameSessionId, setTestFrameSessionId] = useState<string | null>(null);
   const [testFramePending, setTestFramePending] = useState(false);
+  const [testFramePendingSinceMs, setTestFramePendingSinceMs] = useState<number | null>(null);
+  const [testFrameSkippedCount, setTestFrameSkippedCount] = useState(0);
 
   // App workflow: HSE monitoring (existing) | Build (document my work) | Plan
   // (guide me through work). Build and Plan share the SAME blueprint engine —
