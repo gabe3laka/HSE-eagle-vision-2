@@ -133,12 +133,7 @@ export function readHseQwenHeartbeatFlags(
   env: Record<string, unknown> = safeEnv(),
 ): HseQwenHeartbeatFlags {
   // Hard floor 1000 ms per prompt; configurable via MIN_INTERVAL_MS env.
-  const minIntervalMs = readNumberEnv(
-    env,
-    "VITE_HSE_QWEN_HEARTBEAT_MIN_INTERVAL_MS",
-    1000,
-    1000,
-  );
+  const minIntervalMs = readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_MIN_INTERVAL_MS", 1000, 1000);
   // Canonical: VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS. Legacy alias: ..._MS.
   const rawInterval = readNumberEnvAlias(
     env,
