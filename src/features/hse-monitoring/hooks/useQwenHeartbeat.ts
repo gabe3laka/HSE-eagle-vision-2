@@ -13,6 +13,17 @@
  * the next tick is delayed by `backoffMs`. On recovery the normal interval
  * resumes.
  *
+ * Pending gate: when the worker returns `queued / queued_latest / running /
+ * loading / starting / pending / throttled`, Qwen is still working on a frame
+ * we already sent — sending another force-reason frame would REPLACE that
+ * pending job on the worker. The hook records `qwenPending=true` and skips
+ * subsequent ticks (`outcome: "skipped-qwen-pending"`) until either:
+ *   - a terminal status arrives on the heartbeat response (ready/cached/...),
+ *   - the live detector reports the same terminal status via
+ *     `notifyQwenTerminalFromLive` (the live `/detect` path also returns the
+ *     cached Qwen result), or
+ *   - the client-side `QWEN_PENDING_HARD_MAX_MS` safety timeout expires.
+ *
  * Lifecycle: stops on unmount, when `enabled` flips false, when the document
  * is hidden, when monitoring stops, when the camera stops, or when the app
  * leaves HSE mode.
@@ -24,7 +35,7 @@
  * loops share the SAME worker memory window.
  */
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   captureVideoFrameBase64,
   hasRiskAwareData,
@@ -46,7 +57,15 @@ export interface QwenHeartbeatResponse {
    * Mirrors `forceReason` at call time — never derived from response shape.
    */
   forceReasonSent: boolean;
+  /** Lifecycle classification of THIS response. */
+  lifecycle: QwenLifecycle;
 }
+
+export type QwenLifecycle =
+  | "pending"
+  | "terminal-success"
+  | "terminal-failure"
+  | "unknown";
 
 export interface QwenHeartbeatDiagnostic {
   receivedAtMs: number;
@@ -54,7 +73,13 @@ export interface QwenHeartbeatDiagnostic {
   normalizedReasonerStatus: string | null;
   warnings: string[];
   sceneRisks: number;
-  outcome: "ok" | "no-video" | "error" | "skipped-inflight";
+  outcome:
+    | "ok"
+    | "no-video"
+    | "error"
+    | "skipped-inflight"
+    | "skipped-qwen-pending"
+    | "pending-timeout-client";
   error?: string;
   /** Heartbeat session id active when this diagnostic was emitted. */
   sessionId: string;
@@ -62,6 +87,30 @@ export interface QwenHeartbeatDiagnostic {
   consecutiveFailures: number;
   /** Delay (ms) scheduled for the NEXT tick after this diagnostic. */
   nextDelayMs: number;
+  /** Lifecycle classification of the last HTTP response (or unknown). */
+  qwenLifecycle: QwenLifecycle;
+  /** True while we're waiting on a previously-submitted Qwen frame. */
+  qwenPending: boolean;
+  /** Wall-clock ms at which qwenPending was first set true (null when not pending). */
+  pendingSinceMs: number | null;
+  /** Frame id of the heartbeat frame Qwen is still processing (when pending). */
+  pendingFrameId: string | null;
+  /** How many ticks have been skipped while qwenPending was true. */
+  skippedPendingCount: number;
+  /** True when an HTTP response was received on this tick (incl. queued). */
+  httpReceived: boolean;
+  /** True ONLY when the response classified as terminal-success. */
+  qwenResultReceived: boolean;
+}
+
+export interface QwenHeartbeatHandle {
+  /**
+   * External signal — call when the live /detect response carries a terminal
+   * Qwen result (or terminal failure). Clears the heartbeat's pending gate so
+   * the next tick can fire on schedule instead of waiting for its own terminal
+   * status. No-op for "pending" or "unknown".
+   */
+  notifyQwenTerminalFromLive: (lifecycle: QwenLifecycle) => void;
 }
 
 export interface UseQwenHeartbeatOptions {
@@ -90,21 +139,56 @@ export interface UseQwenHeartbeatOptions {
    */
   sessionIdOverride?: string | null;
   onResponse?: (r: QwenHeartbeatResponse) => void;
+  /** Fires ONLY when a response classifies as terminal-success. */
+  onQwenComplete?: (r: QwenHeartbeatResponse) => void;
   onDiagnostic?: (d: QwenHeartbeatDiagnostic) => void;
   /** Fires once per effect-run with the current heartbeat session id. */
   onSessionStart?: (sessionId: string) => void;
 }
 
-const FAILURE_STATES = new Set([
+/**
+ * Worker reasoner statuses that mean "Qwen is still working on a frame we
+ * already sent". Sending another force-reason frame in this window REPLACES
+ * the pending job on the worker.
+ */
+export const QWEN_PENDING_STATES = new Set([
+  "queued",
+  "queued_latest",
+  "running",
+  "throttled",
+  "loading",
+  "starting",
+  "pending",
+]);
+
+/** Worker reasoner statuses that mean Qwen produced a usable result. */
+export const QWEN_TERMINAL_SUCCESS_STATES = new Set([
+  "ready",
+  "cached",
+  "completed",
+  "ok",
+]);
+
+/** Worker reasoner statuses that mean Qwen finished but produced no result. */
+export const QWEN_TERMINAL_FAILURE_STATES = new Set([
+  "timeout",
+  "error",
   "unavailable",
+  "disabled",
   "not_available",
   "missing",
-  "error",
   "schema_error",
-  "timeout",
-  "disabled",
   "not_run",
 ]);
+
+const FAILURE_STATES = QWEN_TERMINAL_FAILURE_STATES;
+
+/**
+ * Client-side safety cap. If Qwen never returns a terminal status within this
+ * window, the heartbeat force-clears its pending gate and allows the next
+ * tick so the loop never deadlocks on a wedged worker.
+ */
+export const QWEN_PENDING_HARD_MAX_MS = 45000;
 
 function rawReasonerStatusToken(resp: unknown): string | null {
   if (!resp || typeof resp !== "object") return null;
@@ -116,6 +200,39 @@ function rawReasonerStatusToken(resp: unknown): string | null {
     if (typeof cand === "string") return cand;
   }
   return null;
+}
+
+/**
+ * PURE: classify a Qwen response as pending / terminal-success /
+ * terminal-failure / unknown. Resolution order:
+ *   1. Explicit failure warning (`qwen_unavailable`) → terminal-failure
+ *   2. Normalized then raw reasoner status against pending/success/failure sets
+ *   3. If the response carries real sceneContext/sceneRisks/semanticCorrections
+ *      but no status, treat as terminal-success (legacy worker shape)
+ *   4. Otherwise unknown
+ */
+export function classifyQwenLifecycle(args: {
+  rawReasonerStatus: string | null;
+  normalizedReasonerStatus: string | null;
+  warnings: string[];
+  hasSceneContext?: boolean;
+  hasSemanticCorrections?: boolean;
+  hasSceneRisks?: boolean;
+}): QwenLifecycle {
+  const { rawReasonerStatus, normalizedReasonerStatus, warnings } = args;
+  if (warnings.includes("qwen_unavailable")) return "terminal-failure";
+  const candidates = [normalizedReasonerStatus, rawReasonerStatus]
+    .map((s) => (typeof s === "string" ? s.toLowerCase().trim() : ""))
+    .filter((s) => s.length > 0);
+  for (const s of candidates) {
+    if (QWEN_PENDING_STATES.has(s)) return "pending";
+    if (QWEN_TERMINAL_SUCCESS_STATES.has(s)) return "terminal-success";
+    if (QWEN_TERMINAL_FAILURE_STATES.has(s)) return "terminal-failure";
+  }
+  if (args.hasSceneContext || args.hasSemanticCorrections || args.hasSceneRisks) {
+    return "terminal-success";
+  }
+  return "unknown";
 }
 
 /**
@@ -217,11 +334,14 @@ export function useQwenHeartbeat({
   forceReason = true,
   sessionIdOverride = null,
   onResponse,
+  onQwenComplete,
   onDiagnostic,
   onSessionStart,
-}: UseQwenHeartbeatOptions): void {
+}: UseQwenHeartbeatOptions): QwenHeartbeatHandle {
   const onResponseRef = useRef(onResponse);
   onResponseRef.current = onResponse;
+  const onQwenCompleteRef = useRef(onQwenComplete);
+  onQwenCompleteRef.current = onQwenComplete;
   const onDiagnosticRef = useRef(onDiagnostic);
   onDiagnosticRef.current = onDiagnostic;
   const onSessionStartRef = useRef(onSessionStart);
@@ -243,6 +363,37 @@ export function useQwenHeartbeat({
   const extendedBackoffAfterRef = useRef(Math.max(1, extendedBackoffAfter));
   extendedBackoffAfterRef.current = Math.max(1, extendedBackoffAfter);
 
+  // Hook-level pending-gate refs (per-instance, not module-local — so HMR,
+  // tests, and multiple consumers can't leak pending state into each other).
+  const qwenPendingRef = useRef(false);
+  const pendingSinceMsRef = useRef(0);
+  const pendingFrameIdRef = useRef<string | null>(null);
+  const lastLifecycleRef = useRef<QwenLifecycle>("unknown");
+  const skippedPendingCountRef = useRef(0);
+  // Bumped each time the schedule should fire ASAP (e.g. after the live
+  // detector clears pending mid-cycle).
+  const wakeRef = useRef<() => void>(() => undefined);
+
+  const notifyQwenTerminalFromLive = useCallback((lifecycle: QwenLifecycle) => {
+    // Only terminal signals clear pending. Pending or unknown are no-ops here
+    // (unknown is handled per-response inside the heartbeat tick).
+    if (lifecycle === "terminal-success" || lifecycle === "terminal-failure") {
+      if (qwenPendingRef.current) {
+        qwenPendingRef.current = false;
+        pendingSinceMsRef.current = 0;
+        pendingFrameIdRef.current = null;
+        lastLifecycleRef.current = lifecycle;
+        skippedPendingCountRef.current = 0;
+        // Wake the loop so the next tick can run on schedule.
+        try {
+          wakeRef.current();
+        } catch {
+          /* noop */
+        }
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!enabled) return;
     if (typeof window === "undefined") return;
@@ -262,8 +413,19 @@ export function useQwenHeartbeat({
     let frameCounter = 0;
     onSessionStartRef.current?.(sessionId);
 
+    // Reset pending refs at the start of each effect run so a stale pending
+    // state from a previous mount/session can't deadlock the new loop.
+    qwenPendingRef.current = false;
+    pendingSinceMsRef.current = 0;
+    pendingFrameIdRef.current = null;
+    skippedPendingCountRef.current = 0;
+    lastLifecycleRef.current = "unknown";
+
     const emit = (
-      partial: Omit<QwenHeartbeatDiagnostic, "sessionId" | "consecutiveFailures" | "nextDelayMs">,
+      partial: Omit<
+        QwenHeartbeatDiagnostic,
+        "sessionId" | "consecutiveFailures" | "nextDelayMs"
+      >,
       nextDelayMs: number,
     ) => {
       onDiagnosticRef.current?.({
@@ -280,6 +442,12 @@ export function useQwenHeartbeat({
       timer = setTimeout(tick, delay);
     };
 
+    wakeRef.current = () => {
+      if (stopped) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(tick, 0);
+    };
+
     const isVisible = () =>
       typeof document === "undefined" || document.visibilityState === "visible";
 
@@ -288,6 +456,62 @@ export function useQwenHeartbeat({
       if (!isVisible()) {
         schedule(currentDelay);
         return;
+      }
+      // Qwen pending-gate: do not send another force-reason frame while
+      // Qwen is still working. Safety timeout prevents permanent deadlock.
+      if (qwenPendingRef.current) {
+        const now = Date.now();
+        const pendingSince = pendingSinceMsRef.current;
+        if (pendingSince > 0 && now - pendingSince >= QWEN_PENDING_HARD_MAX_MS) {
+          // Force-clear and let this tick proceed.
+          qwenPendingRef.current = false;
+          pendingSinceMsRef.current = 0;
+          const stuckFrameId = pendingFrameIdRef.current;
+          pendingFrameIdRef.current = null;
+          const skipped = skippedPendingCountRef.current;
+          skippedPendingCountRef.current = 0;
+          emit(
+            {
+              receivedAtMs: now,
+              rawReasonerStatus: null,
+              normalizedReasonerStatus: null,
+              warnings: [],
+              sceneRisks: 0,
+              outcome: "pending-timeout-client",
+              qwenLifecycle: "unknown",
+              qwenPending: false,
+              pendingSinceMs: null,
+              pendingFrameId: stuckFrameId,
+              skippedPendingCount: skipped,
+              httpReceived: false,
+              qwenResultReceived: false,
+            },
+            currentDelay,
+          );
+          // fall through to send the next heartbeat
+        } else {
+          skippedPendingCountRef.current += 1;
+          emit(
+            {
+              receivedAtMs: now,
+              rawReasonerStatus: null,
+              normalizedReasonerStatus: null,
+              warnings: [],
+              sceneRisks: 0,
+              outcome: "skipped-qwen-pending",
+              qwenLifecycle: "pending",
+              qwenPending: true,
+              pendingSinceMs: pendingSince || null,
+              pendingFrameId: pendingFrameIdRef.current,
+              skippedPendingCount: skippedPendingCountRef.current,
+              httpReceived: false,
+              qwenResultReceived: false,
+            },
+            currentDelay,
+          );
+          schedule(currentDelay);
+          return;
+        }
       }
       if (inFlight) {
         emit(
@@ -298,6 +522,13 @@ export function useQwenHeartbeat({
             warnings: [],
             sceneRisks: 0,
             outcome: "skipped-inflight",
+            qwenLifecycle: lastLifecycleRef.current,
+            qwenPending: qwenPendingRef.current,
+            pendingSinceMs: pendingSinceMsRef.current || null,
+            pendingFrameId: pendingFrameIdRef.current,
+            skippedPendingCount: skippedPendingCountRef.current,
+            httpReceived: false,
+            qwenResultReceived: false,
           },
           currentDelay,
         );
@@ -314,6 +545,13 @@ export function useQwenHeartbeat({
             warnings: [],
             sceneRisks: 0,
             outcome: "no-video",
+            qwenLifecycle: lastLifecycleRef.current,
+            qwenPending: qwenPendingRef.current,
+            pendingSinceMs: pendingSinceMsRef.current || null,
+            pendingFrameId: pendingFrameIdRef.current,
+            skippedPendingCount: skippedPendingCountRef.current,
+            httpReceived: false,
+            qwenResultReceived: false,
           },
           currentDelay,
         );
@@ -332,6 +570,13 @@ export function useQwenHeartbeat({
               warnings: [],
               sceneRisks: 0,
               outcome: "no-video",
+              qwenLifecycle: lastLifecycleRef.current,
+              qwenPending: qwenPendingRef.current,
+              pendingSinceMs: pendingSinceMsRef.current || null,
+              pendingFrameId: pendingFrameIdRef.current,
+              skippedPendingCount: skippedPendingCountRef.current,
+              httpReceived: false,
+              qwenResultReceived: false,
             },
             currentDelay,
           );
@@ -360,28 +605,72 @@ export function useQwenHeartbeat({
         const normalized = parsed?.reasonerStatus ?? null;
         const warnings = parsed?.warnings ?? [];
         const sceneRisks = parsed?.sceneRisks.length ?? 0;
-        onResponseRef.current?.({
+        const lifecycle = classifyQwenLifecycle({
+          rawReasonerStatus: rawStatus,
+          normalizedReasonerStatus: normalized,
+          warnings: [...warnings],
+          hasSceneContext: !!parsed?.sceneContext,
+          hasSemanticCorrections: (parsed?.semanticCorrections?.length ?? 0) > 0,
+          hasSceneRisks: sceneRisks > 0,
+        });
+        lastLifecycleRef.current = lifecycle;
+        const response: QwenHeartbeatResponse = {
           parsed,
           raw,
           receivedAtMs,
           sessionId,
           frameId,
           forceReasonSent,
-        });
-        const failed = isQwenFailureResponse({
-          warnings: [...warnings],
-          normalizedReasonerStatus: normalized,
-          rawReasonerStatus: rawStatus,
-        });
-        consecutiveFailures = failed ? consecutiveFailures + 1 : 0;
-        currentDelay = pickHeartbeatDelay({
-          failed,
-          intervalMs: intervalRef.current,
-          backoffMs: backoffRef.current,
-          extendedBackoffMs: extendedBackoffRef.current,
-          extendedBackoffAfter: extendedBackoffAfterRef.current,
-          consecutiveFailures,
-        });
+          lifecycle,
+        };
+        // onResponse fires for EVERY HTTP response (including queued/pending),
+        // so callers can update diagnostics. onQwenComplete fires ONLY on
+        // terminal-success.
+        onResponseRef.current?.(response);
+
+        let qwenResultReceived = false;
+        if (lifecycle === "pending") {
+          qwenPendingRef.current = true;
+          if (pendingSinceMsRef.current === 0) pendingSinceMsRef.current = receivedAtMs;
+          pendingFrameIdRef.current = frameId;
+          // While pending, hold cadence at the normal interval — the next tick
+          // will be gated by the pending check, not by backoff.
+          currentDelay = intervalRef.current;
+          consecutiveFailures = 0;
+        } else if (lifecycle === "terminal-success") {
+          qwenPendingRef.current = false;
+          pendingSinceMsRef.current = 0;
+          pendingFrameIdRef.current = null;
+          skippedPendingCountRef.current = 0;
+          consecutiveFailures = 0;
+          qwenResultReceived = true;
+          currentDelay = intervalRef.current;
+          onQwenCompleteRef.current?.(response);
+        } else if (lifecycle === "terminal-failure") {
+          qwenPendingRef.current = false;
+          pendingSinceMsRef.current = 0;
+          pendingFrameIdRef.current = null;
+          skippedPendingCountRef.current = 0;
+          consecutiveFailures += 1;
+          currentDelay = pickHeartbeatDelay({
+            failed: true,
+            intervalMs: intervalRef.current,
+            backoffMs: backoffRef.current,
+            extendedBackoffMs: extendedBackoffRef.current,
+            extendedBackoffAfter: extendedBackoffAfterRef.current,
+            consecutiveFailures,
+          });
+        } else {
+          // unknown — clear pending for safety so we don't deadlock on a stub
+          // response, but do NOT report success and do NOT fire onQwenComplete.
+          qwenPendingRef.current = false;
+          pendingSinceMsRef.current = 0;
+          pendingFrameIdRef.current = null;
+          skippedPendingCountRef.current = 0;
+          consecutiveFailures = 0;
+          currentDelay = intervalRef.current;
+        }
+
         emit(
           {
             receivedAtMs,
@@ -390,10 +679,22 @@ export function useQwenHeartbeat({
             warnings,
             sceneRisks,
             outcome: "ok",
+            qwenLifecycle: lifecycle,
+            qwenPending: qwenPendingRef.current,
+            pendingSinceMs: pendingSinceMsRef.current || null,
+            pendingFrameId: pendingFrameIdRef.current,
+            skippedPendingCount: skippedPendingCountRef.current,
+            httpReceived: true,
+            qwenResultReceived,
           },
           currentDelay,
         );
       } catch (e) {
+        // Network error: clear pending and apply backoff.
+        qwenPendingRef.current = false;
+        pendingSinceMsRef.current = 0;
+        pendingFrameIdRef.current = null;
+        skippedPendingCountRef.current = 0;
         consecutiveFailures += 1;
         currentDelay = pickHeartbeatDelay({
           failed: true,
@@ -412,6 +713,13 @@ export function useQwenHeartbeat({
             sceneRisks: 0,
             outcome: "error",
             error: e instanceof Error ? e.message : String(e),
+            qwenLifecycle: "terminal-failure",
+            qwenPending: false,
+            pendingSinceMs: null,
+            pendingFrameId: null,
+            skippedPendingCount: 0,
+            httpReceived: false,
+            qwenResultReceived: false,
           },
           currentDelay,
         );
@@ -434,9 +742,12 @@ export function useQwenHeartbeat({
       if (timer) clearTimeout(timer);
       timer = null;
       document.removeEventListener("visibilitychange", onVisibility);
+      wakeRef.current = () => undefined;
     };
     // sessionIdOverride is intentionally in deps: when the live detector mints
     // (or rotates) its worker session_id, the heartbeat restarts so the new id
     // is adopted on the very next tick.
   }, [enabled, videoRef, sessionIdOverride]);
+
+  return { notifyQwenTerminalFromLive };
 }

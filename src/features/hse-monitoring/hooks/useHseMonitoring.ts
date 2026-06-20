@@ -4,7 +4,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import { mapToHseObservations } from "@/lib/detection/hseEntityMapper";
 import { HSETracker } from "@/lib/detection/hseTracker";
 import { runHseRules } from "@/lib/detection/hseRiskRules";
-import { buildHseDetectRequest, HSE_PROFILES } from "@/lib/detection/hseDetectProfile";
+import {
+  buildHseDetectRequest,
+  HSE_LIVE_DETECT_REASON,
+  HSE_PROFILES,
+} from "@/lib/detection/hseDetectProfile";
 import type {
   HSEActiveAlert,
   HSEDetectionProfile,
@@ -100,7 +104,7 @@ export function useHseMonitoring({
   // profile or ROI changes (worker may ignore it; the loop never breaks).
   useEffect(() => {
     if (!enabled) return;
-    setMonitoringRequest(buildHseDetectRequest(profile, roi));
+    setMonitoringRequest(buildHseDetectRequest(profile, roi, HSE_LIVE_DETECT_REASON));
   }, [enabled, profile, roi, setMonitoringRequest]);
 
   // Reset everything when monitoring stops.
