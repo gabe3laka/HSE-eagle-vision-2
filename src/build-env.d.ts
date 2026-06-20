@@ -38,9 +38,19 @@ interface ImportMetaEnv {
   /** Qwen scene-reasoning heartbeat (HSE Live). Defaults: enabled=true,
    *  interval=2000 ms, backoff=10000 ms, force_reason=true, ttl=3000 ms. */
   readonly VITE_HSE_QWEN_HEARTBEAT_ENABLED?: string;
+  /** Canonical interval flag (per system prompt). Default 2000 ms. */
+  readonly VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS?: string;
+  /** Hard minimum cadence floor (clamped ≥1000 ms). Default 1000. */
+  readonly VITE_HSE_QWEN_HEARTBEAT_MIN_INTERVAL_MS?: string;
+  /** Legacy alias for VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS. */
   readonly VITE_HSE_QWEN_HEARTBEAT_MS?: string;
   readonly VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS?: string;
+  readonly VITE_HSE_QWEN_HEARTBEAT_EXTENDED_BACKOFF_MS?: string;
+  readonly VITE_HSE_QWEN_HEARTBEAT_EXTENDED_BACKOFF_AFTER?: string;
   readonly VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON?: string;
+  /** Canonical heartbeat freshness window (per system prompt). Default 8000 ms. */
+  readonly VITE_HSE_QWEN_RESULT_TTL_MS?: string;
+  /** Legacy alias for VITE_HSE_QWEN_RESULT_TTL_MS. */
   readonly VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS?: string;
   /** HSE capture knobs. Defaults preserve prior behaviour (512 / 0.7).
    *  Raise to e.g. 960 / 0.78 to help small-object recall (cup/can/glass).
