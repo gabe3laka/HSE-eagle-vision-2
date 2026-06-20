@@ -295,6 +295,15 @@ export default function Live() {
   const [backendTest, setBackendTest] = useState<string | null>(null);
   const [backendTestImg, setBackendTestImg] = useState<string | null>(null);
   const [backendTesting, setBackendTesting] = useState(false);
+  // Stable Test Frame session — second click MUST reuse the same `session_id`
+  // (so the worker can return the cached Qwen result instead of starting a
+  // new reasoning job). "Reset test session" clears it.
+  const testFrameSessionIdRef = useRef<string | null>(null);
+  const testFrameCounterRef = useRef(0);
+  const testFramePendingRef = useRef(false);
+  const testFramePendingSinceMsRef = useRef(0);
+  const [testFrameSessionId, setTestFrameSessionId] = useState<string | null>(null);
+  const [testFramePending, setTestFramePending] = useState(false);
 
   // App workflow: HSE monitoring (existing) | Build (document my work) | Plan
   // (guide me through work). Build and Plan share the SAME blueprint engine —
