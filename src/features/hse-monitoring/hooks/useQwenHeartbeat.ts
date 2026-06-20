@@ -176,6 +176,9 @@ export function buildHeartbeatMonitoringRequest(
     reasoningPreferencesOverride: {
       force_reason: true,
       prefer_low_latency: true,
+      // Per app-repo prompt: hint Qwen at desired cadence + freshness window.
+      target_reasoning_interval_ms: 1500,
+      max_candidate_age_ms: 1500,
       require_visual_evidence: true,
       allow_no_active_risk: true,
       return_scene_risks: true,
