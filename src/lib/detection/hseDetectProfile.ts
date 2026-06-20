@@ -158,7 +158,21 @@ export const NEUTRAL_HSE_REASONING_PREFERENCES = {
   return_reasoner_status: true,
   return_scene_context: true,
   return_semantic_corrections: true,
+  // Live /detect frames must NEVER displace a Qwen job that was already
+  // started by the heartbeat (or by a previous Test Frame). When this flag is
+  // set, the worker may return a cached/in-progress Qwen result but must not
+  // start or replace a reasoning job. Only the heartbeat (and the first Test
+  // Frame click in a session) sets `force_reason: true` and intentionally
+  // omits/overrides this flag.
+  do_not_start_new_reasoning_job: true,
 } as const;
+
+/**
+ * `requestReason` token used by the standard live HSE detector loop. Distinct
+ * from `"hse-qwen-heartbeat"` so the worker (and our own diagnostics) can tell
+ * a per-frame YOLO request apart from a Qwen heartbeat or a manual Test Frame.
+ */
+export const HSE_LIVE_DETECT_REASON = "hse-live-detect";
 
 /**
  * Merge the HSE request metadata into a base /detect body. Adds `frame_b64`
