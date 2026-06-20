@@ -61,11 +61,7 @@ export interface QwenHeartbeatResponse {
   lifecycle: QwenLifecycle;
 }
 
-export type QwenLifecycle =
-  | "pending"
-  | "terminal-success"
-  | "terminal-failure"
-  | "unknown";
+export type QwenLifecycle = "pending" | "terminal-success" | "terminal-failure" | "unknown";
 
 export interface QwenHeartbeatDiagnostic {
   receivedAtMs: number;
@@ -162,12 +158,7 @@ export const QWEN_PENDING_STATES = new Set([
 ]);
 
 /** Worker reasoner statuses that mean Qwen produced a usable result. */
-export const QWEN_TERMINAL_SUCCESS_STATES = new Set([
-  "ready",
-  "cached",
-  "completed",
-  "ok",
-]);
+export const QWEN_TERMINAL_SUCCESS_STATES = new Set(["ready", "cached", "completed", "ok"]);
 
 /** Worker reasoner statuses that mean Qwen finished but produced no result. */
 export const QWEN_TERMINAL_FAILURE_STATES = new Set([
@@ -422,10 +413,7 @@ export function useQwenHeartbeat({
     lastLifecycleRef.current = "unknown";
 
     const emit = (
-      partial: Omit<
-        QwenHeartbeatDiagnostic,
-        "sessionId" | "consecutiveFailures" | "nextDelayMs"
-      >,
+      partial: Omit<QwenHeartbeatDiagnostic, "sessionId" | "consecutiveFailures" | "nextDelayMs">,
       nextDelayMs: number,
     ) => {
       onDiagnosticRef.current?.({

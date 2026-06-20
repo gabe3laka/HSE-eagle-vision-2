@@ -792,9 +792,7 @@ export default function Live() {
   // pending reasoning job.
   const ensureTestFrameSessionId = useCallback(() => {
     if (!testFrameSessionIdRef.current) {
-      const sid = `hse-test-${Date.now().toString(36)}-${Math.random()
-        .toString(36)
-        .slice(2, 8)}`;
+      const sid = `hse-test-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       testFrameSessionIdRef.current = sid;
       testFrameCounterRef.current = 0;
       setTestFrameSessionId(sid);

@@ -69,8 +69,7 @@ export function HeartbeatDiagnosticsPanel(props: HeartbeatDiagnosticsPanelProps)
           : "text-muted-foreground";
   const qwenPending = lastDiagnostic?.qwenPending ?? false;
   const pendingSinceMs = lastDiagnostic?.pendingSinceMs ?? null;
-  const pendingAgeMs =
-    pendingSinceMs != null ? Math.max(0, nowMs - pendingSinceMs) : null;
+  const pendingAgeMs = pendingSinceMs != null ? Math.max(0, nowMs - pendingSinceMs) : null;
   const lifecycleClass =
     lastDiagnostic?.qwenLifecycle === "terminal-success"
       ? "text-emerald-300"
@@ -115,9 +114,7 @@ export function HeartbeatDiagnosticsPanel(props: HeartbeatDiagnosticsPanelProps)
           />
           <Row
             label="last_lifecycle"
-            value={
-              <span className={lifecycleClass}>{lastDiagnostic?.qwenLifecycle ?? "—"}</span>
-            }
+            value={<span className={lifecycleClass}>{lastDiagnostic?.qwenLifecycle ?? "—"}</span>}
           />
           <Row label="consecutive_failures" value={lastDiagnostic?.consecutiveFailures ?? 0} />
           <Row label="next_delay_ms" value={lastDiagnostic?.nextDelayMs ?? "—"} />
@@ -145,10 +142,7 @@ export function HeartbeatDiagnosticsPanel(props: HeartbeatDiagnosticsPanelProps)
             label="next_heartbeat_allowed"
             value={qwenPending ? "on Qwen terminal response" : "scheduled"}
           />
-          <Row
-            label="skipped_pending_count"
-            value={lastDiagnostic?.skippedPendingCount ?? 0}
-          />
+          <Row label="skipped_pending_count" value={lastDiagnostic?.skippedPendingCount ?? 0} />
         </div>
         <div className="space-y-0.5">
           <Row label="ok_count" value={counters.okCount} />
@@ -172,9 +166,7 @@ export function HeartbeatDiagnosticsPanel(props: HeartbeatDiagnosticsPanelProps)
             value={
               <span
                 className={
-                  lastDiagnostic?.qwenResultReceived
-                    ? "text-emerald-300"
-                    : "text-muted-foreground"
+                  lastDiagnostic?.qwenResultReceived ? "text-emerald-300" : "text-muted-foreground"
                 }
               >
                 {lastDiagnostic?.qwenResultReceived ? "yes" : "no"}
