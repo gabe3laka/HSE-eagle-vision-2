@@ -76,9 +76,15 @@ function mount(opts: { intervalMs?: number; backoffMs?: number } = {}) {
 
 async function flush() {
   // Let pending microtasks (the awaited postDetectFrame in tick) resolve.
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+}
+
+async function fireNextTick() {
+  await vi.runOnlyPendingTimersAsync();
+  await flush();
+  // The just-fired tick scheduled another timer asynchronously after awaiting
+  // postDetectFrame. Drain again so subsequent runOnlyPendingTimersAsync sees it.
+  await flush();
 }
 
 beforeEach(() => {
@@ -97,16 +103,13 @@ describe("useQwenHeartbeat — pending gate", () => {
     script({ reasoner_status: "queued" });
     const { hook, captured } = mount();
 
-    await vi.advanceTimersByTimeAsync(0); // initial schedule(currentDelay) → fires tick
-    await flush();
+    await fireNextTick(); // initial scheduled tick → HTTP → queued → arm gate
     expect(postDetectFrame).toHaveBeenCalledTimes(1);
     const first = captured.diagnostics.at(-1)!;
     expect(first.qwenLifecycle).toBe("pending");
     expect(first.qwenPending).toBe(true);
 
-    // Next scheduled tick should NOT call postDetectFrame.
-    await vi.advanceTimersByTimeAsync(2000);
-    await flush();
+    await fireNextTick(); // gated tick → skipped-qwen-pending, no HTTP
     expect(postDetectFrame).toHaveBeenCalledTimes(1);
     const gated = captured.diagnostics.at(-1)!;
     expect(gated.outcome).toBe("skipped-qwen-pending");
@@ -119,34 +122,25 @@ describe("useQwenHeartbeat — pending gate", () => {
     it(`'${s}' response also pends`, async () => {
       script({ reasoner_status: s });
       const { hook, captured } = mount();
-      await vi.advanceTimersByTimeAsync(0);
-      await flush();
+      await fireNextTick();
       expect(captured.diagnostics.at(-1)!.qwenLifecycle).toBe("pending");
-      await vi.advanceTimersByTimeAsync(2000);
-      await flush();
+      await fireNextTick();
       expect(captured.diagnostics.at(-1)!.outcome).toBe("skipped-qwen-pending");
       expect(postDetectFrame).toHaveBeenCalledTimes(1);
       hook.unmount();
     });
   }
 
-  it("ready clears pending and allows next tick at normal interval, fires onQwenComplete", async () => {
+  it("ready (after clearing pending via live-notify) fires onQwenComplete", async () => {
     script({ reasoner_status: "queued" }, { reasoner_status: "ready" });
     const { hook, captured } = mount();
 
-    await vi.advanceTimersByTimeAsync(0);
-    await flush();
-    // Bypass the gate using the external clear signal so the second HTTP fires.
-    // (Simulates a live response clearing pending mid-cycle.)
-    // No — for this test we want to ensure ready clears it ON the heartbeat
-    // itself. So instead: advance past the gated tick, then call the external
-    // clearer to allow the heartbeat to actually send the second request.
-    await vi.advanceTimersByTimeAsync(2000);
-    await flush();
-    // Now manually clear pending via the live-notify and let the next tick fire.
+    await fireNextTick();
+    expect(captured.diagnostics.at(-1)!.qwenLifecycle).toBe("pending");
+
+    // Live-notify clears pending and wakes the loop with setTimeout(tick, 0).
     hook.result.current.notifyQwenTerminalFromLive("terminal-success");
-    await vi.advanceTimersByTimeAsync(0);
-    await flush();
+    await fireNextTick();
     expect(postDetectFrame).toHaveBeenCalledTimes(2);
     expect(captured.completes.length).toBe(1);
     expect(captured.completes[0].lifecycle).toBe("terminal-success");
@@ -157,8 +151,7 @@ describe("useQwenHeartbeat — pending gate", () => {
   it("cached clears pending", async () => {
     script({ reasoner_status: "cached" });
     const { hook, captured } = mount();
-    await vi.advanceTimersByTimeAsync(0);
-    await flush();
+    await fireNextTick();
     const d = captured.diagnostics.at(-1)!;
     expect(d.qwenLifecycle).toBe("terminal-success");
     expect(d.qwenPending).toBe(false);
@@ -170,8 +163,7 @@ describe("useQwenHeartbeat — pending gate", () => {
     it(`'${s}' clears pending and applies backoff; onQwenComplete NOT fired`, async () => {
       script({ reasoner_status: s });
       const { hook, captured } = mount({ intervalMs: 2000, backoffMs: 10000 });
-      await vi.advanceTimersByTimeAsync(0);
-      await flush();
+      await fireNextTick();
       const d = captured.diagnostics.at(-1)!;
       expect(d.qwenLifecycle).toBe("terminal-failure");
       expect(d.qwenPending).toBe(false);
@@ -185,16 +177,15 @@ describe("useQwenHeartbeat — pending gate", () => {
     script({ reasoner_status: "queued" }, { reasoner_status: "ready" });
     const { hook, captured } = mount({ intervalMs: 2000 });
 
-    await vi.advanceTimersByTimeAsync(0);
-    await flush();
+    await fireNextTick();
     expect(captured.diagnostics.at(-1)!.qwenLifecycle).toBe("pending");
 
-    // Advance well past hard-max so the next tick force-clears.
+    // Jump past the hard-max so the next scheduled tick force-clears.
     await vi.advanceTimersByTimeAsync(QWEN_PENDING_HARD_MAX_MS + 5000);
+    await flush();
     await flush();
     const outcomes = captured.diagnostics.map((d) => d.outcome);
     expect(outcomes).toContain("pending-timeout-client");
-    // After force-clear the tick falls through and sends the next request.
     expect(postDetectFrame).toHaveBeenCalledTimes(2);
 
     hook.unmount();
@@ -203,12 +194,10 @@ describe("useQwenHeartbeat — pending gate", () => {
   it("notifyQwenTerminalFromLive('terminal-success') clears pending mid-cycle", async () => {
     script({ reasoner_status: "queued" }, { reasoner_status: "ready" });
     const { hook, captured } = mount();
-    await vi.advanceTimersByTimeAsync(0);
-    await flush();
+    await fireNextTick();
     expect(captured.diagnostics.at(-1)!.qwenLifecycle).toBe("pending");
     hook.result.current.notifyQwenTerminalFromLive("terminal-success");
-    await vi.advanceTimersByTimeAsync(0);
-    await flush();
+    await fireNextTick();
     expect(postDetectFrame).toHaveBeenCalledTimes(2);
     hook.unmount();
   });
@@ -216,8 +205,7 @@ describe("useQwenHeartbeat — pending gate", () => {
   it("unknown lifecycle clears pending but does NOT fire onQwenComplete", async () => {
     script({ reasoner_status: "weird-state" });
     const { hook, captured } = mount();
-    await vi.advanceTimersByTimeAsync(0);
-    await flush();
+    await fireNextTick();
     const d = captured.diagnostics.at(-1)!;
     expect(d.qwenLifecycle).toBe("unknown");
     expect(d.qwenPending).toBe(false);
