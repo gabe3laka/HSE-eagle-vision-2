@@ -397,6 +397,25 @@ export function ReasonerContractProbe({
           <span className="text-foreground">{localAlertsEnabled ? "yes" : "no"}</span>
         </div>
       </div>
+      {testFrameVisible && (
+        <div className="mt-3 border-t border-violet-300/20 pt-2">
+          <Section title="Test Frame session">
+            <Row label="test_session_id" value={testFrameSessionId ?? "—"} />
+            <Row label="test_pending" value={testFramePending ? "yes" : "no"} />
+            <Row
+              label="test_pending_since_ms"
+              value={
+                testFramePending && testFramePendingSinceMs && testFramePendingSinceMs > 0
+                  ? `${nowAnchor - testFramePendingSinceMs} ms${
+                      testPendingSeconds !== null ? ` (~${testPendingSeconds}s)` : ""
+                    }`
+                  : "—"
+              }
+            />
+            <Row label="test_skipped_count" value={testFrameSkippedCount ?? 0} />
+          </Section>
+        </div>
+      )}
     </div>
   );
 }
