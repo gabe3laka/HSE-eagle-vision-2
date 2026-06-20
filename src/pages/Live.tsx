@@ -918,12 +918,16 @@ export default function Live() {
             testFramePendingRef.current = true;
             if (testFramePendingSinceMsRef.current === 0) {
               testFramePendingSinceMsRef.current = Date.now();
+              setTestFramePendingSinceMs(testFramePendingSinceMsRef.current);
             }
             setTestFramePending(true);
           } else if (lifecycle === "terminal-success" || lifecycle === "terminal-failure") {
             testFramePendingRef.current = false;
             testFramePendingSinceMsRef.current = 0;
+            testFrameSkippedCountRef.current = 0;
             setTestFramePending(false);
+            setTestFramePendingSinceMs(null);
+            setTestFrameSkippedCount(0);
           }
           const summary = summarizeDetectResponse(resp, parsed, {
             latencyMs: latency,
