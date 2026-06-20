@@ -83,25 +83,32 @@ export function BackendEntityOverlay({
         const label =
           boxLabelForEntity(e, riskAware, effMode) ??
           `${itemNameForEntity(e)} · ${Math.round((e.confidence ?? 0) * 100)}%`;
+        const isStaleAnchor =
+          (e as unknown as { __riskAnchorStale?: boolean }).__riskAnchorStale === true;
         return (
           <div
             key={`${e.label}-${i}`}
-            className="absolute rounded-md border-2"
+            className={`absolute rounded-md ${isStaleAnchor ? "border-2 border-dashed" : "border-2"}`}
             style={{
               left: `${clamp01(b.x) * 100}%`,
               top: `${clamp01(b.y) * 100}%`,
               width: `${clamp01(b.w) * 100}%`,
               height: `${clamp01(b.h) * 100}%`,
               borderColor: color,
-              boxShadow: `0 0 0 1px rgba(0,0,0,0.4), 0 0 12px ${color}`,
+              opacity: isStaleAnchor ? 0.6 : 1,
+              boxShadow: isStaleAnchor
+                ? `0 0 0 1px rgba(0,0,0,0.4)`
+                : `0 0 0 1px rgba(0,0,0,0.4), 0 0 12px ${color}`,
             }}
           >
-            <span
-              className="absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold text-black"
-              style={{ backgroundColor: color }}
-            >
-              {label}
-            </span>
+            {!isStaleAnchor && (
+              <span
+                className="absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold text-black"
+                style={{ backgroundColor: color }}
+              >
+                {label}
+              </span>
+            )}
           </div>
         );
       })}
