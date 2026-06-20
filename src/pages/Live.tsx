@@ -1471,6 +1471,11 @@ export default function Live() {
                           riskLinkedEntityCount={hseRiskViewModel.riskLinkedEntityCount}
                           riskLinkedPoseCount={hseRiskViewModel.riskLinkedPoseCount}
                           forceReasonSent={heartbeatForceReasonSent}
+                          testFrameSessionId={testFrameSessionId}
+                          testFramePending={testFramePending}
+                          testFramePendingSinceMs={testFramePendingSinceMs}
+                          testFrameSkippedCount={testFrameSkippedCount}
+                          nowMs={nowMsForVm}
                         />
                       )}
                       {import.meta.env.DEV && appMode === "hse" && (
