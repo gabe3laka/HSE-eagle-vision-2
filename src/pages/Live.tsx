@@ -70,8 +70,12 @@ import {
   formatRouteStatus,
 } from "@/components/live/ReasonerContractProbe";
 import {
+  classifyQwenLifecycle,
+  QWEN_PENDING_HARD_MAX_MS,
   useQwenHeartbeat,
   type QwenHeartbeatDiagnostic,
+  type QwenHeartbeatResponse,
+  type QwenLifecycle,
 } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
 import {
   HeartbeatDiagnosticsPanel,
