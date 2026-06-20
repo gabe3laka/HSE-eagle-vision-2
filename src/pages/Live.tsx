@@ -306,8 +306,11 @@ export default function Live() {
   const testFrameCounterRef = useRef(0);
   const testFramePendingRef = useRef(false);
   const testFramePendingSinceMsRef = useRef(0);
+  const testFrameSkippedCountRef = useRef(0);
   const [testFrameSessionId, setTestFrameSessionId] = useState<string | null>(null);
   const [testFramePending, setTestFramePending] = useState(false);
+  const [testFramePendingSinceMs, setTestFramePendingSinceMs] = useState<number | null>(null);
+  const [testFrameSkippedCount, setTestFrameSkippedCount] = useState(0);
 
   // App workflow: HSE monitoring (existing) | Build (document my work) | Plan
   // (guide me through work). Build and Plan share the SAME blueprint engine —
@@ -804,8 +807,11 @@ export default function Live() {
     testFrameCounterRef.current = 0;
     testFramePendingRef.current = false;
     testFramePendingSinceMsRef.current = 0;
+    testFrameSkippedCountRef.current = 0;
     setTestFrameSessionId(null);
     setTestFramePending(false);
+    setTestFramePendingSinceMs(null);
+    setTestFrameSkippedCount(0);
   }, []);
 
   // Dev/debug: capture the current frame and send one request, showing the raw
@@ -839,11 +845,16 @@ export default function Live() {
           testFramePendingRef.current = false;
           testFramePendingSinceMsRef.current = 0;
           setTestFramePending(false);
+          setTestFramePendingSinceMs(null);
         }
         // While Qwen is still working on a previous Test Frame in THIS
         // session, the next click must POLL the cached result instead of
         // starting (and replacing) a new reasoning job.
         const pollingPending = appMode === "hse" && testFramePendingRef.current;
+        if (pollingPending) {
+          testFrameSkippedCountRef.current += 1;
+          setTestFrameSkippedCount(testFrameSkippedCountRef.current);
+        }
         // In HSE mode, send the SAME monitoring/reasoning context the live
         // stream uses so the test exercises the full worker contract.
         // Build/Plan stays detection-only.
@@ -907,12 +918,16 @@ export default function Live() {
             testFramePendingRef.current = true;
             if (testFramePendingSinceMsRef.current === 0) {
               testFramePendingSinceMsRef.current = Date.now();
+              setTestFramePendingSinceMs(testFramePendingSinceMsRef.current);
             }
             setTestFramePending(true);
           } else if (lifecycle === "terminal-success" || lifecycle === "terminal-failure") {
             testFramePendingRef.current = false;
             testFramePendingSinceMsRef.current = 0;
+            testFrameSkippedCountRef.current = 0;
             setTestFramePending(false);
+            setTestFramePendingSinceMs(null);
+            setTestFrameSkippedCount(0);
           }
           const summary = summarizeDetectResponse(resp, parsed, {
             latencyMs: latency,
@@ -1456,6 +1471,11 @@ export default function Live() {
                           riskLinkedEntityCount={hseRiskViewModel.riskLinkedEntityCount}
                           riskLinkedPoseCount={hseRiskViewModel.riskLinkedPoseCount}
                           forceReasonSent={heartbeatForceReasonSent}
+                          testFrameSessionId={testFrameSessionId}
+                          testFramePending={testFramePending}
+                          testFramePendingSinceMs={testFramePendingSinceMs}
+                          testFrameSkippedCount={testFrameSkippedCount}
+                          nowMs={nowMsForVm}
                         />
                       )}
                       {import.meta.env.DEV && appMode === "hse" && (

@@ -267,6 +267,11 @@ export function ReasonerContractProbe({
   riskLinkedEntityCount,
   riskLinkedPoseCount,
   forceReasonSent,
+  testFrameSessionId,
+  testFramePending,
+  testFramePendingSinceMs,
+  testFrameSkippedCount,
+  nowMs,
 }: {
   parsedRisk: ParsedDetectRisk | null;
   rawResp: unknown;
@@ -275,6 +280,12 @@ export function ReasonerContractProbe({
   riskLinkedEntityCount?: number;
   riskLinkedPoseCount?: number;
   forceReasonSent?: boolean;
+  testFrameSessionId?: string | null;
+  testFramePending?: boolean;
+  testFramePendingSinceMs?: number | null;
+  testFrameSkippedCount?: number;
+  /** Optional wall-clock anchor for humanizing pending_since_ms. Defaults to Date.now(). */
+  nowMs?: number;
 }) {
   const probe = buildReasonerProbe(parsedRisk, rawResp, status, { forceReasonSent });
   const s = probe.summary;
@@ -282,6 +293,15 @@ export function ReasonerContractProbe({
   const visibleSource = localAlertsEnabled ? "legacy_local_alerts" : "worker_scene_risks";
   const perceptionBackend = s.gateway.backend ?? status?.backend ?? null;
   const perceptionModel = s.gateway.model ?? status?.model ?? null;
+  const testFrameVisible =
+    !!testFrameSessionId ||
+    !!testFramePending ||
+    (typeof testFrameSkippedCount === "number" && testFrameSkippedCount > 0);
+  const nowAnchor = typeof nowMs === "number" ? nowMs : Date.now();
+  const testPendingSeconds =
+    testFramePending && testFramePendingSinceMs && testFramePendingSinceMs > 0
+      ? Math.max(0, Math.round((nowAnchor - testFramePendingSinceMs) / 1000))
+      : null;
   return (
     <div className="rounded-xl border border-violet-300/30 bg-violet-400/[0.04] p-3 font-mono text-[11px] leading-relaxed">
       <div className="mb-2 flex items-center gap-2">
@@ -377,6 +397,25 @@ export function ReasonerContractProbe({
           <span className="text-foreground">{localAlertsEnabled ? "yes" : "no"}</span>
         </div>
       </div>
+      {testFrameVisible && (
+        <div className="mt-3 border-t border-violet-300/20 pt-2">
+          <Section title="Test Frame session">
+            <Row label="test_session_id" value={testFrameSessionId ?? "—"} />
+            <Row label="test_pending" value={testFramePending ? "yes" : "no"} />
+            <Row
+              label="test_pending_since_ms"
+              value={
+                testFramePending && testFramePendingSinceMs && testFramePendingSinceMs > 0
+                  ? `${nowAnchor - testFramePendingSinceMs} ms${
+                      testPendingSeconds !== null ? ` (~${testPendingSeconds}s)` : ""
+                    }`
+                  : "—"
+              }
+            />
+            <Row label="test_skipped_count" value={testFrameSkippedCount ?? 0} />
+          </Section>
+        </div>
+      )}
     </div>
   );
 }
