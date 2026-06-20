@@ -137,7 +137,7 @@ describe("riskAnchorMemory.advanceAnchor", () => {
 
   it("uses the CURRENT YOLO bbox (not the cached one) when rebound", () => {
     const anchor = baseAnchor();
-    const newBbox = { x: 0.5, y: 0.5, w: 0.1, h: 0.2 };
+    const newBbox = { x: 0.42, y: 0.42, w: 0.1, h: 0.2 };
     const cur = entity({ track_id: "t-NEW", label: "person", bbox: newBbox });
     const res = advanceAnchor({
       entry: anchor,
