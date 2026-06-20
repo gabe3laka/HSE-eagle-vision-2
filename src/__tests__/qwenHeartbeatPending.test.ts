@@ -7,22 +7,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 
-const postDetectFrame = vi.fn();
-const captureVideoFrameBase64 = vi.fn(() => ({ image_b64: "FAKE", cw: 320, ch: 320 }));
-const hasRiskAwareData = vi.fn(() => true);
-const parseDetectRiskFields = vi.fn((raw: { reasoner_status?: string }) => ({
+const postDetectFrame = vi.fn<(...a: unknown[]) => unknown>();
+const captureVideoFrameBase64 = vi.fn<(...a: unknown[]) => unknown>(() => ({
+  image_b64: "FAKE",
+  cw: 320,
+  ch: 320,
+}));
+const hasRiskAwareData = vi.fn<(...a: unknown[]) => boolean>(() => true);
+const parseDetectRiskFields = vi.fn<(...a: unknown[]) => unknown>((raw: unknown) => ({
   sceneRisks: [],
   semanticCorrections: [],
   sceneContext: null,
   warnings: [] as string[],
-  reasonerStatus: raw?.reasoner_status ?? null,
+  reasonerStatus: (raw as { reasoner_status?: string } | null)?.reasoner_status ?? null,
 }));
 
 vi.mock("@/lib/detection/backendVisionHttpDetector", () => ({
-  postDetectFrame: (...args: [unknown, unknown?]) => postDetectFrame(...args),
-  captureVideoFrameBase64: (...args: [unknown, unknown?]) => captureVideoFrameBase64(...args),
-  hasRiskAwareData: (...args: [unknown]) => hasRiskAwareData(...args),
-  parseDetectRiskFields: (...args: [unknown]) => parseDetectRiskFields(...args),
+  postDetectFrame: (...args: unknown[]) => postDetectFrame(...args),
+  captureVideoFrameBase64: (...args: unknown[]) => captureVideoFrameBase64(...args),
+  hasRiskAwareData: (...args: unknown[]) => hasRiskAwareData(...args),
+  parseDetectRiskFields: (...args: unknown[]) => parseDetectRiskFields(...args),
 }));
 
 import {
