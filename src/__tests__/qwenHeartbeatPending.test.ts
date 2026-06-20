@@ -37,7 +37,9 @@ import {
 } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
 
 const makeVideoRef = () =>
-  ({ current: { videoWidth: 640, videoHeight: 480 } as unknown as HTMLVideoElement }) as React.RefObject<HTMLVideoElement>;
+  ({
+    current: { videoWidth: 640, videoHeight: 480 } as unknown as HTMLVideoElement,
+  }) as React.RefObject<HTMLVideoElement>;
 
 function script(...responses: Array<unknown | Error>) {
   postDetectFrame.mockReset();
