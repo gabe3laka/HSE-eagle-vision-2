@@ -227,14 +227,15 @@ describe("hseLiveRiskViewModel — builder", () => {
     expect(vm.hiddenPoseReasons.length).toBeGreaterThan(0);
   });
 
-  it("produces a clean Qwen reasoner badge", () => {
+  it("produces a clean reasoner badge that does NOT default to Qwen", () => {
     const vm = buildHseLiveRiskViewModel({
       entities: [],
       poses: [],
       parsedRisk: { sceneRisks: [], degraded: false, warnings: [], reasonerStatus: "ok" },
       nowMs: NOW,
     });
-    expect(vm.reasonerBadge.label).toMatch(/Qwen/);
+    expect(vm.reasonerBadge.label).toMatch(/Reasoner/);
+    expect(vm.reasonerBadge.label).not.toMatch(/Qwen/);
   });
 });
 
@@ -359,7 +360,7 @@ describe("hseLiveRiskViewModel — wording", () => {
   });
 });
 
-describe("hseLiveRiskViewModel — Qwen badge", () => {
+describe("hseLiveRiskViewModel — reasoner badge", () => {
   function badge(status: string | undefined) {
     return buildHseLiveRiskViewModel({
       entities: [],
@@ -391,6 +392,11 @@ describe("hseLiveRiskViewModel — Qwen badge", () => {
     expect(badge("timeout").state).toBe("unavailable");
     expect(badge("missing").state).toBe("unavailable");
   });
+  it("error / schema_error / json_parse_error -> error", () => {
+    expect(badge("error").state).toBe("error");
+    expect(badge("schema_error").state).toBe("error");
+    expect(badge("json_parse_error").state).toBe("error");
+  });
   it("unknown non-empty status -> unavailable (never silently ready)", () => {
     expect(badge("zzz_unknown_state").state).toBe("unavailable");
     expect(badge("something_else").label).toMatch(/unavailable/);
@@ -399,7 +405,7 @@ describe("hseLiveRiskViewModel — Qwen badge", () => {
     expect(badge("disabled").state).toBe("disabled");
     expect(badge("not_run").state).toBe("disabled");
   });
-  it("null parsedRisk -> disabled", () => {
+  it("null parsedRisk -> disabled, labelled 'Reasoner' (never Qwen)", () => {
     const vm = buildHseLiveRiskViewModel({
       entities: [],
       poses: [],
@@ -407,6 +413,44 @@ describe("hseLiveRiskViewModel — Qwen badge", () => {
       nowMs: NOW,
     });
     expect(vm.reasonerBadge.state).toBe("disabled");
+    expect(vm.reasonerBadge.label).toBe("Reasoner: disabled");
+  });
+  it("label defaults to 'Reasoner', never 'Qwen'", () => {
+    for (const s of ["ready", "queued", "running", "unavailable", "disabled", "error"]) {
+      expect(badge(s).label.startsWith("Reasoner:")).toBe(true);
+      expect(badge(s).label).not.toMatch(/Qwen/);
+    }
+  });
+  it("label reads 'Gemini' when reasonerStatusRaw.model includes gemini", () => {
+    const vm = buildHseLiveRiskViewModel({
+      entities: [],
+      poses: [],
+      parsedRisk: {
+        sceneRisks: [],
+        degraded: false,
+        warnings: [],
+        reasonerStatus: "ready",
+        reasonerStatusRaw: { model: "gemini-2.0-flash", state: "ready" },
+      },
+      nowMs: NOW,
+    });
+    expect(vm.reasonerBadge.label).toBe("Gemini: ready");
+  });
+  it("label reads 'Gemini' when a scene risk reasoner_model includes gemini", () => {
+    const vm = buildHseLiveRiskViewModel({
+      entities: [],
+      poses: [],
+      parsedRisk: {
+        sceneRisks: [
+          { hazard: "spill", risk_level: "YELLOW", reasoner_model: "gemini-1.5" } as never,
+        ],
+        degraded: false,
+        warnings: [],
+        reasonerStatus: "ready",
+      },
+      nowMs: NOW,
+    });
+    expect(vm.reasonerBadge.label).toBe("Gemini: ready");
   });
 });
 
@@ -489,8 +533,55 @@ describe("hseLiveRiskViewModel — broadened ID matching", () => {
   });
 });
 
-describe("hseLiveRiskViewModel — qwen candidate flags", () => {
-  const qwenOnly: SceneRisk = {
+describe("hseLiveRiskViewModel — source labels (Reasoner / Gemini, never Qwen)", () => {
+  it("a linked reasoner risk reads source 'Reasoner' by default", () => {
+    const e = entity({ label: "cup", track_id: "tS" });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [e],
+      poses: [],
+      parsedRisk: parsedRisk([
+        risk({ track_id: "tS", hazard: "object_near_edge", produced_by: "vlm_reasoner" }),
+      ]),
+      nowMs: NOW,
+    });
+    expect(vm.priorityRisks[0]?.source).toBe("Reasoner");
+    expect(vm.priorityRisks[0]?.source).not.toMatch(/Qwen/);
+  });
+
+  it("a gemini-tagged linked risk reads source 'Gemini'", () => {
+    const e = entity({ label: "cup", track_id: "tG" });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [e],
+      poses: [],
+      parsedRisk: parsedRisk([
+        risk({
+          track_id: "tG",
+          hazard: "object_near_edge",
+          produced_by: "vlm_reasoner",
+          reasoner_model: "gemini-2.0-flash",
+        }),
+      ]),
+      nowMs: NOW,
+    });
+    expect(vm.priorityRisks[0]?.source).toBe("Gemini");
+  });
+
+  it("rules + reasoner reads 'Rules + Reasoner'", () => {
+    const e = entity({ label: "cup", track_id: "tRV" });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [e],
+      poses: [],
+      parsedRisk: parsedRisk([
+        risk({ track_id: "tRV", hazard: "object_near_edge", produced_by: "rules+vlm" }),
+      ]),
+      nowMs: NOW,
+    });
+    expect(vm.priorityRisks[0]?.source).toBe("Rules + Reasoner");
+  });
+});
+
+describe("hseLiveRiskViewModel — reasoner candidate flags", () => {
+  const reasonerOnly: SceneRisk = {
     hazard: "ergonomics",
     risk_level: "YELLOW",
     produced_by: "vlm_reasoner",
@@ -500,34 +591,34 @@ describe("hseLiveRiskViewModel — qwen candidate flags", () => {
     const vm = buildHseLiveRiskViewModel({
       entities: [],
       poses: [],
-      parsedRisk: parsedRisk([qwenOnly]),
+      parsedRisk: parsedRisk([reasonerOnly]),
       nowMs: NOW,
-      qwenCandidateLaneEnabled: false,
-      showQwenCandidates: true,
+      reasonerCandidateLaneEnabled: false,
+      showReasonerCandidates: true,
     });
-    expect(vm.qwenCandidates.length).toBe(0);
+    expect(vm.reasonerCandidates.length).toBe(0);
   });
   it("lane enabled but show=false → no candidates", () => {
     const vm = buildHseLiveRiskViewModel({
       entities: [],
       poses: [],
-      parsedRisk: parsedRisk([qwenOnly]),
+      parsedRisk: parsedRisk([reasonerOnly]),
       nowMs: NOW,
-      qwenCandidateLaneEnabled: true,
-      showQwenCandidates: false,
+      reasonerCandidateLaneEnabled: true,
+      showReasonerCandidates: false,
     });
-    expect(vm.qwenCandidates.length).toBe(0);
+    expect(vm.reasonerCandidates.length).toBe(0);
   });
   it("both flags true → candidates surface", () => {
     const vm = buildHseLiveRiskViewModel({
       entities: [],
       poses: [],
-      parsedRisk: parsedRisk([qwenOnly]),
+      parsedRisk: parsedRisk([reasonerOnly]),
       nowMs: NOW,
-      qwenCandidateLaneEnabled: true,
-      showQwenCandidates: true,
+      reasonerCandidateLaneEnabled: true,
+      showReasonerCandidates: true,
     });
-    expect(vm.qwenCandidates.length).toBe(1);
+    expect(vm.reasonerCandidates.length).toBe(1);
   });
 
   it("does not upgrade any entity to YELLOW+ when a worker_near_vehicle risk is unlinked", () => {

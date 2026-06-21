@@ -6,13 +6,14 @@
  * Goals:
  *   - A test session id (`hse-test-...`) is minted on the FIRST click and
  *     reused on every subsequent click until `resetTestFrameSession()`.
- *   - The first click in a session (or the first click after a terminal Qwen
- *     result) is allowed to `force_reason=true` and start a new reasoning job.
- *   - While Qwen is still working on a prior Test Frame in the SAME session,
- *     the next click must POLL — no `force_reason`, no new reasoning job. The
- *     worker can then return the cached Qwen result against the same session
- *     id instead of replacing the pending job.
- *   - A client-side hard cap (`QWEN_PENDING_HARD_MAX_MS`, mirrored here as a
+ *   - The first click in a session (or the first click after a terminal
+ *     reasoner result) is allowed to `force_reason=true` and start a new
+ *     reasoning job.
+ *   - While the reasoner is still working on a prior Test Frame in the SAME
+ *     session, the next click must POLL — no `force_reason`, no new reasoning
+ *     job. The worker can then return the cached reasoner result against the
+ *     same session id instead of replacing the pending job.
+ *   - A client-side hard cap (`REASONER_PENDING_HARD_MAX_MS`, mirrored here as a
  *     parameter so the heartbeat hook owns the single source of truth) clears
  *     pending if the worker never returns a terminal status, so subsequent
  *     clicks can force again.
@@ -20,13 +21,13 @@
  * The hook itself remains responsible for wall-clock time and React state — this
  * module only computes the next state and the request plan.
  */
-import type { QwenLifecycle } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+import type { ReasonerLifecycle } from "@/features/hse-monitoring/hooks/useReasonerHeartbeat";
 
 export interface TestFrameSessionState {
   sessionId: string | null;
   /** Incremented for every planned request — used to build `frameId`. */
   counter: number;
-  /** True after a `pending` Qwen response, until terminal-success/failure or hard-max. */
+  /** True after a `pending` reasoner response, until terminal-success/failure or hard-max. */
   pending: boolean;
   /** Wall-clock ms when `pending` first became true (0 when not pending). */
   pendingSinceMs: number;
@@ -114,14 +115,15 @@ export function planTestFrameRequest(
 }
 
 /**
- * PURE: fold the classified Qwen lifecycle of a response into the session state.
+ * PURE: fold the classified reasoner lifecycle of a response into the session
+ * state.
  *   - pending → arm the gate (set wall-clock start the first time).
  *   - terminal-success / terminal-failure → clear the gate, allow forcing again.
  *   - unknown → leave gate unchanged (don't accidentally re-arm or clear).
  */
 export function applyTestFrameResponse(
   state: TestFrameSessionState,
-  lifecycle: QwenLifecycle,
+  lifecycle: ReasonerLifecycle,
   nowMs: number,
 ): TestFrameSessionState {
   if (lifecycle === "pending") {

@@ -68,7 +68,7 @@ export function normalizeRoi(roi?: Partial<HSERoi> | null): HSERoi | undefined {
  * Public, browser-safe flag — default OFF. When false, the Live HSE /detect
  * request omits the "pose" task even when the active profile (balanced /
  * inspection) lists it. The active worker now runs YOLO continuous detection
- * with Qwen event-driven scene reasoning; raw pose keypoints hallucinate on
+ * with event-driven AI scene reasoning; raw pose keypoints hallucinate on
  * furniture, plants, reflections, and clutter, so they are opt-in only.
  */
 export function readHseRequestPoseFlag(env?: Record<string, unknown>): boolean {
@@ -101,8 +101,8 @@ export function buildHseDetectRequest(
   const requestPose = readHseRequestPoseFlag(envOverride);
   // Filter "pose" out of the profile's task list unless the operator opted in
   // via VITE_HSE_REQUEST_POSE=true. Then merge with the canonical HSE
-  // reasoning task set so the worker/Qwen always sees that scene reasoning is
-  // requested. Dedupe.
+  // reasoning task set so the worker/reasoner always sees that scene reasoning
+  // is requested. Dedupe.
   const filteredProfileTasks = spec.tasks.filter((task) => task !== "pose" || requestPose);
   const tasks = Array.from(
     new Set([...filteredProfileTasks, "detect", "track", "risk", "scene_reasoning"]),
@@ -158,19 +158,20 @@ export const NEUTRAL_HSE_REASONING_PREFERENCES = {
   return_reasoner_status: true,
   return_scene_context: true,
   return_semantic_corrections: true,
-  // Live /detect frames must NEVER displace a Qwen job that was already
+  // Live /detect frames must NEVER displace a reasoning job that was already
   // started by the heartbeat (or by a previous Test Frame). When this flag is
-  // set, the worker may return a cached/in-progress Qwen result but must not
-  // start or replace a reasoning job. Only the heartbeat (and the first Test
-  // Frame click in a session) sets `force_reason: true` and intentionally
+  // set, the worker may return a cached/in-progress reasoner result but must
+  // not start or replace a reasoning job. Only the heartbeat (and the first
+  // Test Frame click in a session) sets `force_reason: true` and intentionally
   // omits/overrides this flag.
   do_not_start_new_reasoning_job: true,
 } as const;
 
 /**
  * `requestReason` token used by the standard live HSE detector loop. Distinct
- * from `"hse-qwen-heartbeat"` so the worker (and our own diagnostics) can tell
- * a per-frame YOLO request apart from a Qwen heartbeat or a manual Test Frame.
+ * from `"hse-reasoner-heartbeat"` so the worker (and our own diagnostics) can
+ * tell a per-frame YOLO request apart from a reasoner heartbeat or a manual
+ * Test Frame.
  */
 export const HSE_LIVE_DETECT_REASON = "hse-live-detect";
 

@@ -58,7 +58,7 @@ interface Options {
   setMonitoringRequest: (req: unknown) => void;
   /**
    * Gate the legacy local alert path (haptics, incidents, throttled DeepSeek
-   * "Analyze scene"). When false (default), worker/Qwen scene risks are the
+   * "Analyze scene"). When false (default), worker/reasoner scene risks are the
    * single source of truth for visible Live HSE alerts.
    */
   localAlertsEnabled?: boolean;
@@ -185,7 +185,7 @@ export function useHseMonitoring({
     setTracks(live);
 
     // Legacy local alert path is the only visible source of "Worker near
-    // vehicle" et al. Default OFF — worker/Qwen scene risks are the single
+    // vehicle" et al. Default OFF — worker/reasoner scene risks are the single
     // source of truth. Set VITE_HSE_LOCAL_ALERTS_ENABLED=true to re-enable.
     if (!localAlertsEnabled) {
       setActiveAlerts((prev) => (prev.length === 0 ? prev : []));

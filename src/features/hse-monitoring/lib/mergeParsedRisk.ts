@@ -1,5 +1,5 @@
 /**
- * Pure helpers to merge a Qwen-heartbeat ParsedDetectRisk into the live
+ * Pure helpers to merge a reasoner-heartbeat ParsedDetectRisk into the live
  * detector ParsedDetectRisk without ever replacing the live detector entity
  * stream. The live detector loop remains the source of truth for current
  * entities/poses/segments — this helper only enriches the scene-reasoning
@@ -11,12 +11,16 @@ import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector
 import type { SceneRisk } from "@/lib/detection/riskTypes";
 
 /** Default freshness window for a heartbeat scene-reasoning result. */
-export const HSE_QWEN_HEARTBEAT_RESULT_TTL_MS_DEFAULT = 8000;
+export const HSE_REASONER_HEARTBEAT_RESULT_TTL_MS_DEFAULT = 8000;
+
+/** @deprecated Use {@link HSE_REASONER_HEARTBEAT_RESULT_TTL_MS_DEFAULT}. */
+export const HSE_QWEN_HEARTBEAT_RESULT_TTL_MS_DEFAULT =
+  HSE_REASONER_HEARTBEAT_RESULT_TTL_MS_DEFAULT;
 
 /** PURE: true when the heartbeat result is recent enough to influence coloring. */
 export function isHeartbeatFresh(
   receivedAtMs: number | null | undefined,
-  ttlMs: number = HSE_QWEN_HEARTBEAT_RESULT_TTL_MS_DEFAULT,
+  ttlMs: number = HSE_REASONER_HEARTBEAT_RESULT_TTL_MS_DEFAULT,
   nowMs: number = Date.now(),
 ): boolean {
   if (receivedAtMs == null) return false;
@@ -41,7 +45,7 @@ export function heartbeatIgnoreReason(args: {
 }): HeartbeatIgnoreReason {
   const {
     receivedAtMs,
-    ttlMs = HSE_QWEN_HEARTBEAT_RESULT_TTL_MS_DEFAULT,
+    ttlMs = HSE_REASONER_HEARTBEAT_RESULT_TTL_MS_DEFAULT,
     nowMs = Date.now(),
     heartbeatSessionId,
     liveSessionId,
@@ -58,11 +62,11 @@ export function heartbeatIgnoreReason(args: {
 /** Human-readable diagnostic for the probe / dry-run verdict. */
 export function heartbeatIgnoreMessage(reason: HeartbeatIgnoreReason): string | null {
   if (reason == null) return null;
-  if (reason === "stale") return "Qwen heartbeat result received but ignored: stale";
+  if (reason === "stale") return "Reasoner heartbeat result received but ignored: stale";
   if (reason === "session-mismatch")
-    return "Qwen heartbeat result received but ignored: session mismatch";
+    return "Reasoner heartbeat result received but ignored: session mismatch";
   // "frame-mismatch": live detector currently has no entities to color.
-  return "Qwen heartbeat result received but ignored: no current detector entities";
+  return "Reasoner heartbeat result received but ignored: no current detector entities";
 }
 
 function dedupKey(r: SceneRisk): string {
@@ -81,7 +85,7 @@ export interface MergeParsedRiskOptions {
 }
 
 /**
- * PURE: merge a Qwen-heartbeat parsed risk into the live parsed risk. Live
+ * PURE: merge a reasoner-heartbeat parsed risk into the live parsed risk. Live
  * remains primary for current detector state; heartbeat enriches scene
  * reasoning fields only. Caller decides freshness via `applyHeartbeatRisks`
  * (typically `isHeartbeatFresh(...)`).

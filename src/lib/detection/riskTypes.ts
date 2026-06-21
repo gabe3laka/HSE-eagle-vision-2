@@ -36,7 +36,7 @@ export type SceneRisk = {
   entity_id?: string;
   detection_id?: string;
   hazard?: string;
-  /** Worker/Qwen may return `hazard_type` instead of `hazard`. */
+  /** Worker/reasoner may return `hazard_type` instead of `hazard`. */
   hazard_type?: string;
   risk_level?: RiskLevel;
   risk_color?: string;
@@ -67,7 +67,14 @@ export type SceneRisk = {
   should_alert?: boolean;
   requires_human_review?: boolean;
   reasoner_model?: string;
-  reasoner_status?: "not_run" | "ok" | "timeout" | "unavailable" | "schema_error" | string;
+  reasoner_status?:
+    | "not_run"
+    | "ok"
+    | "timeout"
+    | "unavailable"
+    | "schema_error"
+    | "json_parse_error"
+    | string;
   risk_state?: string;
   confidence?: number;
 };
@@ -93,8 +100,9 @@ export interface RiskAwareFields {
   degradation_mode?: string;
   /**
    * Worker may emit either a plain string ("ready") OR a structured object
-   * such as `{ enabled: true, mode: "qwen_vl", state: "ready" }`. Both shapes
-   * are normalized via `normalizeReasonerStatus`.
+   * such as `{ enabled: true, mode: "gemini", state: "ready" }` (legacy workers
+   * used `mode: "qwen_vl"`). Both shapes are normalized via
+   * `normalizeReasonerStatus`.
    */
   reasoner_status?:
     | string
@@ -182,7 +190,27 @@ export function isAiDraftReviewRequired(
 
 /** PURE: a reasoner status that means the AI did not produce a usable result. */
 export function isReasonerUnavailable(status?: unknown): boolean {
-  return status === "timeout" || status === "unavailable" || status === "schema_error";
+  return (
+    status === "timeout" ||
+    status === "unavailable" ||
+    status === "schema_error" ||
+    status === "json_parse_error" ||
+    status === "error" ||
+    status === "disabled"
+  );
+}
+
+/**
+ * PURE: a friendly display name for the worker's live scene reasoner. The worker
+ * chooses the model and may report it via `model` / `model_id`; the app stays
+ * model-agnostic. Returns "Gemini" / "Qwen" for known models, otherwise the
+ * neutral "Reasoner". Never defaults to a specific vendor.
+ */
+export function reasonerDisplayName(raw?: Record<string, unknown> | null): string {
+  const model = String(raw?.model ?? raw?.model_id ?? "").toLowerCase();
+  if (model.includes("gemini")) return "Gemini";
+  if (model.includes("qwen")) return "Qwen";
+  return "Reasoner";
 }
 
 /**

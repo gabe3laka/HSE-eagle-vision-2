@@ -13,13 +13,20 @@ declare const __BUILD_TIME__: string | undefined;
 //   VITE_EDGECRAFT_STREAM_WS_URL — legacy stream override, still honored.
 //   VITE_BUILD_MODE_API_URL — optional Build Mode backend base URL. Absent =>
 //     the Build Mode client runs in local mock-blueprint mode.
-//   VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED — gate the Qwen candidate lane (default false).
-//   VITE_HSE_SHOW_QWEN_CANDIDATES — render Qwen-only advisory candidates (default false).
+//   VITE_HSE_REASONER_CANDIDATE_LANE_ENABLED — gate the reasoner candidate lane
+//     (default false). Canonical; legacy VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED is
+//     still honored when this is unset.
+//   VITE_HSE_SHOW_REASONER_CANDIDATES — render reasoner-only advisory candidates
+//     (default false). Canonical; legacy VITE_HSE_SHOW_QWEN_CANDIDATES honored
+//     when unset.
 //   VITE_HSE_LOCAL_ALERTS_ENABLED — re-enable legacy on-device HSE alerts /
 //     AlertFeed / haptics / incidents in HSE mode (default false).
 //   VITE_HSE_REQUEST_POSE — opt back into requesting "pose" in the default
 //     Live HSE /detect tasks list. Default false: YOLO continuous detect +
-//     event-driven Qwen scene reasoning only.
+//     event-driven AI scene reasoning only.
+//   NOTE: the worker chooses the live scene reasoner model (e.g. Gemini). NO
+//     Gemini / Google API key is ever read by the frontend — only public
+//     VITE_* build-time booleans/URLs belong here.
 //   VITE_BUILD_BACKEND_WRIST_FALLBACK — allow Build Mode to fall back to
 //     backend pose wrist keypoints when MediaPipe hands are unavailable.
 //     Default false: MediaPipe hands only, no fake-wrist dots from backend
@@ -30,27 +37,43 @@ interface ImportMetaEnv {
   readonly VITE_EDGECRAFT_HTTP_DETECT_URL?: string;
   readonly VITE_EDGECRAFT_STREAM_WS_URL?: string;
   readonly VITE_BUILD_MODE_API_URL?: string;
+  // ── Canonical generic reasoner flags (preferred). The canonical value wins
+  //    when present; the legacy VITE_HSE_QWEN_* alias is used only when unset.
+  readonly VITE_HSE_REASONER_CANDIDATE_LANE_ENABLED?: string;
+  readonly VITE_HSE_SHOW_REASONER_CANDIDATES?: string;
+  // ── Legacy Qwen-named aliases (still honored as fallbacks).
   readonly VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED?: string;
   readonly VITE_HSE_SHOW_QWEN_CANDIDATES?: string;
   readonly VITE_HSE_LOCAL_ALERTS_ENABLED?: string;
   readonly VITE_HSE_REQUEST_POSE?: string;
   readonly VITE_BUILD_BACKEND_WRIST_FALLBACK?: string;
-  /** Qwen scene-reasoning heartbeat (HSE Live). Defaults: enabled=true,
-   *  interval=2000 ms, backoff=10000 ms, force_reason=true, ttl=3000 ms. */
-  readonly VITE_HSE_QWEN_HEARTBEAT_ENABLED?: string;
-  /** Canonical interval flag (per system prompt). Default 2000 ms. */
-  readonly VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS?: string;
+  /** Reasoner scene-reasoning heartbeat (HSE Live). Defaults: enabled=true,
+   *  interval=2000 ms, backoff=10000 ms, force_reason=true, ttl=8000 ms. The
+   *  canonical VITE_HSE_REASONER_* vars win; legacy VITE_HSE_QWEN_* are honored
+   *  only when the canonical is unset. */
+  readonly VITE_HSE_REASONER_HEARTBEAT_ENABLED?: string;
+  /** Canonical interval flag. Default 2000 ms. */
+  readonly VITE_HSE_REASONER_HEARTBEAT_INTERVAL_MS?: string;
   /** Hard minimum cadence floor (clamped ≥1000 ms). Default 1000. */
+  readonly VITE_HSE_REASONER_HEARTBEAT_MIN_INTERVAL_MS?: string;
+  readonly VITE_HSE_REASONER_HEARTBEAT_BACKOFF_MS?: string;
+  readonly VITE_HSE_REASONER_HEARTBEAT_EXTENDED_BACKOFF_MS?: string;
+  readonly VITE_HSE_REASONER_HEARTBEAT_EXTENDED_BACKOFF_AFTER?: string;
+  readonly VITE_HSE_REASONER_HEARTBEAT_FORCE_REASON?: string;
+  /** Canonical heartbeat freshness window. Default 8000 ms. */
+  readonly VITE_HSE_REASONER_RESULT_TTL_MS?: string;
+  // ── Legacy Qwen-named heartbeat aliases (still honored as fallbacks).
+  readonly VITE_HSE_QWEN_HEARTBEAT_ENABLED?: string;
+  readonly VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS?: string;
   readonly VITE_HSE_QWEN_HEARTBEAT_MIN_INTERVAL_MS?: string;
-  /** Legacy alias for VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS. */
+  /** Legacy alias for the interval flag. */
   readonly VITE_HSE_QWEN_HEARTBEAT_MS?: string;
   readonly VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS?: string;
   readonly VITE_HSE_QWEN_HEARTBEAT_EXTENDED_BACKOFF_MS?: string;
   readonly VITE_HSE_QWEN_HEARTBEAT_EXTENDED_BACKOFF_AFTER?: string;
   readonly VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON?: string;
-  /** Canonical heartbeat freshness window (per system prompt). Default 8000 ms. */
   readonly VITE_HSE_QWEN_RESULT_TTL_MS?: string;
-  /** Legacy alias for VITE_HSE_QWEN_RESULT_TTL_MS. */
+  /** Legacy alias for the result TTL flag. */
   readonly VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS?: string;
   /** HSE capture knobs. Defaults preserve prior behaviour (512 / 0.7).
    *  Raise to e.g. 960 / 0.78 to help small-object recall (cup/can/glass).

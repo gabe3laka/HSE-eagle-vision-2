@@ -59,7 +59,7 @@ import {
 import {
   readRiskFeatureFlags,
   readHseFeatureFlags,
-  readHseQwenHeartbeatFlags,
+  readHseReasonerHeartbeatFlags,
 } from "@/lib/featureFlags";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
 import { WearableAlertOverlay } from "@/components/live/WearableAlertOverlay";
@@ -70,13 +70,13 @@ import {
   formatRouteStatus,
 } from "@/components/live/ReasonerContractProbe";
 import {
-  classifyQwenLifecycle,
-  QWEN_PENDING_HARD_MAX_MS,
-  useQwenHeartbeat,
-  type QwenHeartbeatDiagnostic,
-  type QwenHeartbeatResponse,
-  type QwenLifecycle,
-} from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+  classifyReasonerLifecycle,
+  REASONER_PENDING_HARD_MAX_MS,
+  useReasonerHeartbeat,
+  type ReasonerHeartbeatDiagnostic,
+  type ReasonerHeartbeatResponse,
+  type ReasonerLifecycle,
+} from "@/features/hse-monitoring/hooks/useReasonerHeartbeat";
 import {
   HeartbeatDiagnosticsPanel,
   type HeartbeatCounters,
@@ -300,7 +300,7 @@ export default function Live() {
   const [backendTestImg, setBackendTestImg] = useState<string | null>(null);
   const [backendTesting, setBackendTesting] = useState(false);
   // Stable Test Frame session — second click MUST reuse the same `session_id`
-  // (so the worker can return the cached Qwen result instead of starting a
+  // (so the worker can return the cached reasoner result instead of starting a
   // new reasoning job). "Reset test session" clears it.
   const testFrameSessionIdRef = useRef<string | null>(null);
   const testFrameCounterRef = useRef(0);
@@ -378,21 +378,23 @@ export default function Live() {
   });
 
   // HSE Live Risk View Model — single selector for what the HSE UI shows
-  // (priority list, scene panel, overlay entities/poses, Qwen badge). Only
+  // (priority list, scene panel, overlay entities/poses, reasoner badge). Only
   // built in HSE mode so Build/Plan are byte-for-byte unchanged.
   const liveBackendRisk = (backendRisk as ParsedDetectRisk | null) ?? null;
 
-  // Qwen scene-reasoning heartbeat (HSE only). Runs at a low frequency, never
-  // replaces backendEntities/backendPoses/backendSegments. Merged into the HSE
-  // view model only when the result is fresh; otherwise updates diagnostics.
-  const heartbeatFlags = useMemo(() => readHseQwenHeartbeatFlags(), []);
+  // Reasoner scene-reasoning heartbeat (HSE only). Runs at a low frequency,
+  // never replaces backendEntities/backendPoses/backendSegments. Merged into the
+  // HSE view model only when the result is fresh; otherwise updates diagnostics.
+  const heartbeatFlags = useMemo(() => readHseReasonerHeartbeatFlags(), []);
   const [heartbeatRisk, setHeartbeatRisk] = useState<ParsedDetectRisk | null>(null);
   const [heartbeatRaw, setHeartbeatRaw] = useState<unknown>(null);
   const [heartbeatAtMs, setHeartbeatAtMs] = useState<number | null>(null);
   const [heartbeatSessionId, setHeartbeatSessionId] = useState<string | null>(null);
   const [currentHeartbeatSessionId, setCurrentHeartbeatSessionId] = useState<string | null>(null);
   const [heartbeatForceReasonSent, setHeartbeatForceReasonSent] = useState<boolean>(false);
-  const [heartbeatLastDiag, setHeartbeatLastDiag] = useState<QwenHeartbeatDiagnostic | null>(null);
+  const [heartbeatLastDiag, setHeartbeatLastDiag] = useState<ReasonerHeartbeatDiagnostic | null>(
+    null,
+  );
   const [heartbeatCounters, setHeartbeatCounters] = useState<HeartbeatCounters>({
     okCount: 0,
     errorCount: 0,
@@ -400,11 +402,11 @@ export default function Live() {
     noVideoCount: 0,
   });
   // Share the live detector's worker session_id with the heartbeat so both
-  // loops use the SAME temporal/Qwen memory window on the worker. Cloudflare
+  // loops use the SAME temporal/reasoner memory window on the worker. Cloudflare
   // `?token=` (set inside postDetectFrame) authorizes the gateway request and
   // is independent of this session id.
   const liveDetectorSessionId = (backendStatus as BackendStatus | null)?.sessionId ?? null;
-  const heartbeatHandle = useQwenHeartbeat({
+  const heartbeatHandle = useReasonerHeartbeat({
     enabled: hseActive && heartbeatFlags.enabled,
     videoRef,
     profile: hse.profile,
@@ -416,9 +418,9 @@ export default function Live() {
     extendedBackoffAfter: heartbeatFlags.extendedBackoffAfter,
     forceReason: heartbeatFlags.forceReason,
     sessionIdOverride: liveDetectorSessionId,
-    onResponse: useCallback((r: QwenHeartbeatResponse) => {
+    onResponse: useCallback((r: ReasonerHeartbeatResponse) => {
       // Only adopt the heartbeat parsed risk into the view-model when the
-      // response actually carries a Qwen result. Pending/unknown responses
+      // response actually carries a reasoner result. Pending/unknown responses
       // (queued/running/stub) must not replace a previous good heartbeat risk
       // because that would surface stale or empty scene reasoning.
       if (r.lifecycle === "terminal-success") {
@@ -432,7 +434,7 @@ export default function Live() {
     onSessionStart: useCallback((sid: string) => {
       setCurrentHeartbeatSessionId(sid);
     }, []),
-    onDiagnostic: useCallback((d: QwenHeartbeatDiagnostic) => {
+    onDiagnostic: useCallback((d: ReasonerHeartbeatDiagnostic) => {
       setHeartbeatLastDiag(d);
       setHeartbeatCounters((prev) => ({
         okCount: prev.okCount + (d.outcome === "ok" ? 1 : 0),
@@ -465,13 +467,13 @@ export default function Live() {
       })
     : liveBackendRisk;
 
-  // When the regular live /detect response carries a terminal Qwen result
+  // When the regular live /detect response carries a terminal reasoner result
   // (because the worker returned a cached result on a non-force-reason live
   // frame), notify the heartbeat so it can clear its pending gate immediately
   // instead of waiting for its own terminal status.
-  const liveLifecycle = useMemo<QwenLifecycle>(() => {
+  const liveLifecycle = useMemo<ReasonerLifecycle>(() => {
     if (!liveBackendRisk) return "unknown";
-    return classifyQwenLifecycle({
+    return classifyReasonerLifecycle({
       rawReasonerStatus: null,
       normalizedReasonerStatus: liveBackendRisk.reasonerStatus ?? null,
       warnings: [...(liveBackendRisk.warnings ?? [])],
@@ -480,11 +482,11 @@ export default function Live() {
       hasSceneRisks: (liveBackendRisk.sceneRisks?.length ?? 0) > 0,
     });
   }, [liveBackendRisk]);
-  const lastNotifiedLiveLifecycleRef = useRef<QwenLifecycle>("unknown");
+  const lastNotifiedLiveLifecycleRef = useRef<ReasonerLifecycle>("unknown");
   useEffect(() => {
     if (liveLifecycle !== lastNotifiedLiveLifecycleRef.current) {
       lastNotifiedLiveLifecycleRef.current = liveLifecycle;
-      heartbeatHandle.notifyQwenTerminalFromLive(liveLifecycle);
+      heartbeatHandle.notifyReasonerTerminalFromLive(liveLifecycle);
     }
   }, [liveLifecycle, heartbeatHandle]);
   const hseRiskViewModel = useHseLiveRiskViewModel({
@@ -493,8 +495,8 @@ export default function Live() {
     parsedRisk: parsedRiskForVm,
     localActiveAlerts: hse.activeAlerts,
     nowMs: nowMsForVm,
-    qwenCandidateLaneEnabled: hseFlags.qwenCandidateLaneEnabled,
-    showQwenCandidates: hseFlags.showQwenCandidates,
+    reasonerCandidateLaneEnabled: hseFlags.reasonerCandidateLaneEnabled,
+    showReasonerCandidates: hseFlags.showReasonerCandidates,
     localAlertsEnabled: hseFlags.localAlertsEnabled,
   });
 
@@ -790,8 +792,8 @@ export default function Live() {
 
   // Mint (lazily) a stable Test Frame session id. Every "Test detect frame"
   // click reuses it until the user presses "Reset test session", so a second
-  // click can RETRIEVE the cached Qwen result from the first click instead of
-  // starting a brand-new `hse-test-…` session on the worker and replacing the
+  // click can RETRIEVE the cached reasoner result from the first click instead
+  // of starting a brand-new `hse-test-…` session on the worker and replacing the
   // pending reasoning job.
   const ensureTestFrameSessionId = useCallback(() => {
     if (!testFrameSessionIdRef.current) {
@@ -835,19 +837,19 @@ export default function Live() {
       const { image_b64, cw, ch } = captured;
       setBackendTestImg(`data:image/jpeg;base64,${image_b64}`);
       if (isCloudflareHttp) {
-        // Safety: if Qwen is still pending past the hard cap, force-clear so
-        // the next click is allowed to start a new reasoning job again.
+        // Safety: if the reasoner is still pending past the hard cap, force-clear
+        // so the next click is allowed to start a new reasoning job again.
         if (
           testFramePendingRef.current &&
           testFramePendingSinceMsRef.current > 0 &&
-          Date.now() - testFramePendingSinceMsRef.current >= QWEN_PENDING_HARD_MAX_MS
+          Date.now() - testFramePendingSinceMsRef.current >= REASONER_PENDING_HARD_MAX_MS
         ) {
           testFramePendingRef.current = false;
           testFramePendingSinceMsRef.current = 0;
           setTestFramePending(false);
           setTestFramePendingSinceMs(null);
         }
-        // While Qwen is still working on a previous Test Frame in THIS
+        // While the reasoner is still working on a previous Test Frame in THIS
         // session, the next click must POLL the cached result instead of
         // starting (and replacing) a new reasoning job.
         const pollingPending = appMode === "hse" && testFramePendingRef.current;
@@ -869,7 +871,7 @@ export default function Live() {
                 }
               : {
                   // First click in this session (or after a terminal result):
-                  // force a fresh Qwen pass.
+                  // force a fresh reasoner pass.
                   ...buildHseDetectRequest(hse.profile, hse.roi, "manual-test"),
                   reasoningPreferencesOverride: {
                     force_reason: true,
@@ -906,7 +908,7 @@ export default function Live() {
                 | undefined
             )?.force_reason === true;
           // Classify response and update test-frame pending gate.
-          const lifecycle = classifyQwenLifecycle({
+          const lifecycle = classifyReasonerLifecycle({
             rawReasonerStatus: null,
             normalizedReasonerStatus: parsed?.reasonerStatus ?? null,
             warnings: [...(parsed?.warnings ?? [])],
@@ -937,7 +939,7 @@ export default function Live() {
           });
           const diag = computeQwenDiagnostic(summary);
           const pendingNote = testFramePendingRef.current
-            ? "\n\nQwen pending — next Test Frame will poll cached result (no new reasoning job)."
+            ? "\n\nReasoner pending — next Test Frame will poll cached result (no new reasoning job)."
             : "";
           setBackendTest(
             `capture ${cw}×${ch} · round-trip ${latency} ms · session ${sessionId} · frame ${frameId} · lifecycle ${lifecycle}${
@@ -1514,7 +1516,7 @@ export default function Live() {
                                 {backendTesting
                                   ? "Testing…"
                                   : testFramePending
-                                    ? "Poll Qwen result"
+                                    ? "Poll reasoner result"
                                     : "Test detect frame"}
                               </Button>
                               <Button
@@ -1533,7 +1535,7 @@ export default function Live() {
                               session: {testFrameSessionId ?? "—"}
                               {testFramePending && (
                                 <span className="ml-2 text-amber-300">
-                                  qwen_pending — next click will poll cached result
+                                  reasoner_pending — next click will poll cached result
                                 </span>
                               )}
                             </div>

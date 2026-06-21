@@ -1,11 +1,11 @@
 import { Activity } from "lucide-react";
-import type { QwenHeartbeatDiagnostic } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+import type { ReasonerHeartbeatDiagnostic } from "@/features/hse-monitoring/hooks/useReasonerHeartbeat";
 import type { HeartbeatIgnoreReason } from "@/features/hse-monitoring/lib/mergeParsedRisk";
 import { heartbeatIgnoreMessage } from "@/features/hse-monitoring/lib/mergeParsedRisk";
 
 /**
  * Heartbeat Diagnostics Panel — dev-only, HSE-only.
- * Surfaces whether the Qwen heartbeat is actually ticking, what each tick
+ * Surfaces whether the reasoner heartbeat is actually ticking, what each tick
  * returned, and whether results are being ignored. Pure presentation: never
  * touches alerts, incidents, overlays, or box colors.
  */
@@ -25,7 +25,7 @@ export interface HeartbeatDiagnosticsPanelProps {
   extendedBackoffAfter: number;
   forceReason: boolean;
   currentSessionId: string | null;
-  lastDiagnostic: QwenHeartbeatDiagnostic | null;
+  lastDiagnostic: ReasonerHeartbeatDiagnostic | null;
   counters: HeartbeatCounters;
   ignoreReason: HeartbeatIgnoreReason;
   nowMs: number;
@@ -64,18 +64,18 @@ export function HeartbeatDiagnosticsPanel(props: HeartbeatDiagnosticsPanelProps)
         ? "text-red-300"
         : outcome === "no-video" ||
             outcome === "skipped-inflight" ||
-            outcome === "skipped-qwen-pending"
+            outcome === "skipped-reasoner-pending"
           ? "text-amber-300"
           : "text-muted-foreground";
-  const qwenPending = lastDiagnostic?.qwenPending ?? false;
+  const reasonerPending = lastDiagnostic?.reasonerPending ?? false;
   const pendingSinceMs = lastDiagnostic?.pendingSinceMs ?? null;
   const pendingAgeMs = pendingSinceMs != null ? Math.max(0, nowMs - pendingSinceMs) : null;
   const lifecycleClass =
-    lastDiagnostic?.qwenLifecycle === "terminal-success"
+    lastDiagnostic?.reasonerLifecycle === "terminal-success"
       ? "text-emerald-300"
-      : lastDiagnostic?.qwenLifecycle === "pending"
+      : lastDiagnostic?.reasonerLifecycle === "pending"
         ? "text-amber-300"
-        : lastDiagnostic?.qwenLifecycle === "terminal-failure"
+        : lastDiagnostic?.reasonerLifecycle === "terminal-failure"
           ? "text-red-300"
           : "text-muted-foreground";
 
@@ -83,7 +83,7 @@ export function HeartbeatDiagnosticsPanel(props: HeartbeatDiagnosticsPanelProps)
     <div className="rounded-xl border border-cyan-300/30 bg-cyan-400/[0.04] p-3 font-mono text-[11px] leading-relaxed">
       <div className="mb-2 flex items-center gap-2">
         <Activity className="h-3.5 w-3.5 text-cyan-300" />
-        <span className="font-semibold text-cyan-100">Qwen Heartbeat Diagnostics</span>
+        <span className="font-semibold text-cyan-100">Reasoner Heartbeat Diagnostics</span>
         <span
           className={
             "ml-auto rounded px-1.5 py-0.5 text-[9px] uppercase tracking-wider " +
@@ -114,17 +114,19 @@ export function HeartbeatDiagnosticsPanel(props: HeartbeatDiagnosticsPanelProps)
           />
           <Row
             label="last_lifecycle"
-            value={<span className={lifecycleClass}>{lastDiagnostic?.qwenLifecycle ?? "—"}</span>}
+            value={
+              <span className={lifecycleClass}>{lastDiagnostic?.reasonerLifecycle ?? "—"}</span>
+            }
           />
           <Row label="consecutive_failures" value={lastDiagnostic?.consecutiveFailures ?? 0} />
           <Row label="next_delay_ms" value={lastDiagnostic?.nextDelayMs ?? "—"} />
         </div>
         <div className="space-y-0.5">
           <Row
-            label="qwen_pending"
+            label="reasoner_pending"
             value={
-              <span className={qwenPending ? "text-amber-300" : "text-emerald-300"}>
-                {qwenPending ? "yes" : "no"}
+              <span className={reasonerPending ? "text-amber-300" : "text-emerald-300"}>
+                {reasonerPending ? "yes" : "no"}
               </span>
             }
           />
@@ -133,14 +135,14 @@ export function HeartbeatDiagnosticsPanel(props: HeartbeatDiagnosticsPanelProps)
           <Row
             label="heartbeat_gated"
             value={
-              <span className={qwenPending ? "text-amber-300" : "text-muted-foreground"}>
-                {qwenPending ? "yes" : "no"}
+              <span className={reasonerPending ? "text-amber-300" : "text-muted-foreground"}>
+                {reasonerPending ? "yes" : "no"}
               </span>
             }
           />
           <Row
             label="next_heartbeat_allowed"
-            value={qwenPending ? "on Qwen terminal response" : "scheduled"}
+            value={reasonerPending ? "on reasoner terminal response" : "scheduled"}
           />
           <Row label="skipped_pending_count" value={lastDiagnostic?.skippedPendingCount ?? 0} />
         </div>
@@ -162,14 +164,16 @@ export function HeartbeatDiagnosticsPanel(props: HeartbeatDiagnosticsPanelProps)
             }
           />
           <Row
-            label="qwen_result_received"
+            label="reasoner_result_received"
             value={
               <span
                 className={
-                  lastDiagnostic?.qwenResultReceived ? "text-emerald-300" : "text-muted-foreground"
+                  lastDiagnostic?.reasonerResultReceived
+                    ? "text-emerald-300"
+                    : "text-muted-foreground"
                 }
               >
-                {lastDiagnostic?.qwenResultReceived ? "yes" : "no"}
+                {lastDiagnostic?.reasonerResultReceived ? "yes" : "no"}
               </span>
             }
           />

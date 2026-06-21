@@ -212,9 +212,10 @@ export interface ParsedDetectRisk {
   reasonerStatus?: string;
   /**
    * Original `reasoner_status` payload when the worker returned a structured
-   * object (e.g. `{ enabled: true, mode: "qwen_vl", state: "ready" }`).
-   * Preserved verbatim so the Reasoner Contract Probe can show worker-supplied
-   * fields like `mode` / `enabled` without re-interpreting them.
+   * object (e.g. `{ enabled: true, mode: "gemini", state: "ready" }`; legacy
+   * workers used `mode: "qwen_vl"`). Preserved verbatim so the Reasoner Contract
+   * Probe can show worker-supplied fields like `mode` / `enabled` / `model`
+   * without re-interpreting them.
    */
   reasonerStatusRaw?: Record<string, unknown>;
   stageTimingsMs?: Record<string, number>;
@@ -518,8 +519,8 @@ export class BackendVisionHttpDetector implements Detector {
       entityCount: this.lastEntities.length,
       poseCount: this.lastPoses.length,
       targetFps: TARGET_FPS,
-      // Surface the active worker session_id so the Qwen heartbeat can re-use it
-      // (shared temporal/Qwen memory continuity). Null while stopped.
+      // Surface the active worker session_id so the reasoner heartbeat can
+      // re-use it (shared temporal/reasoner memory continuity). Null while stopped.
       sessionId: this.sessionId,
     };
   }
@@ -977,13 +978,14 @@ export interface DetectResponseSummary {
     detModelId: string | null;
     backend: string | null;
   };
-  /** Worker-supplied warnings list (e.g. ["qwen_unavailable"]). */
+  /** Worker-supplied warnings list (e.g. ["reasoner_unavailable"] / legacy ["qwen_unavailable"]). */
   warnings: string[];
   /** True when ANY risk-aware field is present in the raw response. */
   riskAwareFieldsPresent: boolean;
   /** True iff the caller's monitoringRequest set reasoning_preferences.force_reason = true. */
   forceReasonSent: boolean;
-  /** True iff scene_risks contain ANY Qwen-origin risk (produced_by / reasoner_model). */
+  /** True iff scene_risks contain ANY reasoner-origin risk (produced_by / reasoner_model).
+   *  Field name kept for back-compat; detection is model-agnostic (qwen/gemini/reasoner). */
   qwenOriginScenes: boolean;
 }
 
@@ -1019,8 +1021,13 @@ export function summarizeDetectResponse(
   for (const risk of sceneRisks) {
     const p = (risk.produced_by ?? "").toLowerCase();
     const m = (risk.reasoner_model ?? "").toLowerCase();
-    if (p.includes("qwen") || p.includes("vlm") || m.includes("qwen")) qwenOriginScenes = true;
-    if (p.includes("vlm") || p.includes("qwen")) {
+    // Reasoner-origin detection is model-agnostic: any VLM/reasoner producer
+    // tag or a known reasoner model (qwen legacy or gemini) counts.
+    const reasonerProduced =
+      p.includes("vlm") || p.includes("qwen") || p.includes("gemini") || p.includes("reasoner");
+    const reasonerModel = m.includes("qwen") || m.includes("gemini");
+    if (reasonerProduced || reasonerModel) qwenOriginScenes = true;
+    if (reasonerProduced) {
       if (p.includes("rules")) sources.rulesAndQwen += 1;
       else sources.qwen += 1;
     } else if (p.includes("rules")) {
@@ -1126,8 +1133,9 @@ export function summarizeDetectResponse(
 }
 
 /**
- * PURE: derive whether Qwen actually returned scene understanding for this
- * frame. `temporal_reasoning` alone never flips this true.
+ * PURE: derive whether the worker reasoner actually returned scene understanding
+ * for this frame. `temporal_reasoning` alone never flips this true. Name kept
+ * for back-compat; detection is model-agnostic.
  */
 export function qwenResultReceivedFromSummary(s: DetectResponseSummary): boolean {
   const status = (s.reasoner.reasonerStatus ?? "").toLowerCase();
@@ -1158,10 +1166,10 @@ export function formatDetectSummary(s: DetectResponseSummary): string {
   lines.push(`  scene_context: ${s.reasoner.sceneContextPresent ? "yes" : "no"}`);
   lines.push(`  semantic_corrections: ${s.reasoner.semanticCorrections}`);
   lines.push(`  temporal_reasoning: ${s.reasoner.temporalReasoningPresent ? "yes" : "no"}`);
-  lines.push(`  qwen_result_received: ${qwenResultReceivedFromSummary(s) ? "yes" : "no"}`);
-  lines.push(
-    `  qwen_unavailable_warning: ${s.warnings.includes("qwen_unavailable") ? "yes" : "no"}`,
-  );
+  lines.push(`  reasoner_result_received: ${qwenResultReceivedFromSummary(s) ? "yes" : "no"}`);
+  const reasonerUnavailableWarning =
+    s.warnings.includes("reasoner_unavailable") || s.warnings.includes("qwen_unavailable");
+  lines.push(`  reasoner_unavailable_warning: ${reasonerUnavailableWarning ? "yes" : "no"}`);
   lines.push(`  manual force_reason sent: ${s.forceReasonSent ? "yes" : "no"}`);
   lines.push("");
   lines.push("Gateway:");
