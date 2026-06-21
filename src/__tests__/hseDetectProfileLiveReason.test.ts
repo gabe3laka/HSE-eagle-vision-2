@@ -5,9 +5,9 @@ import {
   HSE_LIVE_DETECT_REASON,
   NEUTRAL_HSE_REASONING_PREFERENCES,
 } from "@/lib/detection/hseDetectProfile";
-import { buildHeartbeatMonitoringRequest } from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+import { buildHeartbeatMonitoringRequest } from "@/features/hse-monitoring/hooks/useReasonerHeartbeat";
 
-describe("hseDetectProfile — live detect must not displace Qwen jobs", () => {
+describe("hseDetectProfile — live detect must not displace reasoner jobs", () => {
   it("NEUTRAL_HSE_REASONING_PREFERENCES sets do_not_start_new_reasoning_job=true and force_reason=false", () => {
     expect(NEUTRAL_HSE_REASONING_PREFERENCES.do_not_start_new_reasoning_job).toBe(true);
     expect(NEUTRAL_HSE_REASONING_PREFERENCES.force_reason).toBe(false);
@@ -36,6 +36,6 @@ describe("hseDetectProfile — live detect must not displace Qwen jobs", () => {
     // neutral default (true). The override would only re-set this to false if
     // explicitly listed. Document the actual merged outcome:
     expect(prefs.do_not_start_new_reasoning_job).toBe(true);
-    expect(body.requestReason).toBe("hse-qwen-heartbeat");
+    expect(body.requestReason).toBe("hse-reasoner-heartbeat");
   });
 });

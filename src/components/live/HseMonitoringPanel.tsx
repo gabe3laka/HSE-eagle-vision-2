@@ -188,7 +188,7 @@ export function HseMonitoringPanel({
           </Button>
         ) : (
           <div className="col-span-1 rounded-lg border border-dashed border-white/10 bg-black/20 px-2 py-1.5 text-[10px] leading-snug text-muted-foreground/80">
-            Legacy local analysis disabled; worker/Qwen scene risks are active.
+            Legacy local analysis disabled; worker/reasoner scene risks are active.
           </div>
         )}
       </div>
@@ -205,7 +205,7 @@ export function HseMonitoringPanel({
         {lowObjects && <span className="text-cyan-300">Try Far Scan for distant objects</span>}
       </div>
 
-      {/* Priority Scene Risks (worker/Qwen-driven, evidence-supported, top 10) */}
+      {/* Priority Scene Risks (worker/reasoner-driven, evidence-supported, top 10) */}
       <div className="mt-4">
         <div className="mb-2 flex items-center justify-between">
           <p className="console-eyebrow">Priority Scene Risks</p>

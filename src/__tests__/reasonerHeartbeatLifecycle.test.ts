@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
-  classifyQwenLifecycle,
-  QWEN_PENDING_HARD_MAX_MS,
-  QWEN_PENDING_STATES,
-  QWEN_TERMINAL_FAILURE_STATES,
-  QWEN_TERMINAL_SUCCESS_STATES,
-} from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+  classifyReasonerLifecycle,
+  REASONER_PENDING_HARD_MAX_MS,
+  REASONER_PENDING_STATES,
+  REASONER_TERMINAL_FAILURE_STATES,
+  REASONER_TERMINAL_SUCCESS_STATES,
+} from "@/features/hse-monitoring/hooks/useReasonerHeartbeat";
 
-describe("classifyQwenLifecycle", () => {
+describe("classifyReasonerLifecycle", () => {
   it("classifies pending states", () => {
-    for (const s of QWEN_PENDING_STATES) {
+    for (const s of REASONER_PENDING_STATES) {
       expect(
-        classifyQwenLifecycle({
+        classifyReasonerLifecycle({
           rawReasonerStatus: s,
           normalizedReasonerStatus: null,
           warnings: [],
@@ -21,9 +21,9 @@ describe("classifyQwenLifecycle", () => {
   });
 
   it("classifies terminal-success states", () => {
-    for (const s of QWEN_TERMINAL_SUCCESS_STATES) {
+    for (const s of REASONER_TERMINAL_SUCCESS_STATES) {
       expect(
-        classifyQwenLifecycle({
+        classifyReasonerLifecycle({
           rawReasonerStatus: null,
           normalizedReasonerStatus: s,
           warnings: [],
@@ -32,18 +32,36 @@ describe("classifyQwenLifecycle", () => {
     }
   });
 
-  it("classifies terminal-failure states (including qwen_unavailable warning)", () => {
-    for (const s of QWEN_TERMINAL_FAILURE_STATES) {
+  it("classifies terminal-failure states (including json_parse_error and warnings)", () => {
+    for (const s of REASONER_TERMINAL_FAILURE_STATES) {
       expect(
-        classifyQwenLifecycle({
+        classifyReasonerLifecycle({
           rawReasonerStatus: s,
           normalizedReasonerStatus: null,
           warnings: [],
         }),
       ).toBe("terminal-failure");
     }
+    // Bug fix: json_parse_error MUST be terminal failure.
+    expect(REASONER_TERMINAL_FAILURE_STATES.has("json_parse_error")).toBe(true);
     expect(
-      classifyQwenLifecycle({
+      classifyReasonerLifecycle({
+        rawReasonerStatus: "json_parse_error",
+        normalizedReasonerStatus: null,
+        warnings: [],
+      }),
+    ).toBe("terminal-failure");
+    // New generic warning token.
+    expect(
+      classifyReasonerLifecycle({
+        rawReasonerStatus: "ready",
+        normalizedReasonerStatus: "ready",
+        warnings: ["reasoner_unavailable"],
+      }),
+    ).toBe("terminal-failure");
+    // Legacy warning token still accepted.
+    expect(
+      classifyReasonerLifecycle({
         rawReasonerStatus: "ready",
         normalizedReasonerStatus: "ready",
         warnings: ["qwen_unavailable"],
@@ -53,7 +71,7 @@ describe("classifyQwenLifecycle", () => {
 
   it("falls back to terminal-success when status missing but sceneContext/risks/corrections present", () => {
     expect(
-      classifyQwenLifecycle({
+      classifyReasonerLifecycle({
         rawReasonerStatus: null,
         normalizedReasonerStatus: null,
         warnings: [],
@@ -61,7 +79,7 @@ describe("classifyQwenLifecycle", () => {
       }),
     ).toBe("terminal-success");
     expect(
-      classifyQwenLifecycle({
+      classifyReasonerLifecycle({
         rawReasonerStatus: null,
         normalizedReasonerStatus: null,
         warnings: [],
@@ -69,7 +87,7 @@ describe("classifyQwenLifecycle", () => {
       }),
     ).toBe("terminal-success");
     expect(
-      classifyQwenLifecycle({
+      classifyReasonerLifecycle({
         rawReasonerStatus: null,
         normalizedReasonerStatus: null,
         warnings: [],
@@ -80,14 +98,14 @@ describe("classifyQwenLifecycle", () => {
 
   it("returns unknown for empty/unclassifiable responses", () => {
     expect(
-      classifyQwenLifecycle({
+      classifyReasonerLifecycle({
         rawReasonerStatus: null,
         normalizedReasonerStatus: null,
         warnings: [],
       }),
     ).toBe("unknown");
     expect(
-      classifyQwenLifecycle({
+      classifyReasonerLifecycle({
         rawReasonerStatus: "weird-future-state",
         normalizedReasonerStatus: null,
         warnings: [],
@@ -97,14 +115,14 @@ describe("classifyQwenLifecycle", () => {
 
   it("is case- and whitespace-insensitive", () => {
     expect(
-      classifyQwenLifecycle({
+      classifyReasonerLifecycle({
         rawReasonerStatus: "  QUEUED_LATEST  ",
         normalizedReasonerStatus: null,
         warnings: [],
       }),
     ).toBe("pending");
     expect(
-      classifyQwenLifecycle({
+      classifyReasonerLifecycle({
         rawReasonerStatus: null,
         normalizedReasonerStatus: "READY",
         warnings: [],
@@ -113,7 +131,7 @@ describe("classifyQwenLifecycle", () => {
   });
 
   it("exposes a sane hard-max constant", () => {
-    expect(QWEN_PENDING_HARD_MAX_MS).toBeGreaterThan(10_000);
-    expect(QWEN_PENDING_HARD_MAX_MS).toBeLessThanOrEqual(120_000);
+    expect(REASONER_PENDING_HARD_MAX_MS).toBeGreaterThan(10_000);
+    expect(REASONER_PENDING_HARD_MAX_MS).toBeLessThanOrEqual(120_000);
   });
 });

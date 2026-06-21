@@ -1,16 +1,16 @@
 /**
  * HSE Live Risk View Model — the SINGLE selector that decides what the Live
  * HSE UI shows: which detection boxes to render, what color/label they get,
- * which risks land in the Priority Scene Risks list, and which Qwen-only
+ * which risks land in the Priority Scene Risks list, and which reasoner-only
  * advisory candidates are surfaced.
  *
- * Pure (no React / DOM). Driven by worker/Qwen scene risks as the source of
+ * Pure (no React / DOM). Driven by worker/reasoner scene risks as the source of
  * truth — local alerts only feed the model when `localAlertsEnabled` is true.
  */
 
 import type { BackendEntity, BackendPose } from "./types";
 import type { RiskBBox, RiskLevel, SceneRisk } from "./riskTypes";
-import { normalizeRiskLevel, riskLevelRank } from "./riskTypes";
+import { normalizeRiskLevel, riskLevelRank, reasonerDisplayName } from "./riskTypes";
 import type { ParsedDetectRisk } from "./backendVisionHttpDetector";
 import type { HSEActiveAlert } from "./hseTypes";
 
@@ -24,8 +24,17 @@ export const HSE_PRIORITY_RISK_LIMIT = 10;
  */
 export type HseOverlayMode = "normal" | "hse-status" | "hse-risk-only" | "debug";
 
-/** Where a grouped risk originated. */
-export type HseRiskSource = "Rules" | "Qwen" | "Rules + Qwen" | "Qwen Candidate" | "Local fallback";
+/** Where a grouped risk originated. The reasoner label is generic ("Reasoner")
+ *  unless the worker reports a Gemini model, in which case it reads "Gemini". */
+export type HseRiskSource =
+  | "Rules"
+  | "Reasoner"
+  | "Gemini"
+  | "Rules + Reasoner"
+  | "Rules + Gemini"
+  | "Reasoner Candidate"
+  | "Gemini Candidate"
+  | "Local fallback";
 
 /** A friendly, grouped risk row ready for rendering. */
 export interface HseGroupedRisk {
@@ -60,7 +69,7 @@ export interface HseDebugRisk {
   raw: SceneRisk;
 }
 
-export interface HseQwenCandidate {
+export interface HseReasonerCandidate {
   key: string;
   label: string;
   why?: string;
@@ -68,13 +77,18 @@ export interface HseQwenCandidate {
   raw: SceneRisk;
 }
 
-export type HseReasonerBadge =
-  | { state: "queued"; label: "Qwen: queued" }
-  | { state: "running"; label: "Qwen: running" }
-  | { state: "ready"; label: "Qwen: ready" }
-  | { state: "unavailable"; label: "Qwen: unavailable — using rules only" }
-  | { state: "error"; label: "Qwen: error — using rules only" }
-  | { state: "disabled"; label: "Qwen: disabled" };
+/** @deprecated Use {@link HseReasonerCandidate}. Kept as a legacy alias. */
+export type HseQwenCandidate = HseReasonerCandidate;
+
+/**
+ * Reasoner availability badge. `label` is computed dynamically from the worker's
+ * reported model so it reads "Reasoner: …" by default and "Gemini: …" when the
+ * worker reports a Gemini model — it never defaults to "Qwen".
+ */
+export interface HseReasonerBadge {
+  state: "queued" | "running" | "ready" | "unavailable" | "error" | "disabled";
+  label: string;
+}
 
 export interface BuildHseLiveRiskViewModelInput {
   entities: BackendEntity[];
@@ -84,8 +98,8 @@ export interface BuildHseLiveRiskViewModelInput {
   nowMs: number;
   acknowledgedRiskKeys?: Set<string>;
   debug?: boolean;
-  qwenCandidateLaneEnabled?: boolean;
-  showQwenCandidates?: boolean;
+  reasonerCandidateLaneEnabled?: boolean;
+  showReasonerCandidates?: boolean;
   localAlertsEnabled?: boolean;
 }
 
@@ -95,7 +109,7 @@ export interface HseLiveRiskViewModel {
   priorityRisks: HseGroupedRisk[];
   groupedRisks: HseGroupedRisk[];
   debugRisks: HseDebugRisk[];
-  qwenCandidates: HseQwenCandidate[];
+  reasonerCandidates: HseReasonerCandidate[];
   reasonerBadge: HseReasonerBadge;
   sceneContextLabel?: string;
   highestLevel: RiskLevel | null;
@@ -144,8 +158,8 @@ export function friendlyHazardLabel(raw: string | undefined): string {
 }
 
 /**
- * Resolve the hazard string regardless of whether the worker/Qwen returned it
- * as `hazard` or `hazard_type`. Keeps grouping/labelling/weak-edge logic
+ * Resolve the hazard string regardless of whether the worker/reasoner returned
+ * it as `hazard` or `hazard_type`. Keeps grouping/labelling/weak-edge logic
  * consistent across schema variants. Never invent a hazard string — the
  * reasoning layer remains the source of truth.
  */
@@ -419,10 +433,24 @@ function groupKey(r: SceneRisk): string {
   return `${hazard}|a:${action}`;
 }
 
+/**
+ * PURE: the generic name for the reasoner that produced a risk. "Gemini" when
+ * the worker tags the risk with a Gemini `reasoner_model`, otherwise the neutral
+ * "Reasoner". Never "Qwen" by default.
+ */
+function reasonerSourceName(r: SceneRisk): "Reasoner" | "Gemini" {
+  const model = (r.reasoner_model ?? "").toLowerCase();
+  if (model.includes("gemini")) return "Gemini";
+  return "Reasoner";
+}
+
 function sourceFromRisk(r: SceneRisk): HseRiskSource {
   const p = (r.produced_by ?? "").toLowerCase();
-  if (p.includes("vlm") && p.includes("rules")) return "Rules + Qwen";
-  if (p.includes("vlm") || p.includes("qwen")) return "Qwen";
+  const reasoner = reasonerSourceName(r);
+  if (p.includes("vlm") && p.includes("rules"))
+    return reasoner === "Gemini" ? "Rules + Gemini" : "Rules + Reasoner";
+  if (p.includes("vlm") || p.includes("qwen") || p.includes("gemini") || p.includes("reasoner"))
+    return reasoner;
   if (p.includes("rules")) return "Rules";
   if (p.includes("local")) return "Local fallback";
   return "Rules";
@@ -430,20 +458,23 @@ function sourceFromRisk(r: SceneRisk): HseRiskSource {
 
 function rankSource(s: HseRiskSource): number {
   switch (s) {
-    case "Rules + Qwen":
+    case "Rules + Reasoner":
+    case "Rules + Gemini":
       return 3;
-    case "Qwen":
+    case "Reasoner":
+    case "Gemini":
       return 2;
     case "Rules":
       return 1;
     case "Local fallback":
       return 0;
-    case "Qwen Candidate":
+    case "Reasoner Candidate":
+    case "Gemini Candidate":
       return -1;
   }
 }
 
-/** Strong visual support test (Qwen-confirmed, real evidence, alerting, etc.). */
+/** Strong visual support test (reasoner-confirmed, real evidence, alerting, etc.). */
 function hasVisualSupport(r: SceneRisk): boolean {
   if (r.should_alert === true) return true;
   if (Array.isArray(r.visual_evidence) && r.visual_evidence.length > 0) return true;
@@ -462,34 +493,54 @@ function isWeakEdgeRisk(r: SceneRisk): boolean {
 }
 
 /**
- * Qwen / reasoner badge. Strict: only explicit ready-class statuses become
- * "ready"; any unknown non-empty string is mapped to "unavailable" so the user
- * is never falsely told Qwen is healthy.
+ * Resolve the visible reasoner name for the badge. Prefers the worker-reported
+ * model from the structured `reasoner_status` object (model / model_id), then
+ * any Gemini-tagged scene risk's `reasoner_model`. Defaults to the neutral
+ * "Reasoner" — NEVER "Qwen" by default.
+ */
+function reasonerBadgeName(parsedRisk: ParsedDetectRisk): string {
+  const fromStatus = reasonerDisplayName(parsedRisk.reasonerStatusRaw ?? null);
+  if (fromStatus !== "Reasoner") return fromStatus;
+  // Fall back to a scene risk's reasoner_model when the status object had none.
+  for (const r of parsedRisk.sceneRisks ?? []) {
+    const model = (r.reasoner_model ?? "").toLowerCase();
+    if (model.includes("gemini")) return "Gemini";
+    if (model.includes("qwen")) return "Qwen";
+  }
+  return "Reasoner";
+}
+
+/**
+ * Worker reasoner availability badge. Strict: only explicit ready-class statuses
+ * become "ready"; any unknown non-empty string is mapped to "unavailable" so the
+ * user is never falsely told the reasoner is healthy. The visible name is
+ * generic ("Reasoner") or "Gemini" when the worker reports a Gemini model.
  */
 function reasonerBadge(parsedRisk: ParsedDetectRisk | null): HseReasonerBadge {
-  if (!parsedRisk) return { state: "disabled", label: "Qwen: disabled" };
+  if (!parsedRisk) return { state: "disabled", label: "Reasoner: disabled" };
+  const name = reasonerBadgeName(parsedRisk);
   const raw = (parsedRisk.reasonerStatus ?? "").trim().toLowerCase();
-  if (raw === "") return { state: "disabled", label: "Qwen: disabled" };
-  if (["ready", "ok", "done", "completed", "success"].includes(raw)) {
-    return { state: "ready", label: "Qwen: ready" };
+  if (raw === "") return { state: "disabled", label: `${name}: disabled` };
+  if (["ready", "ok", "done", "completed", "success", "cached"].includes(raw)) {
+    return { state: "ready", label: `${name}: ready` };
   }
   if (["running", "busy", "processing", "in_progress"].includes(raw)) {
-    return { state: "running", label: "Qwen: running" };
+    return { state: "running", label: `${name}: running` };
   }
   if (["queued", "pending", "scheduled"].includes(raw)) {
-    return { state: "queued", label: "Qwen: queued" };
+    return { state: "queued", label: `${name}: queued` };
   }
   if (["disabled", "not_run"].includes(raw)) {
-    return { state: "disabled", label: "Qwen: disabled" };
+    return { state: "disabled", label: `${name}: disabled` };
   }
   if (["unavailable", "timeout", "missing", "not_available"].includes(raw)) {
-    return { state: "unavailable", label: "Qwen: unavailable — using rules only" };
+    return { state: "unavailable", label: `${name}: unavailable — using rules only` };
   }
-  if (["error", "schema_error"].includes(raw)) {
-    return { state: "error", label: "Qwen: error — using rules only" };
+  if (["error", "schema_error", "json_parse_error"].includes(raw)) {
+    return { state: "error", label: `${name}: error — using rules only` };
   }
   // Unknown non-empty status → treat as unavailable, never as ready.
-  return { state: "unavailable", label: "Qwen: unavailable — using rules only" };
+  return { state: "unavailable", label: `${name}: unavailable — using rules only` };
 }
 
 // ── Pose filtering (HSE risk-only) ──────────────────────────────────────────
@@ -611,8 +662,8 @@ export function buildHseLiveRiskViewModel(
     localActiveAlerts = [],
     acknowledgedRiskKeys = new Set<string>(),
     debug = false,
-    qwenCandidateLaneEnabled = false,
-    showQwenCandidates = false,
+    reasonerCandidateLaneEnabled = false,
+    showReasonerCandidates = false,
     localAlertsEnabled = false,
     nowMs,
   } = input;
@@ -627,18 +678,23 @@ export function buildHseLiveRiskViewModel(
     linkMap.set(r, linkedEntitiesForRisk(r, entities));
   }
 
-  // Bucket: unlinked Qwen-only candidates → qwenCandidates lane.
+  // Bucket: unlinked reasoner-only candidates → reasonerCandidates lane.
   const linkedRisks: SceneRisk[] = [];
-  const qwenOnly: SceneRisk[] = [];
+  const reasonerOnly: SceneRisk[] = [];
   for (const r of rawRisks) {
     const src = sourceFromRisk(r);
+    const isReasonerSource =
+      src === "Reasoner" ||
+      src === "Gemini" ||
+      src === "Rules + Reasoner" ||
+      src === "Rules + Gemini";
     const hasIdLink =
       !!r.track_id ||
       !!r.linked_entity_id ||
       (Array.isArray(r.involved_track_ids) && r.involved_track_ids.length > 0);
     const hasAnyLink = hasIdLink || (linkMap.get(r) ?? []).length > 0;
-    if ((src === "Qwen" || src === "Rules + Qwen") && !hasAnyLink) {
-      qwenOnly.push(r);
+    if (isReasonerSource && !hasAnyLink) {
+      reasonerOnly.push(r);
     } else {
       linkedRisks.push(r);
     }
@@ -672,13 +728,24 @@ export function buildHseLiveRiskViewModel(
         linkedSceneHighest: normalizeRiskLevel(rep.risk_level, rep.risk_color),
       }) ?? "GREEN";
     const sources = new Set(arr.map(sourceFromRisk));
-    const source: HseRiskSource = sources.has("Rules + Qwen")
-      ? "Rules + Qwen"
-      : sources.has("Qwen") && sources.has("Rules")
-        ? "Rules + Qwen"
-        : sources.has("Qwen")
-          ? "Qwen"
-          : sources.has("Rules")
+    const hasGemini =
+      sources.has("Gemini") || sources.has("Rules + Gemini") || sources.has("Gemini Candidate");
+    const reasonerName: "Gemini" | "Reasoner" = hasGemini ? "Gemini" : "Reasoner";
+    const hasReasoner =
+      sources.has("Reasoner") ||
+      sources.has("Gemini") ||
+      sources.has("Rules + Reasoner") ||
+      sources.has("Rules + Gemini");
+    const hasRules =
+      sources.has("Rules") || sources.has("Rules + Reasoner") || sources.has("Rules + Gemini");
+    const source: HseRiskSource =
+      hasReasoner && hasRules
+        ? reasonerName === "Gemini"
+          ? "Rules + Gemini"
+          : "Rules + Reasoner"
+        : hasReasoner
+          ? reasonerName
+          : hasRules
             ? "Rules"
             : "Local fallback";
 
@@ -859,10 +926,10 @@ export function buildHseLiveRiskViewModel(
     overlayPoses.push(p);
   }
 
-  const qwenCandidates: HseQwenCandidate[] =
-    qwenCandidateLaneEnabled && showQwenCandidates
-      ? qwenOnly.map((r, i) => ({
-          key: r.risk_id ?? `qwen-${i}`,
+  const reasonerCandidates: HseReasonerCandidate[] =
+    reasonerCandidateLaneEnabled && showReasonerCandidates
+      ? reasonerOnly.map((r, i) => ({
+          key: r.risk_id ?? `reasoner-${i}`,
           label: friendlyHazardLabel(riskHazard(r)),
           why: pickRiskWhy(r, parsedRisk),
           level: normalizeRiskLevel(r.risk_level, r.risk_color),
@@ -892,7 +959,7 @@ export function buildHseLiveRiskViewModel(
     priorityRisks,
     groupedRisks: visibleGrouped,
     debugRisks,
-    qwenCandidates,
+    reasonerCandidates,
     reasonerBadge: reasonerBadge(parsedRisk),
     sceneContextLabel: typeof sceneContextLabel === "string" ? sceneContextLabel : undefined,
     highestLevel,

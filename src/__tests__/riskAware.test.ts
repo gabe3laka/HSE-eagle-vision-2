@@ -13,6 +13,7 @@ import {
   shouldSurfaceRiskAlert,
   highestRiskLevel,
   isReasonerUnavailable,
+  reasonerDisplayName,
   type SceneRisk,
 } from "../lib/detection/riskTypes";
 import { readFlag, readRiskFeatureFlags } from "../lib/featureFlags";
@@ -131,12 +132,27 @@ describe("(6) isAiDraftReviewRequired", () => {
     expect(isAiDraftReviewRequired(null)).toBe(false);
   });
 
-  it("isReasonerUnavailable flags timeout/unavailable/schema_error only", () => {
+  it("isReasonerUnavailable flags timeout/unavailable/schema_error/json_parse_error/error/disabled", () => {
     expect(isReasonerUnavailable("timeout")).toBe(true);
     expect(isReasonerUnavailable("unavailable")).toBe(true);
     expect(isReasonerUnavailable("schema_error")).toBe(true);
+    // Bug fix: json_parse_error must also count as unavailable.
+    expect(isReasonerUnavailable("json_parse_error")).toBe(true);
+    expect(isReasonerUnavailable("error")).toBe(true);
+    expect(isReasonerUnavailable("disabled")).toBe(true);
     expect(isReasonerUnavailable("ok")).toBe(false);
+    expect(isReasonerUnavailable("ready")).toBe(false);
     expect(isReasonerUnavailable(undefined)).toBe(false);
+  });
+
+  it("reasonerDisplayName: gemini→Gemini, qwen→Qwen, else Reasoner (never defaults to Qwen)", () => {
+    expect(reasonerDisplayName({ model: "gemini-2.0-flash" })).toBe("Gemini");
+    expect(reasonerDisplayName({ model_id: "GEMINI-1.5" })).toBe("Gemini");
+    expect(reasonerDisplayName({ model: "qwen2.5-vl" })).toBe("Qwen");
+    expect(reasonerDisplayName({ model: "some-other-vlm" })).toBe("Reasoner");
+    expect(reasonerDisplayName({})).toBe("Reasoner");
+    expect(reasonerDisplayName(null)).toBe("Reasoner");
+    expect(reasonerDisplayName(undefined)).toBe("Reasoner");
   });
 });
 

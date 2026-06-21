@@ -7,11 +7,12 @@ import {
   summarizeDetectResponse,
   qwenResultReceivedFromSummary,
 } from "@/lib/detection/backendVisionHttpDetector";
+import { hasReasonerUnavailableWarning } from "@/features/hse-monitoring/hooks/useReasonerHeartbeat";
 import type { BackendStatus } from "@/lib/detection/backendVisionDetector";
 
 /**
  * Reasoner Contract Probe — dev/diagnostic only. Renders the latest backend
- * /detect response in a way that proves whether worker scene_risks and Qwen
+ * /detect response in a way that proves whether worker scene_risks and reasoner
  * fields are actually arriving. NEVER triggers alerts, haptics, incidents,
  * CAPA, or modifies overlay boxes.
  */
@@ -100,7 +101,9 @@ export function computeQwenDiagnostic(summary: DetectResponseSummary): QwenDiagn
   const norm = summary.reasoner.reasonerStatus;
   const status = (norm ?? raw ?? "").toLowerCase();
   const warnings = summary.warnings ?? [];
-  const qwenUnavailableWarning = warnings.includes("qwen_unavailable");
+  // Accept BOTH the new generic `reasoner_unavailable` token and the legacy
+  // `qwen_unavailable` token while the worker rename rolls out.
+  const qwenUnavailableWarning = hasReasonerUnavailableWarning(warnings);
   const sceneRisks = summary.risk.sceneRisks;
   const fields = summary.riskAwareFieldsPresent;
 

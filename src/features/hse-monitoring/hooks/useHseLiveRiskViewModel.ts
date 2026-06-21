@@ -2,7 +2,7 @@
  * useHseLiveRiskViewModel — thin React wrapper around `buildHseLiveRiskViewModel`
  * that adds box-stickiness AND risk-anchor memory. Linked risk boxes stay
  * visible for a minimum window so the overlay never flickers when a single
- * frame loses the detection. Anchors carry a Qwen-linked risk across YOLO
+ * frame loses the detection. Anchors carry a reasoner-linked risk across YOLO
  * `track_id` churn by rebinding via id → label+spatial proximity → spatial.
  * When no rebind succeeds the carried box renders dashed/faded for a per-level
  * window. Stores only metadata (key, level, bbox, ids, timestamps) — no images.

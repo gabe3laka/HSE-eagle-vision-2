@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * Focused tests for the Qwen heartbeat pending-gate. Mocks
+ * Focused tests for the reasoner heartbeat pending-gate. Mocks
  * `@/lib/detection/backendVisionHttpDetector` so `postDetectFrame` returns a
  * scripted queue of responses and `captureVideoFrameBase64` always succeeds.
  */
@@ -30,11 +30,11 @@ vi.mock("@/lib/detection/backendVisionHttpDetector", () => ({
 }));
 
 import {
-  QWEN_PENDING_HARD_MAX_MS,
-  useQwenHeartbeat,
-  type QwenHeartbeatDiagnostic,
-  type QwenHeartbeatResponse,
-} from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+  REASONER_PENDING_HARD_MAX_MS,
+  useReasonerHeartbeat,
+  type ReasonerHeartbeatDiagnostic,
+  type ReasonerHeartbeatResponse,
+} from "@/features/hse-monitoring/hooks/useReasonerHeartbeat";
 
 const makeVideoRef = () =>
   ({
@@ -50,16 +50,16 @@ function script(...responses: Array<unknown | Error>) {
 }
 
 interface Captured {
-  diagnostics: QwenHeartbeatDiagnostic[];
-  responses: QwenHeartbeatResponse[];
-  completes: QwenHeartbeatResponse[];
+  diagnostics: ReasonerHeartbeatDiagnostic[];
+  responses: ReasonerHeartbeatResponse[];
+  completes: ReasonerHeartbeatResponse[];
 }
 
 function mount(opts: { intervalMs?: number; backoffMs?: number } = {}) {
   const captured: Captured = { diagnostics: [], responses: [], completes: [] };
   const videoRef = makeVideoRef();
   const hook = renderHook(() =>
-    useQwenHeartbeat({
+    useReasonerHeartbeat({
       enabled: true,
       videoRef,
       profile: "balanced",
@@ -67,7 +67,7 @@ function mount(opts: { intervalMs?: number; backoffMs?: number } = {}) {
       intervalMs: opts.intervalMs ?? 2000,
       backoffMs: opts.backoffMs ?? 10000,
       onResponse: (r) => captured.responses.push(r),
-      onQwenComplete: (r) => captured.completes.push(r),
+      onReasonerComplete: (r) => captured.completes.push(r),
       onDiagnostic: (d) => captured.diagnostics.push(d),
     }),
   );
@@ -98,21 +98,21 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("useQwenHeartbeat — pending gate", () => {
-  it("queued response gates next tick with skipped-qwen-pending", async () => {
+describe("useReasonerHeartbeat — pending gate", () => {
+  it("queued response gates next tick with skipped-reasoner-pending", async () => {
     script({ reasoner_status: "queued" });
     const { hook, captured } = mount();
 
     await fireNextTick(); // initial scheduled tick → HTTP → queued → arm gate
     expect(postDetectFrame).toHaveBeenCalledTimes(1);
     const first = captured.diagnostics.at(-1)!;
-    expect(first.qwenLifecycle).toBe("pending");
-    expect(first.qwenPending).toBe(true);
+    expect(first.reasonerLifecycle).toBe("pending");
+    expect(first.reasonerPending).toBe(true);
 
-    await fireNextTick(); // gated tick → skipped-qwen-pending, no HTTP
+    await fireNextTick(); // gated tick → skipped-reasoner-pending, no HTTP
     expect(postDetectFrame).toHaveBeenCalledTimes(1);
     const gated = captured.diagnostics.at(-1)!;
-    expect(gated.outcome).toBe("skipped-qwen-pending");
+    expect(gated.outcome).toBe("skipped-reasoner-pending");
     expect(gated.skippedPendingCount).toBeGreaterThanOrEqual(1);
 
     hook.unmount();
@@ -123,23 +123,23 @@ describe("useQwenHeartbeat — pending gate", () => {
       script({ reasoner_status: s });
       const { hook, captured } = mount();
       await fireNextTick();
-      expect(captured.diagnostics.at(-1)!.qwenLifecycle).toBe("pending");
+      expect(captured.diagnostics.at(-1)!.reasonerLifecycle).toBe("pending");
       await fireNextTick();
-      expect(captured.diagnostics.at(-1)!.outcome).toBe("skipped-qwen-pending");
+      expect(captured.diagnostics.at(-1)!.outcome).toBe("skipped-reasoner-pending");
       expect(postDetectFrame).toHaveBeenCalledTimes(1);
       hook.unmount();
     });
   }
 
-  it("ready (after clearing pending via live-notify) fires onQwenComplete", async () => {
+  it("ready (after clearing pending via live-notify) fires onReasonerComplete", async () => {
     script({ reasoner_status: "queued" }, { reasoner_status: "ready" });
     const { hook, captured } = mount();
 
     await fireNextTick();
-    expect(captured.diagnostics.at(-1)!.qwenLifecycle).toBe("pending");
+    expect(captured.diagnostics.at(-1)!.reasonerLifecycle).toBe("pending");
 
     // Live-notify clears pending and wakes the loop with setTimeout(tick, 0).
-    hook.result.current.notifyQwenTerminalFromLive("terminal-success");
+    hook.result.current.notifyReasonerTerminalFromLive("terminal-success");
     await fireNextTick();
     expect(postDetectFrame).toHaveBeenCalledTimes(2);
     expect(captured.completes.length).toBe(1);
@@ -153,35 +153,35 @@ describe("useQwenHeartbeat — pending gate", () => {
     const { hook, captured } = mount();
     await fireNextTick();
     const d = captured.diagnostics.at(-1)!;
-    expect(d.qwenLifecycle).toBe("terminal-success");
-    expect(d.qwenPending).toBe(false);
-    expect(d.qwenResultReceived).toBe(true);
+    expect(d.reasonerLifecycle).toBe("terminal-success");
+    expect(d.reasonerPending).toBe(false);
+    expect(d.reasonerResultReceived).toBe(true);
     hook.unmount();
   });
 
-  for (const s of ["timeout", "error"]) {
-    it(`'${s}' clears pending and applies backoff; onQwenComplete NOT fired`, async () => {
+  for (const s of ["timeout", "error", "json_parse_error"]) {
+    it(`'${s}' clears pending and applies backoff; onReasonerComplete NOT fired`, async () => {
       script({ reasoner_status: s });
       const { hook, captured } = mount({ intervalMs: 2000, backoffMs: 10000 });
       await fireNextTick();
       const d = captured.diagnostics.at(-1)!;
-      expect(d.qwenLifecycle).toBe("terminal-failure");
-      expect(d.qwenPending).toBe(false);
+      expect(d.reasonerLifecycle).toBe("terminal-failure");
+      expect(d.reasonerPending).toBe(false);
       expect(d.nextDelayMs).toBe(10000);
       expect(captured.completes.length).toBe(0);
       hook.unmount();
     });
   }
 
-  it("after QWEN_PENDING_HARD_MAX_MS the gate force-clears and emits pending-timeout-client", async () => {
+  it("after REASONER_PENDING_HARD_MAX_MS the gate force-clears and emits pending-timeout-client", async () => {
     script({ reasoner_status: "queued" }, { reasoner_status: "ready" });
     const { hook, captured } = mount({ intervalMs: 2000 });
 
     await fireNextTick();
-    expect(captured.diagnostics.at(-1)!.qwenLifecycle).toBe("pending");
+    expect(captured.diagnostics.at(-1)!.reasonerLifecycle).toBe("pending");
 
     // Jump past the hard-max so the next scheduled tick force-clears.
-    await vi.advanceTimersByTimeAsync(QWEN_PENDING_HARD_MAX_MS + 5000);
+    await vi.advanceTimersByTimeAsync(REASONER_PENDING_HARD_MAX_MS + 5000);
     await flush();
     await flush();
     const outcomes = captured.diagnostics.map((d) => d.outcome);
@@ -191,25 +191,25 @@ describe("useQwenHeartbeat — pending gate", () => {
     hook.unmount();
   });
 
-  it("notifyQwenTerminalFromLive('terminal-success') clears pending mid-cycle", async () => {
+  it("notifyReasonerTerminalFromLive('terminal-success') clears pending mid-cycle", async () => {
     script({ reasoner_status: "queued" }, { reasoner_status: "ready" });
     const { hook, captured } = mount();
     await fireNextTick();
-    expect(captured.diagnostics.at(-1)!.qwenLifecycle).toBe("pending");
-    hook.result.current.notifyQwenTerminalFromLive("terminal-success");
+    expect(captured.diagnostics.at(-1)!.reasonerLifecycle).toBe("pending");
+    hook.result.current.notifyReasonerTerminalFromLive("terminal-success");
     await fireNextTick();
     expect(postDetectFrame).toHaveBeenCalledTimes(2);
     hook.unmount();
   });
 
-  it("unknown lifecycle clears pending but does NOT fire onQwenComplete", async () => {
+  it("unknown lifecycle clears pending but does NOT fire onReasonerComplete", async () => {
     script({ reasoner_status: "weird-state" });
     const { hook, captured } = mount();
     await fireNextTick();
     const d = captured.diagnostics.at(-1)!;
-    expect(d.qwenLifecycle).toBe("unknown");
-    expect(d.qwenPending).toBe(false);
-    expect(d.qwenResultReceived).toBe(false);
+    expect(d.reasonerLifecycle).toBe("unknown");
+    expect(d.reasonerPending).toBe(false);
+    expect(d.reasonerResultReceived).toBe(false);
     expect(captured.completes.length).toBe(0);
     hook.unmount();
   });

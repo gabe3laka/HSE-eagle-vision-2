@@ -1,5 +1,5 @@
 /**
- * Risk-Anchor Memory — pure helpers that strengthen Qwen risk stickiness
+ * Risk-Anchor Memory — pure helpers that strengthen reasoner risk stickiness
  * beyond exact `track_id` matching.
  *
  * The pure HSE view-model builder pairs each scene risk to current YOLO
@@ -8,11 +8,11 @@
  *   1. YOLO re-issues a `track_id` for the same physical object → the
  *      scene risk's id link is broken even though the object is plainly
  *      visible.
- *   2. The scene risk briefly disappears from `parsedRisk` (between Qwen
+ *   2. The scene risk briefly disappears from `parsedRisk` (between reasoner
  *      heartbeat ticks) → the colored box vanishes for a frame or two
  *      and flickers back.
  *
- * The risk-anchor store remembers, per Qwen-linked grouped-risk key, the
+ * The risk-anchor store remembers, per reasoner-linked grouped-risk key, the
  * last YOLO entity bbox / label / ids that the risk was painted on. On
  * each frame we try to rebind the anchor to a CURRENT YOLO entity using
  * (in order): id match → same label + IoU/center proximity to lastBbox →
@@ -29,13 +29,13 @@ import type { BackendEntity, BBox } from "@/lib/detection/types";
 import type { RiskLevel } from "@/lib/detection/riskTypes";
 import { riskLevelRank } from "@/lib/detection/riskTypes";
 
-/** Disposition of a Qwen-linked risk this frame. */
+/** Disposition of a reasoner-linked risk this frame. */
 export type RiskAnchorDisposition =
   | "linked" // grouped risk has a fresh YOLO entity binding this frame
   | "sticky-carried" // no fresh link, replaying lastBbox dashed within TTL
   | "stale" // past linked window, still within outer TTL (dashed/faded)
   | "ignored" // heartbeat ignored (stale/session-mismatch/frame-mismatch)
-  | "unmatched-candidate"; // Qwen-only candidate, no current entity link
+  | "unmatched-candidate"; // reasoner-only candidate, no current entity link
 
 /** How the anchor was rebound this frame, for diagnostics/console. */
 export type RiskAnchorRebindPath =
@@ -279,8 +279,8 @@ export function anchorReasonFor(entry: RiskAnchorEntry): string {
     case "stale":
       return "past sticky window — fading out";
     case "ignored":
-      return "Qwen heartbeat ignored";
+      return "reasoner heartbeat ignored";
     case "unmatched-candidate":
-      return "Qwen candidate, no current entity";
+      return "reasoner candidate, no current entity";
   }
 }

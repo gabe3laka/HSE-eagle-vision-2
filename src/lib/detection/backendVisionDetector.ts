@@ -121,9 +121,9 @@ export interface BackendStatus {
   lastBackendImgH?: number | null;
   /**
    * Active worker session_id for this detector instance (e.g. "hse-sess-…").
-   * Used by the Qwen heartbeat to share the SAME worker temporal/Qwen memory
-   * as the live detector. The Cloudflare session token (?token=) is separate
-   * — it only authorizes the gateway request.
+   * Used by the reasoner heartbeat to share the SAME worker temporal/reasoner
+   * memory as the live detector. The Cloudflare session token (?token=) is
+   * separate — it only authorizes the gateway request.
    */
   sessionId?: string | null;
 }

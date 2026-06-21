@@ -1,12 +1,12 @@
 import { AlertTriangle, ShieldAlert, Sparkles } from "lucide-react";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
-import { riskLevelColor, riskLevelRank } from "@/lib/detection/riskTypes";
+import { isReasonerUnavailable, riskLevelColor, riskLevelRank } from "@/lib/detection/riskTypes";
 import type { HseLiveRiskViewModel, HseGroupedRisk } from "@/lib/detection/hseLiveRiskViewModel";
 
 /**
  * Scene Risk Overview — driven by the shared HseLiveRiskViewModel so the box
- * colors, friendly labels, and the worker/Qwen status chip all agree with the
- * Priority Scene Risks list in HseMonitoringPanel.
+ * colors, friendly labels, and the worker/reasoner status chip all agree with
+ * the Priority Scene Risks list in HseMonitoringPanel.
  *
  * Raw temporal JSON / session_id / risk id / track IDs / anchor details and the
  * full hierarchy-of-controls list are hidden by default; debug surfaces them
@@ -145,10 +145,7 @@ export function MonitoringDegradedBanner() {
  *  Shows degradation_mode, privacy_blur_applied, reasoner availability, schema
  *  warnings and stage timings — diagnostics only, never blocks the camera. */
 export function RiskDebugPanel({ risk }: { risk: ParsedDetectRisk }) {
-  const reasonerUnavailable =
-    risk.reasonerStatus === "timeout" ||
-    risk.reasonerStatus === "unavailable" ||
-    risk.reasonerStatus === "schema_error";
+  const reasonerUnavailable = isReasonerUnavailable(risk.reasonerStatus);
   return (
     <div className="rounded-xl border border-border bg-card/70 p-3 font-mono text-[11px] leading-relaxed">
       <div className="mb-1 font-semibold">risk engine</div>

@@ -15,6 +15,12 @@ export type RiskFeatureFlag =
   | "VITE_SHOW_CONTROL_HIERARCHY"
   | "VITE_SHOW_PROVENANCE"
   | "VITE_CAMERA_PRIVACY_NOTICE"
+  // Canonical generic reasoner flags (preferred).
+  | "VITE_HSE_REASONER_CANDIDATE_LANE_ENABLED"
+  | "VITE_HSE_SHOW_REASONER_CANDIDATES"
+  | "VITE_HSE_REASONER_HEARTBEAT_ENABLED"
+  | "VITE_HSE_REASONER_HEARTBEAT_FORCE_REASON"
+  // Legacy Qwen-named aliases (still honored when the canonical is absent).
   | "VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED"
   | "VITE_HSE_SHOW_QWEN_CANDIDATES"
   | "VITE_HSE_LOCAL_ALERTS_ENABLED"
@@ -34,6 +40,24 @@ export function readFlag(
   if (v === "true") return true;
   if (v === "false") return false;
   return defaultValue;
+}
+
+/**
+ * PURE: read a boolean flag honoring a canonical name first, falling back to a
+ * legacy alias only when the canonical is absent. The canonical value ALWAYS
+ * wins when present (even when set to "false"); only when it is unset/unknown do
+ * we consult the legacy alias. Used for the Qwen→Reasoner flag rename.
+ */
+export function readBooleanAlias(
+  env: Record<string, unknown>,
+  canonical: RiskFeatureFlag,
+  legacy: RiskFeatureFlag,
+  defaultValue: boolean,
+): boolean {
+  const c = env[canonical];
+  if (c === "true") return true;
+  if (c === "false") return false;
+  return readFlag(legacy, env, defaultValue);
 }
 
 /** Resolve every risk-aware flag at once (for convenient destructuring). */
@@ -61,36 +85,51 @@ export function readRiskFeatureFlags(env: Record<string, unknown> = safeEnv()): 
 
 /**
  * HSE Live monitoring feature flags. All default OFF — the cleaned-up Live HSE
- * surface treats worker/Qwen scene risks as the visible source of truth and
- * keeps legacy on-device alerts / Qwen advisory candidates out of the way.
+ * surface treats worker/reasoner scene risks as the visible source of truth and
+ * keeps legacy on-device alerts / reasoner advisory candidates out of the way.
  */
 export interface HseFeatureFlags {
-  /** Surface Qwen candidate lane in the view model (does NOT auto-render UI). */
-  qwenCandidateLaneEnabled: boolean;
-  /** Render Qwen-only advisory candidates in the visible UI. */
-  showQwenCandidates: boolean;
+  /** Surface the reasoner candidate lane in the view model (does NOT auto-render UI). */
+  reasonerCandidateLaneEnabled: boolean;
+  /** Render reasoner-only advisory candidates in the visible UI. */
+  showReasonerCandidates: boolean;
   /** Re-enable legacy local HSE alerts (haptics, incidents, AlertFeed in HSE,
    *  "Analyze scene" local reasoning). */
   localAlertsEnabled: boolean;
 }
 
+/**
+ * Resolve HSE feature flags. The canonical generic `VITE_HSE_REASONER_*` value
+ * wins when present; the legacy `VITE_HSE_QWEN_*` is used only when the generic
+ * is absent.
+ */
 export function readHseFeatureFlags(env: Record<string, unknown> = safeEnv()): HseFeatureFlags {
   return {
-    qwenCandidateLaneEnabled: readFlag("VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED", env, false),
-    showQwenCandidates: readFlag("VITE_HSE_SHOW_QWEN_CANDIDATES", env, false),
+    reasonerCandidateLaneEnabled: readBooleanAlias(
+      env,
+      "VITE_HSE_REASONER_CANDIDATE_LANE_ENABLED",
+      "VITE_HSE_QWEN_CANDIDATE_LANE_ENABLED",
+      false,
+    ),
+    showReasonerCandidates: readBooleanAlias(
+      env,
+      "VITE_HSE_SHOW_REASONER_CANDIDATES",
+      "VITE_HSE_SHOW_QWEN_CANDIDATES",
+      false,
+    ),
     localAlertsEnabled: readFlag("VITE_HSE_LOCAL_ALERTS_ENABLED", env, false),
   };
 }
 
-/** Qwen scene-reasoning heartbeat (low-frequency Qwen loop) configuration. */
-export interface HseQwenHeartbeatFlags {
+/** Worker scene-reasoning heartbeat (low-frequency reasoner loop) configuration. */
+export interface HseReasonerHeartbeatFlags {
   enabled: boolean;
   /** Effective tick interval (≥ minIntervalMs, hard floor 1000 ms). */
   intervalMs: number;
   /** Hard floor used to clamp `intervalMs` (≥1000 ms). */
   minIntervalMs: number;
   backoffMs: number;
-  /** Delay after `extendedBackoffAfter` consecutive Qwen failures. */
+  /** Delay after `extendedBackoffAfter` consecutive reasoner failures. */
   extendedBackoffMs: number;
   /** Number of consecutive failures before switching to `extendedBackoffMs`. */
   extendedBackoffAfter: number;
@@ -98,22 +137,14 @@ export interface HseQwenHeartbeatFlags {
   resultTtlMs: number;
 }
 
-function readNumberEnv(
-  env: Record<string, unknown>,
-  key: string,
-  fallback: number,
-  min: number,
-): number {
-  const v = env[key];
-  const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN;
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, n);
-}
+/** @deprecated Use {@link HseReasonerHeartbeatFlags}. Kept as a legacy alias. */
+export type HseQwenHeartbeatFlags = HseReasonerHeartbeatFlags;
 
 /**
  * Read the first env key that parses to a finite number; falls back to
  * `fallback` if none are set. Clamped to `min`. Used to honor the prompt's
- * canonical flag names while keeping legacy aliases working.
+ * canonical flag names while keeping legacy aliases working. List the canonical
+ * key FIRST so it wins over any legacy alias when both are present.
  */
 function readNumberEnvAlias(
   env: Record<string, unknown>,
@@ -129,48 +160,94 @@ function readNumberEnvAlias(
   return Math.max(min, fallback);
 }
 
-export function readHseQwenHeartbeatFlags(
+/**
+ * Resolve the reasoner scene-reasoning heartbeat config. For every knob the
+ * canonical generic `VITE_HSE_REASONER_*` value wins when present; the legacy
+ * `VITE_HSE_QWEN_*` value is only consulted when the generic is absent. The
+ * canonical key is therefore always listed FIRST in each alias lookup.
+ */
+export function readHseReasonerHeartbeatFlags(
   env: Record<string, unknown> = safeEnv(),
-): HseQwenHeartbeatFlags {
+): HseReasonerHeartbeatFlags {
   // Hard floor 1000 ms per prompt; configurable via MIN_INTERVAL_MS env.
-  const minIntervalMs = readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_MIN_INTERVAL_MS", 1000, 1000);
-  // Canonical: VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS. Legacy alias: ..._MS.
+  const minIntervalMs = readNumberEnvAlias(
+    env,
+    ["VITE_HSE_REASONER_HEARTBEAT_MIN_INTERVAL_MS", "VITE_HSE_QWEN_HEARTBEAT_MIN_INTERVAL_MS"],
+    1000,
+    1000,
+  );
+  // Canonical: VITE_HSE_REASONER_HEARTBEAT_INTERVAL_MS. Legacy aliases follow.
   const rawInterval = readNumberEnvAlias(
     env,
-    ["VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS", "VITE_HSE_QWEN_HEARTBEAT_MS"],
+    [
+      "VITE_HSE_REASONER_HEARTBEAT_INTERVAL_MS",
+      "VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS",
+      "VITE_HSE_QWEN_HEARTBEAT_MS",
+    ],
     2000,
     minIntervalMs,
   );
   const intervalMs = Math.max(minIntervalMs, rawInterval);
-  const backoffMs = readNumberEnv(env, "VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS", 10000, intervalMs);
+  const backoffMs = readNumberEnvAlias(
+    env,
+    ["VITE_HSE_REASONER_HEARTBEAT_BACKOFF_MS", "VITE_HSE_QWEN_HEARTBEAT_BACKOFF_MS"],
+    10000,
+    intervalMs,
+  );
   return {
-    enabled: readFlag("VITE_HSE_QWEN_HEARTBEAT_ENABLED", env, true),
+    enabled: readBooleanAlias(
+      env,
+      "VITE_HSE_REASONER_HEARTBEAT_ENABLED",
+      "VITE_HSE_QWEN_HEARTBEAT_ENABLED",
+      true,
+    ),
     intervalMs,
     minIntervalMs,
     backoffMs,
-    extendedBackoffMs: readNumberEnv(
+    extendedBackoffMs: readNumberEnvAlias(
       env,
-      "VITE_HSE_QWEN_HEARTBEAT_EXTENDED_BACKOFF_MS",
+      [
+        "VITE_HSE_REASONER_HEARTBEAT_EXTENDED_BACKOFF_MS",
+        "VITE_HSE_QWEN_HEARTBEAT_EXTENDED_BACKOFF_MS",
+      ],
       30000,
       backoffMs,
     ),
-    extendedBackoffAfter: readNumberEnv(
+    extendedBackoffAfter: readNumberEnvAlias(
       env,
-      "VITE_HSE_QWEN_HEARTBEAT_EXTENDED_BACKOFF_AFTER",
+      [
+        "VITE_HSE_REASONER_HEARTBEAT_EXTENDED_BACKOFF_AFTER",
+        "VITE_HSE_QWEN_HEARTBEAT_EXTENDED_BACKOFF_AFTER",
+      ],
       3,
       1,
     ),
-    forceReason: readFlag("VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON", env, true),
-    // Canonical: VITE_HSE_QWEN_RESULT_TTL_MS (default 8000 per prompt).
-    // Legacy alias: VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS.
+    forceReason: readBooleanAlias(
+      env,
+      "VITE_HSE_REASONER_HEARTBEAT_FORCE_REASON",
+      "VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON",
+      true,
+    ),
+    // Canonical: VITE_HSE_REASONER_RESULT_TTL_MS (default 8000 per prompt).
+    // Legacy aliases: VITE_HSE_QWEN_RESULT_TTL_MS, ..._HEARTBEAT_RESULT_TTL_MS.
     resultTtlMs: readNumberEnvAlias(
       env,
-      ["VITE_HSE_QWEN_RESULT_TTL_MS", "VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS"],
+      [
+        "VITE_HSE_REASONER_RESULT_TTL_MS",
+        "VITE_HSE_QWEN_RESULT_TTL_MS",
+        "VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS",
+      ],
       8000,
       500,
     ),
   };
 }
+
+/**
+ * @deprecated Use {@link readHseReasonerHeartbeatFlags}. Thin legacy-named
+ * re-export kept so existing imports keep resolving.
+ */
+export const readHseQwenHeartbeatFlags = readHseReasonerHeartbeatFlags;
 
 function safeEnv(): Record<string, unknown> {
   try {

@@ -1,15 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
   buildHeartbeatMonitoringRequest,
-  isQwenFailureResponse,
+  hasReasonerUnavailableWarning,
+  isReasonerFailureResponse,
   pickEffectiveHeartbeatSessionId,
   pickHeartbeatDelay,
-} from "@/features/hse-monitoring/hooks/useQwenHeartbeat";
+} from "@/features/hse-monitoring/hooks/useReasonerHeartbeat";
 
 describe("buildHeartbeatMonitoringRequest", () => {
-  it("uses requestReason 'hse-qwen-heartbeat'", () => {
+  it("uses requestReason 'hse-reasoner-heartbeat'", () => {
     const req = buildHeartbeatMonitoringRequest("balanced", null, true);
-    expect(req.requestReason).toBe("hse-qwen-heartbeat");
+    expect(req.requestReason).toBe("hse-reasoner-heartbeat");
   });
 
   it("includes scene_reasoning + detect/track/risk in tasks", () => {
@@ -44,10 +45,33 @@ describe("buildHeartbeatMonitoringRequest", () => {
   });
 });
 
-describe("isQwenFailureResponse", () => {
-  it("true on qwen_unavailable warning", () => {
+describe("hasReasonerUnavailableWarning", () => {
+  it("accepts the new generic 'reasoner_unavailable' token", () => {
+    expect(hasReasonerUnavailableWarning(["reasoner_unavailable"])).toBe(true);
+  });
+  it("still accepts the legacy 'qwen_unavailable' token", () => {
+    expect(hasReasonerUnavailableWarning(["qwen_unavailable"])).toBe(true);
+  });
+  it("false for unrelated / empty warnings", () => {
+    expect(hasReasonerUnavailableWarning([])).toBe(false);
+    expect(hasReasonerUnavailableWarning(["degraded"])).toBe(false);
+  });
+});
+
+describe("isReasonerFailureResponse", () => {
+  it("true on reasoner_unavailable warning (new token)", () => {
     expect(
-      isQwenFailureResponse({
+      isReasonerFailureResponse({
+        warnings: ["reasoner_unavailable"],
+        normalizedReasonerStatus: "ready",
+        rawReasonerStatus: "ready",
+      }),
+    ).toBe(true);
+  });
+
+  it("true on legacy qwen_unavailable warning", () => {
+    expect(
+      isReasonerFailureResponse({
         warnings: ["qwen_unavailable"],
         normalizedReasonerStatus: "ready",
         rawReasonerStatus: "ready",
@@ -55,17 +79,25 @@ describe("isQwenFailureResponse", () => {
     ).toBe(true);
   });
 
-  it("true on failure status (normalized or raw, any case)", () => {
-    for (const s of ["unavailable", "ERROR", "Timeout", "disabled", "not_run", "schema_error"]) {
+  it("true on failure status (normalized or raw, any case), including json_parse_error", () => {
+    for (const s of [
+      "unavailable",
+      "ERROR",
+      "Timeout",
+      "disabled",
+      "not_run",
+      "schema_error",
+      "json_parse_error",
+    ]) {
       expect(
-        isQwenFailureResponse({
+        isReasonerFailureResponse({
           warnings: [],
           normalizedReasonerStatus: s,
           rawReasonerStatus: null,
         }),
       ).toBe(true);
       expect(
-        isQwenFailureResponse({
+        isReasonerFailureResponse({
           warnings: [],
           normalizedReasonerStatus: null,
           rawReasonerStatus: s,
@@ -77,13 +109,21 @@ describe("isQwenFailureResponse", () => {
   it("false on ready/running/queued", () => {
     for (const s of ["ready", "running", "queued"]) {
       expect(
-        isQwenFailureResponse({
+        isReasonerFailureResponse({
           warnings: [],
           normalizedReasonerStatus: s,
           rawReasonerStatus: s,
         }),
       ).toBe(false);
     }
+  });
+});
+
+describe("pickEffectiveHeartbeatSessionId", () => {
+  it("adopts a non-empty override, else falls back", () => {
+    expect(pickEffectiveHeartbeatSessionId("hse-sess-1", "fallback")).toBe("hse-sess-1");
+    expect(pickEffectiveHeartbeatSessionId("  ", "fallback")).toBe("fallback");
+    expect(pickEffectiveHeartbeatSessionId(null, "fallback")).toBe("fallback");
   });
 });
 
@@ -145,5 +185,30 @@ describe("pickHeartbeatDelay", () => {
         consecutiveFailures: 5,
       }),
     ).toBe(10000);
+  });
+});
+
+describe("legacy compatibility re-export (useQwenHeartbeat.ts)", () => {
+  it("old names still resolve to the generic implementation", async () => {
+    const legacy = await import("@/features/hse-monitoring/hooks/useQwenHeartbeat");
+    // Constants alias through.
+    expect(legacy.QWEN_PENDING_HARD_MAX_MS).toBe(45000);
+    expect(legacy.QWEN_TERMINAL_FAILURE_STATES.has("json_parse_error")).toBe(true);
+    // isQwenFailureResponse aliases isReasonerFailureResponse.
+    expect(
+      legacy.isQwenFailureResponse({
+        warnings: ["qwen_unavailable"],
+        normalizedReasonerStatus: null,
+        rawReasonerStatus: null,
+      }),
+    ).toBe(true);
+    // classifyQwenLifecycle aliases classifyReasonerLifecycle.
+    expect(
+      legacy.classifyQwenLifecycle({
+        rawReasonerStatus: "json_parse_error",
+        normalizedReasonerStatus: null,
+        warnings: [],
+      }),
+    ).toBe("terminal-failure");
   });
 });
