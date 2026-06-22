@@ -812,3 +812,64 @@ describe("hseLiveRiskViewModel — heartbeat merge integration", () => {
     expect(vm.safeEntityCount).toBe(1);
   });
 });
+
+describe("hseLiveRiskViewModel — reasoner latch regressions", () => {
+  it("entity-level risk_level:YELLOW with empty sceneRisks → yellow overlay entity", () => {
+    // Future-proof / Part 6: worker stamps an entity directly with risk_level
+    // and emits NO scene_risks. The overlay must still color it YELLOW.
+    const can = entity({ label: "can", track_id: "tc", risk_level: "YELLOW" });
+    const vm = buildHseLiveRiskViewModel({
+      entities: [can],
+      poses: [],
+      parsedRisk: parsedRisk([]),
+      nowMs: NOW,
+    });
+    expect(vm.overlayEntities.length).toBe(1);
+    expect(vm.overlayEntities[0].risk_level).toBe("YELLOW");
+    expect(vm.activeRiskEntityCount).toBe(1);
+  });
+
+  it("reasoner_status ready + empty sceneRisks → no false risk-linked boxes", () => {
+    // The exact logs_31.txt situation: worker returns ready repeatedly with no
+    // scene_risks. Boxes must stay GREEN — no phantom risk coloring.
+    const es = [
+      entity({ label: "cup", track_id: "t1" }),
+      entity({ label: "can", track_id: "t2", bbox: { x: 0.6, y: 0.1, w: 0.1, h: 0.1 } }),
+    ];
+    const ready: ParsedDetectRisk = {
+      sceneRisks: [],
+      degraded: false,
+      warnings: [],
+      reasonerStatus: "ready",
+    };
+    const vm = buildHseLiveRiskViewModel({
+      entities: es,
+      poses: [],
+      parsedRisk: ready,
+      nowMs: NOW,
+    });
+    expect(vm.activeRiskEntityCount).toBe(0);
+    expect(vm.safeEntityCount).toBe(2);
+    for (const oe of vm.overlayEntities) {
+      expect(oe.risk_level).toBe("GREEN");
+    }
+  });
+
+  it("linked YELLOW scene_risk colors its entity (latch-merged result paints boxes)", () => {
+    // A latched good result re-merged into the VM input must still link + color
+    // the current entity — this is what keeps boxes colored while the camera runs.
+    const can = entity({ label: "can", track_id: "tc", bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } });
+    const latched = parsedRisk([
+      risk({ track_id: "tc", hazard: "object_near_edge", risk_level: "YELLOW", risk_id: "latch1" }),
+    ]);
+    const vm = buildHseLiveRiskViewModel({
+      entities: [can],
+      poses: [],
+      parsedRisk: latched,
+      nowMs: NOW,
+    });
+    expect(vm.overlayEntities[0].risk_level).toBe("YELLOW");
+    expect(vm.activeRiskEntityCount).toBe(1);
+    expect(vm.priorityRisks.length).toBe(1);
+  });
+});

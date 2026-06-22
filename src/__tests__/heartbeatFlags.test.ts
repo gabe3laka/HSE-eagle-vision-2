@@ -9,10 +9,11 @@ describe("readHseReasonerHeartbeatFlags (canonical + legacy alias + clamp)", () 
   it("uses prompt defaults when env is empty", () => {
     const f = readHseReasonerHeartbeatFlags({});
     expect(f.enabled).toBe(true);
-    expect(f.intervalMs).toBe(2000);
+    expect(f.intervalMs).toBe(5000);
     expect(f.minIntervalMs).toBe(1000);
-    // Canonical default TTL is 8000 per the system prompt.
-    expect(f.resultTtlMs).toBe(8000);
+    // Default TTL bumped to 12000 to cover Gemini ~5–12s reasoner latency so the
+    // last-good latch stays fresh between arrivals.
+    expect(f.resultTtlMs).toBe(12000);
     expect(f.forceReason).toBe(true);
   });
 

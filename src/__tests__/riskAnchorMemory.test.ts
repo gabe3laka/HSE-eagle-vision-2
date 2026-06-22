@@ -77,6 +77,26 @@ describe("riskAnchorMemory.rebindAnchor", () => {
     expect(r.entity).toBe(cur);
   });
 
+  it("rebinds via spatial-only fallback when label differs but bbox is close", () => {
+    // An old linked risk (captured against a "person" track) re-binds to the
+    // current YOLO entity even after its track id changed AND its label differs,
+    // as long as the box is in the same place — keeps risk painted on the
+    // moving box while the camera runs.
+    const anchor = baseAnchor({
+      label: "person",
+      lastBbox: { x: 0.4, y: 0.4, w: 0.05, h: 0.05 },
+    });
+    const cur = entity({
+      track_id: "t-NEW",
+      label: "worker",
+      // Different label, no IoU, but center within the tighter 0.08 threshold.
+      bbox: { x: 0.44, y: 0.44, w: 0.05, h: 0.05 },
+    });
+    const r = rebindAnchor(anchor, [cur]);
+    expect(r.path).toBe("spatial-only");
+    expect(r.entity).toBe(cur);
+  });
+
   it("returns carried when no match is close enough", () => {
     const anchor = baseAnchor();
     const cur = entity({

@@ -82,11 +82,17 @@ import {
   type HeartbeatCounters,
 } from "@/components/live/HeartbeatDiagnosticsPanel";
 import {
-  mergeParsedRisk,
   isHeartbeatFresh,
   heartbeatIgnoreReason,
   heartbeatIgnoreMessage,
 } from "@/features/hse-monitoring/lib/mergeParsedRisk";
+import {
+  hasUsableReasonerRisk,
+  shouldUpdateLatch,
+  isLatchFresh,
+  computeParsedRiskForVm,
+  shouldClearLatch,
+} from "@/features/hse-monitoring/lib/reasonerResultLatch";
 import { HandPointerLayer } from "@/features/build-mode/components/HandPointerLayer";
 import { ARRecordButton } from "@/features/build-mode/components/ARRecordButton";
 import { ExtractableCandidateOverlay } from "@/features/build-mode/components/ExtractableCandidateOverlay";
@@ -395,6 +401,14 @@ export default function Live() {
   const [heartbeatLastDiag, setHeartbeatLastDiag] = useState<ReasonerHeartbeatDiagnostic | null>(
     null,
   );
+  // Last-good reasoner result latch (HSE only). Updated from EITHER the live
+  // /detect terminal-success path or the heartbeat terminal-success path, and
+  // re-merged into the view-model input for a freshness TTL so the linker +
+  // anchor memory keep painting risk on the current YOLO boxes between the slow
+  // (~5–12s) reasoner arrivals — instead of color only landing on camera-off.
+  const [lastGoodReasonerRisk, setLastGoodReasonerRisk] = useState<ParsedDetectRisk | null>(null);
+  const [lastGoodReasonerAtMs, setLastGoodReasonerAtMs] = useState<number | null>(null);
+  const [lastGoodReasonerSessionId, setLastGoodReasonerSessionId] = useState<string | null>(null);
   const [heartbeatCounters, setHeartbeatCounters] = useState<HeartbeatCounters>({
     okCount: 0,
     errorCount: 0,
@@ -428,6 +442,14 @@ export default function Live() {
         setHeartbeatRaw(r.raw);
         setHeartbeatAtMs(r.receivedAtMs);
         setHeartbeatSessionId(r.sessionId);
+        // Latch the last-good reasoner result from the heartbeat path so it
+        // keeps coloring boxes between arrivals. Empty `ready` results are
+        // skipped (hasUsableReasonerRisk) so they never wipe a good latch.
+        if (hasUsableReasonerRisk(r.parsed)) {
+          setLastGoodReasonerRisk(r.parsed);
+          setLastGoodReasonerAtMs(r.receivedAtMs);
+          setLastGoodReasonerSessionId(r.sessionId);
+        }
       }
       setHeartbeatForceReasonSent(r.forceReasonSent);
     }, []),
@@ -461,11 +483,20 @@ export default function Live() {
       })
     : null;
   void heartbeatFresh;
-  const parsedRiskForVm = heartbeatRisk
-    ? mergeParsedRisk(liveBackendRisk, heartbeatRisk, {
-        applyHeartbeatRisks: hbIgnoreReason == null,
-      })
-    : liveBackendRisk;
+  const latchFresh = isLatchFresh({
+    atMs: lastGoodReasonerAtMs,
+    ttlMs: heartbeatFlags.resultTtlMs,
+    nowMs: nowMsForVm,
+    latchSessionId: lastGoodReasonerSessionId,
+    liveSessionId: liveDetectorSessionId,
+  });
+  const parsedRiskForVm = computeParsedRiskForVm({
+    live: liveBackendRisk,
+    heartbeat: heartbeatRisk,
+    applyHeartbeat: hbIgnoreReason == null,
+    latch: lastGoodReasonerRisk,
+    latchFresh,
+  });
 
   // When the regular live /detect response carries a terminal reasoner result
   // (because the worker returned a cached result on a non-force-reason live
@@ -489,6 +520,31 @@ export default function Live() {
       heartbeatHandle.notifyReasonerTerminalFromLive(liveLifecycle);
     }
   }, [liveLifecycle, heartbeatHandle]);
+  // Update the latch from the LIVE /detect terminal path too: when a live frame
+  // carries a usable terminal-success reasoner result, stamp it as last-good so
+  // it keeps painting boxes even if the heartbeat lane is quiet.
+  useEffect(() => {
+    if (shouldUpdateLatch(liveLifecycle, liveBackendRisk)) {
+      setLastGoodReasonerRisk(liveBackendRisk);
+      setLastGoodReasonerAtMs(Date.now());
+      setLastGoodReasonerSessionId(liveDetectorSessionId);
+    }
+  }, [liveLifecycle, liveBackendRisk, liveDetectorSessionId]);
+  // Clear the latch when the worker session changes or monitoring stops — a new
+  // session means a new temporal/reasoner memory window on the worker, so a
+  // carried result is no longer valid. Queued/running/empty-ready frames never
+  // clear it (the latch only updates on usable terminal-success; the freshness
+  // gate + anchor caps handle decay).
+  const prevLatchSessionRef = useRef<string | null>(liveDetectorSessionId);
+  useEffect(() => {
+    const prev = prevLatchSessionRef.current;
+    prevLatchSessionRef.current = liveDetectorSessionId;
+    if (shouldClearLatch(prev, liveDetectorSessionId, hseActive)) {
+      setLastGoodReasonerRisk(null);
+      setLastGoodReasonerAtMs(null);
+      setLastGoodReasonerSessionId(null);
+    }
+  }, [liveDetectorSessionId, hseActive]);
   const hseRiskViewModel = useHseLiveRiskViewModel({
     entities: backendEntities as BackendEntity[],
     poses: backendPoses as BackendPose[],
@@ -499,6 +555,34 @@ export default function Live() {
     showReasonerCandidates: hseFlags.showReasonerCandidates,
     localAlertsEnabled: hseFlags.localAlertsEnabled,
   });
+
+  // Read-only diagnostics: surface WHY a worker `ready` produced (or didn't
+  // produce) colored boxes. No behavior change — rendered only in the HSE risk
+  // debug panel when the debug flag is on.
+  const hseReasonerSyncDebug = useMemo(
+    () => ({
+      liveReasonerStatus: liveBackendRisk?.reasonerStatus ?? null,
+      liveSceneRiskCount: liveBackendRisk?.sceneRisks?.length ?? 0,
+      heartbeatSceneRiskCount: heartbeatRisk?.sceneRisks?.length ?? 0,
+      lastGoodSceneRiskCount: lastGoodReasonerRisk?.sceneRisks?.length ?? 0,
+      lastGoodAgeMs: lastGoodReasonerAtMs == null ? null : nowMsForVm - lastGoodReasonerAtMs,
+      lastGoodFresh: latchFresh,
+      parsedRiskForVmSceneRiskCount: parsedRiskForVm?.sceneRisks?.length ?? 0,
+      overlayEntityCount: hseRiskViewModel.overlayEntities.length,
+      activeRiskEntityCount: hseRiskViewModel.activeRiskEntityCount,
+      riskLinkedEntityCount: hseRiskViewModel.riskLinkedEntityCount,
+    }),
+    [
+      liveBackendRisk,
+      heartbeatRisk,
+      lastGoodReasonerRisk,
+      lastGoodReasonerAtMs,
+      latchFresh,
+      nowMsForVm,
+      parsedRiskForVm,
+      hseRiskViewModel,
+    ],
+  );
 
   // Finger-level hand tracking (MediaPipe Hand Landmarker) — Build Mode only,
   // lazy-loaded, independent of Start Monitoring, torn down on leaving.
@@ -1451,6 +1535,32 @@ export default function Live() {
                       {/* Risk-aware diagnostics (degradation_mode, privacy blur,
                           reasoner availability, schema warnings) — flag-gated. */}
                       {riskFlags.riskDebugPanel && risk && <RiskDebugPanel risk={risk} />}
+                      {/* Reasoner sync debug — why a worker `ready` did/didn't
+                          color boxes. HSE only, flag-gated, read-only. */}
+                      {riskFlags.riskDebugPanel && appMode === "hse" && (
+                        <div className="rounded-md border border-border bg-background/40 px-2 py-1 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                          <div className="mb-0.5 font-semibold text-foreground">Reasoner sync</div>
+                          <div>status={String(hseReasonerSyncDebug.liveReasonerStatus)}</div>
+                          <div>
+                            sceneRisks live={hseReasonerSyncDebug.liveSceneRiskCount} hb=
+                            {hseReasonerSyncDebug.heartbeatSceneRiskCount} latch=
+                            {hseReasonerSyncDebug.lastGoodSceneRiskCount} vm=
+                            {hseReasonerSyncDebug.parsedRiskForVmSceneRiskCount}
+                          </div>
+                          <div>
+                            latch age=
+                            {hseReasonerSyncDebug.lastGoodAgeMs == null
+                              ? "—"
+                              : `${hseReasonerSyncDebug.lastGoodAgeMs}ms`}{" "}
+                            fresh={String(hseReasonerSyncDebug.lastGoodFresh)}
+                          </div>
+                          <div>
+                            overlay={hseReasonerSyncDebug.overlayEntityCount} risk=
+                            {hseReasonerSyncDebug.activeRiskEntityCount} linked=
+                            {hseReasonerSyncDebug.riskLinkedEntityCount}
+                          </div>
+                        </div>
+                      )}
                       {/* Reasoner Contract Probe — dev-only, HSE mode only.
                           Diagnostic only: never creates alerts/boxes/incidents. */}
                       {import.meta.env.DEV && appMode === "hse" && (

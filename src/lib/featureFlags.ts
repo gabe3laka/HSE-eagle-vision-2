@@ -184,7 +184,10 @@ export function readHseReasonerHeartbeatFlags(
       "VITE_HSE_QWEN_HEARTBEAT_INTERVAL_MS",
       "VITE_HSE_QWEN_HEARTBEAT_MS",
     ],
-    2000,
+    // Default 5000 ms: reduce Gemini spam (the worker also rate-limits and
+    // triggers reasoning from live frames), while the result-latch keeps boxes
+    // colored between the slower arrivals.
+    5000,
     minIntervalMs,
   );
   const intervalMs = Math.max(minIntervalMs, rawInterval);
@@ -228,8 +231,9 @@ export function readHseReasonerHeartbeatFlags(
       "VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON",
       true,
     ),
-    // Canonical: VITE_HSE_REASONER_RESULT_TTL_MS (default 8000 per prompt).
-    // Legacy aliases: VITE_HSE_QWEN_RESULT_TTL_MS, ..._HEARTBEAT_RESULT_TTL_MS.
+    // Canonical: VITE_HSE_REASONER_RESULT_TTL_MS (default 12000). Covers Gemini
+    // ~5–12s reasoner latency so the last-good latch stays fresh across slow
+    // arrivals. Legacy aliases: VITE_HSE_QWEN_RESULT_TTL_MS, ..._HEARTBEAT_RESULT_TTL_MS.
     resultTtlMs: readNumberEnvAlias(
       env,
       [
@@ -237,7 +241,7 @@ export function readHseReasonerHeartbeatFlags(
         "VITE_HSE_QWEN_RESULT_TTL_MS",
         "VITE_HSE_QWEN_HEARTBEAT_RESULT_TTL_MS",
       ],
-      8000,
+      12000,
       500,
     ),
   };
