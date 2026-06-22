@@ -24,10 +24,14 @@ describe("hasUsableReasonerRisk", () => {
     expect(hasUsableReasonerRisk(null)).toBe(false);
     expect(hasUsableReasonerRisk(make())).toBe(false);
   });
-  it("true when scene risks / corrections / context present", () => {
+  it("true when scene risks or risk-affecting semantic corrections present", () => {
     expect(hasUsableReasonerRisk(make({ sceneRisks: [risk({ risk_id: "a" })] }))).toBe(true);
     expect(hasUsableReasonerRisk(make({ semanticCorrections: [{ explanation: "x" }] }))).toBe(true);
-    expect(hasUsableReasonerRisk(make({ sceneContext: { summary: "yard" } }))).toBe(true);
+  });
+  it("false for a sceneContext-only `ready` result (diagnostic, not colorable)", () => {
+    // A scene summary alone is NOT a colorable risk, so it must not be able to
+    // overwrite a previously-latched linkable YELLOW risk.
+    expect(hasUsableReasonerRisk(make({ sceneContext: { summary: "yard" } }))).toBe(false);
   });
 });
 
@@ -43,6 +47,11 @@ describe("shouldUpdateLatch", () => {
   });
   it("does not update on terminal-success with an empty-ready result", () => {
     expect(shouldUpdateLatch("terminal-success", make())).toBe(false);
+  });
+  it("does not update on a sceneContext-only ready result (no colorable risk)", () => {
+    expect(shouldUpdateLatch("terminal-success", make({ sceneContext: { summary: "yard" } }))).toBe(
+      false,
+    );
   });
 });
 

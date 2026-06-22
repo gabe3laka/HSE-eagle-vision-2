@@ -19,15 +19,19 @@ import { mergeParsedRisk } from "@/features/hse-monitoring/lib/mergeParsedRisk";
 
 /**
  * PURE: true when a parsed reasoner result carries something that can actually
- * influence coloring / scene reasoning (scene risks, semantic corrections, or a
- * scene context). Empty `ready` results (no risks) return false so they never
- * overwrite a previously-latched good result.
+ * COLOR a box / affect risk on the overlay — i.e. linkable scene risks or
+ * risk-affecting semantic corrections.
+ *
+ * A bare `sceneContext` (a scene summary) is intentionally NOT enough: it is
+ * diagnostic-only and must never let an otherwise-empty `ready` response
+ * overwrite a previously-latched linkable risk. (sceneContext still reaches the
+ * view model / debug panel separately via `mergeParsedRisk` — it just does not
+ * drive the color latch.) Empty `ready` results likewise return false.
  */
 export function hasUsableReasonerRisk(parsed: ParsedDetectRisk | null): boolean {
   if (!parsed) return false;
   if ((parsed.sceneRisks?.length ?? 0) > 0) return true;
   if ((parsed.semanticCorrections?.length ?? 0) > 0) return true;
-  if (parsed.sceneContext) return true;
   return false;
 }
 
