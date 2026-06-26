@@ -8,7 +8,9 @@ CREATE TABLE shared_vision_sessions (
   started_at timestamptz DEFAULT now(),
   ended_at timestamptz
 );
--- Guarded FK: add only when monitoring_sessions exists (it lives on remote, not in repo migrations).
+
+-- Guarded FK: add only when monitoring_sessions exists (it lives on remote, not in
+-- repo migrations). Safe no-op when the table is absent.
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables
@@ -49,7 +51,10 @@ CREATE POLICY "sv_peers_self" ON shared_vision_peers FOR ALL TO authenticated
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Device registry for labeling and Phase 1B+ map placement.
--- user_id NOT NULL + CASCADE so orphan rows never occur.
+-- user_id NOT NULL + CASCADE ensures no orphan rows on user delete.
+-- site_map_id binds a placement to one site map so the projection engine can
+-- reject cross-map pairs. Nullable; the FK to site_maps is added in migration
+-- 20260625000004 once that table exists (guarded DO block there).
 CREATE TABLE org_camera_devices (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -58,9 +63,6 @@ CREATE TABLE org_camera_devices (
   camera_label text NOT NULL,
   device_label text,
   status text NOT NULL DEFAULT 'active',
-  -- Phase 1B+ map fields. site_map_id binds a placement to one site map so the
-  -- projection engine can reject cross-map pairs. Nullable; the FK to site_maps
-  -- is added in 20260625000004 once that table exists (guarded DO block).
   site_map_id uuid,
   map_x_m numeric,
   map_y_m numeric,

@@ -1,5 +1,6 @@
--- Extracts orgId from the connection topic; regex-validates UUID shape before
--- casting so a malformed segment returns NULL (clean deny) rather than throwing.
+-- Extracts orgId from the Realtime connection topic.
+-- Regex-validates the UUID segment before casting so a malformed segment
+-- returns NULL (clean deny) rather than throwing a cast error (Bug-1 fix).
 create or replace function public.sv_topic_org()
   returns uuid language sql stable security definer set search_path = '' as $$
   select case
@@ -11,7 +12,8 @@ $$;
 revoke all on function public.sv_topic_org() from public;
 grant execute on function public.sv_topic_org() to authenticated;
 
--- Combined: namespace guard + org membership
+-- Namespace guard + org membership check combined.
+-- Called from both Realtime RLS policies below.
 create or replace function public.sv_can_access_topic()
   returns boolean language sql stable security definer set search_path = '' as $$
   select realtime.topic() like 'org:%:sv:%'
@@ -23,10 +25,12 @@ grant execute on function public.sv_can_access_topic() to authenticated;
 
 alter table realtime.messages enable row level security;
 
--- SELECT = subscribe (org members only)
-create policy "sv hive read" on realtime.messages for select to authenticated
+-- SELECT = subscribe; org members only.
+create policy "sv hive read" on realtime.messages
+  for select to authenticated
   using (public.sv_can_access_topic());
 
--- INSERT = broadcast/presence send; extension guard blocks postgres_changes injection
-create policy "sv hive write" on realtime.messages for insert to authenticated
+-- INSERT = broadcast/presence send; extension guard blocks postgres_changes injection.
+create policy "sv hive write" on realtime.messages
+  for insert to authenticated
   with check (public.sv_can_access_topic() and extension in ('broadcast','presence'));
