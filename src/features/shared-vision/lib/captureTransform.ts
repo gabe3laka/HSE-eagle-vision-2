@@ -112,3 +112,62 @@ export function denormalizeCaptureBox(box: NormalizedBox, t: CaptureTransform): 
     h: box.h * t.captureH,
   };
 }
+
+/**
+ * Build a best-available CaptureTransform from the dimensions Live already
+ * exposes (raw video size, the detector's capture size, the displayed element
+ * size) plus facing/orientation. The capture pipeline cover-crops the raw video
+ * to the capture aspect; we model that center crop so display↔capture point
+ * conversions in the homography wizard stay in the one capture-normalized
+ * domain. Returns null when required dimensions are missing.
+ */
+export function buildCaptureTransform(params: {
+  rawVideoW: number | null | undefined;
+  rawVideoH: number | null | undefined;
+  captureW: number | null | undefined;
+  captureH: number | null | undefined;
+  displayW: number | null | undefined;
+  displayH: number | null | undefined;
+  mirrored: boolean;
+  facing: "user" | "environment";
+  screenOrientationDeg?: number;
+}): CaptureTransform | null {
+  const rawVideoW = params.rawVideoW ?? 0;
+  const rawVideoH = params.rawVideoH ?? 0;
+  const captureW = params.captureW ?? 0;
+  const captureH = params.captureH ?? 0;
+  const displayW = params.displayW ?? 0;
+  const displayH = params.displayH ?? 0;
+  if (rawVideoW <= 0 || rawVideoH <= 0 || captureW <= 0 || captureH <= 0) return null;
+
+  // Center cover-crop of the raw video to the capture aspect ratio.
+  const captureAspect = captureW / captureH;
+  const rawAspect = rawVideoW / rawVideoH;
+  let cropW = rawVideoW;
+  let cropH = rawVideoH;
+  if (rawAspect > captureAspect) {
+    // Raw is wider → crop the sides.
+    cropW = rawVideoH * captureAspect;
+  } else {
+    // Raw is taller → crop top/bottom.
+    cropH = rawVideoW / captureAspect;
+  }
+  const cropX = (rawVideoW - cropW) / 2;
+  const cropY = (rawVideoH - cropH) / 2;
+
+  return {
+    rawVideoW,
+    rawVideoH,
+    cropX,
+    cropY,
+    cropW,
+    cropH,
+    captureW,
+    captureH,
+    displayW: displayW > 0 ? displayW : captureW,
+    displayH: displayH > 0 ? displayH : captureH,
+    mirrored: params.mirrored,
+    facing: params.facing,
+    screenOrientationDeg: params.screenOrientationDeg ?? 0,
+  };
+}

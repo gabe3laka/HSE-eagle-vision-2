@@ -6,6 +6,7 @@ import {
   captureToDisplayPoint,
   displayToCapturePoint,
   displayToCaptureNormPoint,
+  buildCaptureTransform,
   adjustIntrinsicsForCrop,
   normalizeCaptureBox,
   denormalizeCaptureBox,
@@ -107,6 +108,56 @@ describe("displayToCaptureNormPoint", () => {
     const pt = displayToCaptureNormPoint({ x: 375, y: 375 }, portrait);
     expect(pt.x).toBeCloseTo(1, 5);
     expect(pt.y).toBeCloseTo(1, 5);
+  });
+});
+
+describe("buildCaptureTransform", () => {
+  it("center-crops a wide raw video to a square capture", () => {
+    const t = buildCaptureTransform({
+      rawVideoW: 1920,
+      rawVideoH: 1080,
+      captureW: 640,
+      captureH: 640,
+      displayW: 375,
+      displayH: 375,
+      mirrored: false,
+      facing: "environment",
+    })!;
+    expect(t).not.toBeNull();
+    expect(t.cropW).toBeCloseTo(1080, 4);
+    expect(t.cropH).toBeCloseTo(1080, 4);
+    expect(t.cropX).toBeCloseTo((1920 - 1080) / 2, 4);
+    expect(t.cropY).toBeCloseTo(0, 4);
+  });
+
+  it("center-crops a tall raw video to a 16:9 capture", () => {
+    const t = buildCaptureTransform({
+      rawVideoW: 1080,
+      rawVideoH: 1920,
+      captureW: 1280,
+      captureH: 720,
+      displayW: 375,
+      displayH: 667,
+      mirrored: false,
+      facing: "environment",
+    })!;
+    expect(t.cropW).toBeCloseTo(1080, 4);
+    expect(t.cropH).toBeCloseTo(1080 / (1280 / 720), 4);
+  });
+
+  it("returns null when required dimensions are missing", () => {
+    expect(
+      buildCaptureTransform({
+        rawVideoW: 0,
+        rawVideoH: 0,
+        captureW: 640,
+        captureH: 640,
+        displayW: 1,
+        displayH: 1,
+        mirrored: false,
+        facing: "environment",
+      }),
+    ).toBeNull();
   });
 });
 

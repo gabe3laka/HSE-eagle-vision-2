@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useSiteMaps, useOrgCameraDevices } from "../hooks/useSiteMaps";
 import { SiteMapEditor } from "./SiteMapEditor";
 import { CameraPlacementEditor } from "./CameraPlacementEditor";
+import { HomographyCalibrationWizard } from "./HomographyCalibrationWizard";
 import type { SiteMap } from "../hooks/useSiteMaps";
 
 interface Props {
@@ -10,6 +11,14 @@ interface Props {
   userId: string;
   deviceId: string;
   cameraLabel: string;
+  /** Phase 2 homography calibration (optional). When the live camera context is
+   *  provided, a "Calibrate camera (homography)" entry is offered after manual
+   *  placement. Omitting these keeps the panel at Phase 1B manual-map only. */
+  videoRef?: React.RefObject<HTMLVideoElement>;
+  captureW?: number | null;
+  captureH?: number | null;
+  facing?: "user" | "environment";
+  currentHeadingDeg?: number | null;
 }
 
 /**
@@ -27,9 +36,21 @@ interface Props {
  * automatically once this camera and a peer camera both have valid positions,
  * headings, and FOV. Label: "Remote · Camera B · manual map".
  */
-export function ManualMapCalibrationPanel({ orgId, userId, deviceId, cameraLabel }: Props) {
+export function ManualMapCalibrationPanel({
+  orgId,
+  userId,
+  deviceId,
+  cameraLabel,
+  videoRef,
+  captureW = null,
+  captureH = null,
+  facing = "environment",
+  currentHeadingDeg = null,
+}: Props) {
   const [step, setStep] = useState<"map" | "place" | "done">("map");
   const [selectedMap, setSelectedMap] = useState<SiteMap | null>(null);
+  const [calibrating, setCalibrating] = useState(false);
+  const homographyAvailable = !!videoRef;
 
   const { data: maps = [] } = useSiteMaps(orgId);
   const { data: devices = [] } = useOrgCameraDevices(orgId);
@@ -114,6 +135,30 @@ export function ManualMapCalibrationPanel({ orgId, userId, deviceId, cameraLabel
           >
             Update placement
           </Button>
+
+          {/* Phase 2: upgrade this camera from approximate manual map to a
+              ground-plane homography for accurate in-view projection + metric
+              distance. Only offered when the live camera context is wired. */}
+          {homographyAvailable && selectedMap && !calibrating && (
+            <Button size="sm" className="w-full text-xs" onClick={() => setCalibrating(true)}>
+              Calibrate camera (homography)
+            </Button>
+          )}
+
+          {homographyAvailable && selectedMap && calibrating && videoRef && (
+            <HomographyCalibrationWizard
+              orgId={orgId}
+              userId={userId}
+              deviceId={deviceId}
+              siteMap={selectedMap}
+              videoRef={videoRef}
+              captureW={captureW}
+              captureH={captureH}
+              facing={facing}
+              currentHeadingDeg={currentHeadingDeg}
+              onClose={() => setCalibrating(false)}
+            />
+          )}
         </div>
       )}
     </div>

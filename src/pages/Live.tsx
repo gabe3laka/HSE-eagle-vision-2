@@ -368,6 +368,10 @@ export default function Live() {
     hiveDeviceId,
     undefined,
     cameraStability.isMoving,
+    // Phase 2: current heading feeds the receiver pose-lock gate so a rotated
+    // handheld camera drops the exact homography path (→ anchored) rather than
+    // keeping a stale "homography · Xm" label.
+    { currentHeadingDeg: heading.headingDeg },
   );
 
   const onIncidentSaved = useCallback(() => {
@@ -439,7 +443,14 @@ export default function Live() {
     backendEntities: backendEntities as BackendEntity[],
     backendPoses: backendPoses as BackendPose[],
     backendRisk: liveBackendRisk,
-    capture: { w: null, h: null, mirrored: facing === "user", facing },
+    capture: {
+      // Phase 2: surface the detector's real capture dimensions (replacing the
+      // Phase-1 null placeholder) so receivers know the sender's capture frame.
+      w: (backendStatus as BackendStatus | null)?.lastCaptureW ?? null,
+      h: (backendStatus as BackendStatus | null)?.lastCaptureH ?? null,
+      mirrored: facing === "user",
+      facing,
+    },
     session,
   });
 
@@ -1506,6 +1517,11 @@ export default function Live() {
                     userId={user.id}
                     deviceId={hiveDeviceId}
                     cameraLabel={authProfile?.full_name ?? authProfile?.email ?? "This camera"}
+                    videoRef={videoRef}
+                    captureW={(backendStatus as BackendStatus | null)?.lastCaptureW ?? null}
+                    captureH={(backendStatus as BackendStatus | null)?.lastCaptureH ?? null}
+                    facing={facing}
+                    currentHeadingDeg={heading.headingDeg}
                   />
                 )}
                 <RemoteAwarenessPanel peers={projectedPeerList} />
