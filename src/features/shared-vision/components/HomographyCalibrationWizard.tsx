@@ -13,7 +13,7 @@ interface Props {
   deviceId: string;
   siteMap: SiteMap;
   /** Live camera element — its MediaStream is mirrored into the wizard preview. */
-  videoRef: React.RefObject<HTMLVideoElement>;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   /** Detector capture dimensions (from backendStatus). Used for the persisted
    *  CaptureTransform + reprojection-error → pixel conversion. */
   captureW: number | null;

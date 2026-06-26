@@ -14,7 +14,7 @@ interface Props {
   /** Phase 2 homography calibration (optional). When the live camera context is
    *  provided, a "Calibrate camera (homography)" entry is offered after manual
    *  placement. Omitting these keeps the panel at Phase 1B manual-map only. */
-  videoRef?: React.RefObject<HTMLVideoElement>;
+  videoRef?: React.RefObject<HTMLVideoElement | null>;
   captureW?: number | null;
   captureH?: number | null;
   facing?: "user" | "environment";

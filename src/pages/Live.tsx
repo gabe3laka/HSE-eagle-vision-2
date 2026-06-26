@@ -121,6 +121,8 @@ import { SharedVisionControls } from "@/features/shared-vision/components/Shared
 import { RemoteAwarenessPanel } from "@/features/shared-vision/components/RemoteAwarenessPanel";
 import { RemoteRiskFeed } from "@/features/shared-vision/components/RemoteRiskFeed";
 import { ManualMapCalibrationPanel } from "@/features/shared-vision/components/ManualMapCalibrationPanel";
+import { HiveProjectionReadinessPanel } from "@/features/shared-vision/components/HiveProjectionReadinessPanel";
+import { buildProjectionReadiness } from "@/features/shared-vision/hooks/useProjectionReadiness";
 import type {
   BlueprintWorkflowMode,
   BuildGesture,
@@ -469,6 +471,34 @@ export default function Live() {
   const projectedPeerList = useMemo(
     () => [...projectedRemotePeers.values()],
     [projectedRemotePeers],
+  );
+
+  // Dev-only Hive projection diagnostics (Step 4). Gated behind VITE_HIVE_DEBUG
+  // so it never ships to operators. Pure snapshot — no effect on projection.
+  const hiveDebug = hiveEnabled && readFlag("VITE_HIVE_DEBUG");
+  const projectionReadiness = useMemo(
+    () =>
+      hiveDebug
+        ? buildProjectionReadiness({
+            hiveEnabled,
+            orgId: selectedOrgId,
+            sharedSessionId,
+            deviceId: hiveDeviceId,
+            receiverStable: !cameraStability.isMoving,
+            peers: projectedPeerList,
+            localCalibration,
+          })
+        : null,
+    [
+      hiveDebug,
+      hiveEnabled,
+      selectedOrgId,
+      sharedSessionId,
+      hiveDeviceId,
+      cameraStability.isMoving,
+      projectedPeerList,
+      localCalibration,
+    ],
   );
 
   // Reasoner scene-reasoning heartbeat (HSE only). Runs at a low frequency,
@@ -1526,6 +1556,9 @@ export default function Live() {
                 )}
                 <RemoteAwarenessPanel peers={projectedPeerList} />
                 <RemoteRiskFeed risks={remoteRisks} />
+                {projectionReadiness && (
+                  <HiveProjectionReadinessPanel readiness={projectionReadiness} />
+                )}
               </>
             )}
 
