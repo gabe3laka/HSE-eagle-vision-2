@@ -127,7 +127,9 @@ export function projectRemoteEntityToLocal(
   const foot = getEntityFootPoint(entity);
   const projected = applyHomography(cal.homography, foot.x, foot.y);
   if (!projected) return null;
-  return estimateProjectedBox(entity, projected, cal.method);
+  const box = estimateProjectedBox(entity, projected, cal.method);
+  // Use calibration confidence as the projection quality signal for homography/marker
+  return { ...box, confidence: cal.confidence };
 }
 
 export function isProjectionFresh(expiresAt: number | null): boolean {

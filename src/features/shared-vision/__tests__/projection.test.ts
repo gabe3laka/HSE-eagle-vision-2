@@ -37,6 +37,7 @@ function makePeer(overrides: Partial<RemotePeerState> = {}): RemotePeerState {
     poses: [],
     sceneRisks: [],
     riskSummary: null,
+    projectedEntities: [],
     ...overrides,
   };
 }
@@ -66,7 +67,7 @@ describe("getEntityFootPoint", () => {
 
   it("uses groundPointRemote when present", () => {
     const e = makeEntity({
-      groundPointRemote: { x: 0.5, y: 0.8, confidence: 0.9, method: "pose_ankles" },
+      groundPointRemote: { x: 0.5, y: 0.8, confidence: 0.9, method: "worker_pose_ankles" },
     });
     const fp = getEntityFootPoint(e);
     expect(fp.x).toBe(0.5);
@@ -145,12 +146,6 @@ describe("canRenderProjectedRemoteEntity", () => {
   it("returns true with valid identity homography projecting into viewport", () => {
     const entity = makeEntity({
       bboxRemote: { x: 0.3, y: 0.2, w: 0.15, h: 0.4 },
-      projectedLocal: {
-        bbox: { x: 0.3, y: 0.2, w: 0.15, h: 0.4 },
-        footPoint: { x: 0.375, y: 0.6 },
-        confidence: 0.8,
-        method: "homography_4pt",
-      },
     });
     expect(canRenderProjectedRemoteEntity(entity, makePeer(), makeCal(), true)).toBe(true);
   });

@@ -37,6 +37,7 @@ export interface CameraPlacement {
   heading_deg: number | null;
   fov_deg: number | null;
   placement_accuracy: string;
+  updated_at?: string;
 }
 
 // --- Hooks ---
