@@ -106,7 +106,10 @@ import { isRecordTargetPhase, isStopTargetPhase } from "@/features/build-mode/li
 import { readFlag } from "@/lib/featureFlags";
 import { useOrg } from "@/features/organizations/context/OrgContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { useSharedVision } from "@/features/shared-vision/hooks/useSharedVision";
+import {
+  useSharedVision,
+  getOrCreateDeviceId,
+} from "@/features/shared-vision/hooks/useSharedVision";
 import { useLocalPeerCalibrations } from "@/features/shared-vision/hooks/useLocalPeerCalibrations";
 import { useDeviceOrientation } from "@/features/shared-vision/hooks/useDeviceOrientation";
 import { usePeerBearings } from "@/features/shared-vision/hooks/usePeerBearings";
@@ -115,6 +118,7 @@ import { DirectionalRemotePortal } from "@/features/shared-vision/components/Dir
 import { SharedVisionControls } from "@/features/shared-vision/components/SharedVisionControls";
 import { RemoteAwarenessPanel } from "@/features/shared-vision/components/RemoteAwarenessPanel";
 import { RemoteRiskFeed } from "@/features/shared-vision/components/RemoteRiskFeed";
+import { ManualMapCalibrationPanel } from "@/features/shared-vision/components/ManualMapCalibrationPanel";
 import type {
   BlueprintWorkflowMode,
   BuildGesture,
@@ -352,7 +356,12 @@ export default function Live() {
   const { user, session, profile: authProfile } = useAuth();
   const heading = useDeviceOrientation({ enabled: hiveEnabled });
   const { bearings, pairPeer, clearPeer } = usePeerBearings();
-  const localCalibration = useLocalPeerCalibrations();
+  // Stable per-tab deviceId read early (same value useSharedVision uses internally).
+  const hiveDeviceId = useMemo(() => (hiveEnabled ? getOrCreateDeviceId() : null), [hiveEnabled]);
+  const localCalibration = useLocalPeerCalibrations(
+    hiveEnabled ? selectedOrgId : null,
+    hiveDeviceId,
+  );
 
   const onIncidentSaved = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
@@ -1272,6 +1281,7 @@ export default function Live() {
             <ProjectedRemoteOverlay
               peers={[...remotePeers.values()]}
               localCalibration={localCalibration}
+              localFacing={facing}
               hseActive={hseActive}
               fallback={
                 <DirectionalRemotePortal
@@ -1464,6 +1474,15 @@ export default function Live() {
                   onPair={(id) => pairPeer(id, heading.headingDeg)}
                   onUnpair={clearPeer}
                 />
+                {selectedOrgId && hiveDeviceId && user?.id && (
+                  <ManualMapCalibrationPanel
+                    orgId={selectedOrgId}
+                    userId={user.id}
+                    deviceId={hiveDeviceId}
+                    cameraLabel={authProfile?.full_name ?? authProfile?.email ?? "This camera"}
+                    onCalibrationReady={() => {}}
+                  />
+                )}
                 <RemoteAwarenessPanel peers={[...remotePeers.values()]} />
                 <RemoteRiskFeed risks={remoteRisks} />
               </>

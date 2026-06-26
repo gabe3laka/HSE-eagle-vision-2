@@ -2,12 +2,24 @@ CREATE TABLE shared_vision_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   owner_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  monitoring_session_id uuid REFERENCES monitoring_sessions(id) ON DELETE SET NULL,
+  monitoring_session_id uuid,
   label text,
   status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','ended')),
   started_at timestamptz DEFAULT now(),
   ended_at timestamptz
 );
+-- Guarded FK: add only when monitoring_sessions exists (it lives on remote, not in repo migrations).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables
+             WHERE table_schema='public' AND table_name='monitoring_sessions') THEN
+    ALTER TABLE shared_vision_sessions
+      ADD CONSTRAINT shared_vision_sessions_monitoring_session_id_fkey
+      FOREIGN KEY (monitoring_session_id)
+      REFERENCES public.monitoring_sessions(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
 ALTER TABLE shared_vision_sessions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "sv_sessions_select" ON shared_vision_sessions FOR SELECT TO authenticated
   USING (public.is_org_member(org_id));
@@ -36,8 +48,8 @@ CREATE POLICY "sv_peers_select" ON shared_vision_peers FOR SELECT TO authenticat
 CREATE POLICY "sv_peers_self" ON shared_vision_peers FOR ALL TO authenticated
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- Device registry for labeling and Phase 2+ map placement.
--- user_id is NOT NULL + CASCADE so orphan rows never occur.
+-- Device registry for labeling and Phase 1B+ map placement.
+-- user_id NOT NULL + CASCADE so orphan rows never occur.
 CREATE TABLE org_camera_devices (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

@@ -3,7 +3,7 @@
 create or replace function public.sv_topic_org()
   returns uuid language sql stable security definer set search_path = '' as $$
   select case
-    when split_part(realtime.topic(), ':', 2) ~ '^[0-9a-fA-F-]{36}$'
+    when split_part(realtime.topic(), ':', 2) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
     then split_part(realtime.topic(), ':', 2)::uuid
     else null
   end;

@@ -14,7 +14,7 @@ const RISK_EXPIRE_MS = 8_000;
 
 const DEVICE_ID_KEY = "hse_device_id";
 
-function getOrCreateDeviceId(): string {
+export function getOrCreateDeviceId(): string {
   try {
     let id = localStorage.getItem(DEVICE_ID_KEY);
     if (!id) {
@@ -64,6 +64,7 @@ export interface UseSharedVisionResult {
   remoteRisks: Array<SvRemoteRiskMessage & { expiresAt: number }>;
   isConnected: boolean;
   sharedSessionId: string | null;
+  deviceId: string;
   startSession: (label?: string) => Promise<void>;
   leaveSession: () => Promise<void>;
 }
@@ -131,9 +132,14 @@ export function useSharedVision({
             projection: payload.projection,
             capture: payload.capture,
             entities: payload.entities,
-            poses: payload.poses,
+            poses: payload.poses ?? [],
             sceneRisks: payload.sceneRisks,
             riskSummary: payload.riskSummary,
+            // projectedEntities is always computed locally by the receiver from
+            // LocalPeerCalibration — never from the broadcast payload.
+            // Phase 1: no calibration → always []. Populated in Phase 1B+ when
+            // a valid transform exists (see ProjectedRemoteOverlay computation).
+            projectedEntities: [],
           });
           return next;
         });
@@ -248,13 +254,14 @@ export function useSharedVision({
       label: e.label,
       confidence: e.confidence ?? 0,
       bboxRemote: e.bbox ?? { x: 0, y: 0, w: 0, h: 0 },
+      class_id: (e as { class_id?: number | null }).class_id ?? null,
+      source: (e as { source?: string | null }).source ?? null,
       track_id: e.track_id,
       risk_level: e.risk_level,
       risk_reason: e.risk_reason,
       recommended_action: e.recommended_action,
       groundPointRemote: null,
       worldPoint: null,
-      projectedLocal: null,
     }));
 
     const msg: SvFrameMessage = {
@@ -326,5 +333,13 @@ export function useSharedVision({
     [unsubscribeChannel],
   );
 
-  return { remotePeers, remoteRisks, isConnected, sharedSessionId, startSession, leaveSession };
+  return {
+    remotePeers,
+    remoteRisks,
+    isConnected,
+    sharedSessionId,
+    deviceId: deviceId.current,
+    startSession,
+    leaveSession,
+  };
 }

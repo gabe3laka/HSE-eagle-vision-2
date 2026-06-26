@@ -3,7 +3,9 @@ import type {
   RemotePeerState,
   LocalPeerCalibration,
   ProjectedLocalBox,
+  ProjectedRemoteEntity,
   ProjectionMethod,
+  MapCameraPlacement,
 } from "../types";
 
 const MIN_PROJECTION_CONFIDENCE = 0.65;
@@ -12,18 +14,19 @@ const CALIBRATION_TTL_MS = 30_000;
 const PEER_STALE_TTL_MS = 5_000;
 const REMOTE_FRAME_MAX_AGE_MS = 6_000;
 
-/** Derive the best ground contact point for an entity in sender image space. */
+/** Derive the best ground contact point for an entity in sender image space.
+ *  Uses worker_pose_ankles when the worker returned pose data with confident
+ *  ankle keypoints; otherwise falls back to bbox_bottom_center. */
 export function getEntityFootPoint(entity: RemoteHiveEntity): {
   x: number;
   y: number;
-  method: "bbox_bottom_center" | "pose_ankles" | "manual";
+  method: "bbox_bottom_center" | "worker_pose_ankles" | "manual";
 } {
   if (entity.groundPointRemote) {
     return {
       x: entity.groundPointRemote.x,
       y: entity.groundPointRemote.y,
-      method:
-        entity.groundPointRemote.method === "manual" ? "manual" : entity.groundPointRemote.method,
+      method: entity.groundPointRemote.method,
     };
   }
   const b = entity.bboxRemote;
@@ -56,11 +59,70 @@ export function estimateProjectedBox(
   };
 }
 
-/** Project a remote entity into the local view using a calibration transform. */
+/**
+ * Phase 1B manual map projection: given both cameras' map placements,
+ * estimate where Camera B's entity would appear in Camera A's view.
+ *
+ * This is an approximate angular projection — not geometrically precise.
+ * Labels show "Remote · Camera B · manual map" to communicate the approximation.
+ * Confidence is set to 0.70 (visible as dashed ghost, below solid threshold 0.85).
+ */
+function projectManualMap(
+  entity: RemoteHiveEntity,
+  local: MapCameraPlacement,
+  peer: MapCameraPlacement,
+  assumedDistanceM: number,
+): ProjectedLocalBox | null {
+  const foot = getEntityFootPoint(entity);
+
+  // Convert entity's x in peer image space to an absolute bearing from the peer camera
+  const fxCenter = foot.x - 0.5;
+  const bearingFromPeerDeg = peer.heading_deg + fxCenter * peer.fov_deg;
+  const bearingFromPeerRad = (bearingFromPeerDeg * Math.PI) / 180;
+
+  // Estimate entity world position (assuming a fixed distance from the peer camera)
+  const entityX = peer.x_m + assumedDistanceM * Math.sin(bearingFromPeerRad);
+  const entityY = peer.y_m + assumedDistanceM * Math.cos(bearingFromPeerRad);
+
+  // Compute bearing from local camera to the estimated entity position
+  const dx = entityX - local.x_m;
+  const dy = entityY - local.y_m;
+  const distToLocal = Math.sqrt(dx * dx + dy * dy);
+  if (distToLocal < 0.1) return null;
+
+  const bearingToEntityDeg = (Math.atan2(dx, dy) * 180) / Math.PI;
+  let relativeAngle = bearingToEntityDeg - local.heading_deg;
+  // Normalize to (-180, 180]
+  while (relativeAngle > 180) relativeAngle -= 360;
+  while (relativeAngle <= -180) relativeAngle += 360;
+
+  // If outside 1.5× local FOV, the entity is not visible in Camera A's view
+  const localFovHalf = local.fov_deg / 2;
+  if (Math.abs(relativeAngle) > localFovHalf * 1.5) return null;
+
+  // Map relative angle to normalized x in Camera A's image
+  const projectedX = Math.max(0, Math.min(1, 0.5 + relativeAngle / local.fov_deg));
+  // Keep approximate y from the entity's bbox (vertical position in view)
+  const projectedFoot = { x: projectedX, y: Math.max(0.3, Math.min(0.9, foot.y)) };
+
+  const box = estimateProjectedBox(entity, projectedFoot, "manual_map");
+  return { ...box, confidence: 0.7 };
+}
+
+/** Project a remote entity into the local view using a calibration transform.
+ *  Supports both Tier 1 (manual_map) and Tier 2 (homography_4pt) projection. */
 export function projectRemoteEntityToLocal(
   entity: RemoteHiveEntity,
   cal: LocalPeerCalibration,
 ): ProjectedLocalBox | null {
+  if (cal.method === "manual_map" && cal.mapTransform) {
+    return projectManualMap(
+      entity,
+      cal.mapTransform.localCamera,
+      cal.mapTransform.peerCamera,
+      cal.mapTransform.assumedDistanceM,
+    );
+  }
   if (!cal.homography || cal.homography.length !== 9) return null;
   const foot = getEntityFootPoint(entity);
   const projected = applyHomography(cal.homography, foot.x, foot.y);
@@ -104,10 +166,36 @@ export function canRenderProjectedRemoteEntity(
   if (cal.confidence < MIN_CALIBRATION_CONFIDENCE) return false;
   if (!isProjectionFresh(cal.expiresAt)) return false;
 
-  const projected = entity.projectedLocal ?? projectRemoteEntityToLocal(entity, cal);
+  const projected = projectRemoteEntityToLocal(entity, cal);
   if (!projected) return false;
   if (!isProjectionConfidenceHighEnough(projected.confidence)) return false;
   if (!isInsideViewport(projected)) return false;
 
   return true;
+}
+
+/** Build a ProjectedRemoteEntity from a sender entity + receiver calibration.
+ *  Returns null when the calibration cannot project the entity (Phase 1: always null). */
+export function buildProjectedRemoteEntity(
+  entity: RemoteHiveEntity,
+  cal: LocalPeerCalibration,
+  sourceDeviceId: string,
+): ProjectedRemoteEntity | null {
+  const box = projectRemoteEntityToLocal(entity, cal);
+  if (!box) return null;
+  if (!isProjectionConfidenceHighEnough(box.confidence)) return null;
+  if (!isInsideViewport(box)) return null;
+  const reason =
+    cal.method === "manual_map"
+      ? "manual_map"
+      : cal.method === "homography_4pt"
+        ? "homography_4pt"
+        : "marker";
+  return {
+    ...entity,
+    projectedLocal: box,
+    projectedAt: Date.now(),
+    sourceDeviceId,
+    projectionReason: reason,
+  };
 }

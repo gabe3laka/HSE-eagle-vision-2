@@ -2,11 +2,11 @@ import type { PortalPlacement } from "../types";
 
 export const PORTAL_HALF_FOV_DEG = 33;
 
-/** Wrap angle to (-180, 180]. */
+/** Wrap angle to [-180, 180): 180 maps to -180, -180 stays -180. */
 export function normalize180(deg: number): number {
   let r = deg % 360;
-  if (r > 180) r -= 360;
-  else if (r <= -180) r += 360;
+  if (r >= 180) r -= 360;
+  else if (r < -180) r += 360;
   return r;
 }
 

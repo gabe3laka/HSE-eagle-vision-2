@@ -1,6 +1,7 @@
 import type { RemotePeerState, LocalPeerCalibration } from "../types";
 import { canRenderProjectedRemoteEntity, projectRemoteEntityToLocal } from "../lib/projection";
 import { riskLevelColor, normalizeRiskLevel } from "@/lib/detection/riskTypes";
+import { mirrorBox } from "@/lib/detection/mirror";
 
 const MAGENTA_BORDER = "rgba(217,50,230,0.9)";
 
@@ -11,19 +12,31 @@ function clamp01(v: number) {
 /**
  * Headline Hive overlay: draws Camera B's detections into Camera A's live view
  * as magenta ghost boxes when a valid projection exists.
- * When projection gates fail, renders the `fallback` prop instead.
+ *
+ * Projection ownership: entities are sender-space; each receiver computes
+ * projectedLocal locally from its own LocalPeerCalibration. Never reads
+ * projectedLocal from the broadcast wire.
+ *
+ * Mirror: projected boxes are run through mirrorBox with the LOCAL camera's
+ * facing so front-camera receivers don't left/right-flip remote ghosts.
+ *
+ * When projection gates fail for all peers, renders the `fallback` prop.
+ * Local HSE overlay (later sibling in CameraView) always draws on top.
  */
 export function ProjectedRemoteOverlay({
   peers,
   localCalibration,
+  localFacing = "environment",
   hseActive = true,
   fallback,
 }: {
   peers: RemotePeerState[];
   localCalibration: Map<string, LocalPeerCalibration>;
+  localFacing?: "user" | "environment";
   hseActive?: boolean;
   fallback?: React.ReactNode;
 }) {
+  const localMirrored = localFacing === "user";
   let anyProjected = false;
   const projected: React.ReactNode[] = [];
 
@@ -31,24 +44,44 @@ export function ProjectedRemoteOverlay({
     const cal = localCalibration.get(peer.deviceId) ?? null;
     for (const entity of peer.entities) {
       if (!canRenderProjectedRemoteEntity(entity, peer, cal, hseActive)) continue;
+      // Compute projection locally — receiver owns projection, never reads from wire.
+      const rawBox = projectRemoteEntityToLocal(entity, cal!);
+      if (!rawBox) continue;
+
+      // Mirror with the local camera's facing so front-camera receivers align correctly.
+      const box = mirrorBox(rawBox.bbox, localMirrored);
+
       anyProjected = true;
-      const box = entity.projectedLocal ?? (cal ? projectRemoteEntityToLocal(entity, cal) : null);
-      if (!box) continue;
 
       const riskLevel = normalizeRiskLevel(entity.risk_level ?? null, null);
       const color = riskLevel && riskLevel !== "GREEN" ? riskLevelColor(riskLevel) : MAGENTA_BORDER;
-      const label = `Remote · ${peer.deviceLabel ?? peer.deviceId.slice(0, 6)} · ${entity.label}`;
+      const deviceLabel = peer.deviceLabel ?? peer.deviceId.slice(0, 6);
+      const label = `Remote · ${deviceLabel} · ${entity.label}`;
       const key = `${peer.deviceId}-${entity.id ?? entity.label}-${entity.bboxRemote.x}`;
+
+      // Confidence-driven border: solid ≥0.85, dashed 0.65–0.85
+      const borderStyle = rawBox.confidence >= 0.85 ? "solid" : "dashed";
+
+      // Method label per projection tier
+      const methodLabel =
+        rawBox.method === "manual_map"
+          ? "manual map"
+          : rawBox.method === "homography_4pt"
+            ? "homography"
+            : rawBox.method === "marker"
+              ? "calibrated"
+              : rawBox.method;
 
       projected.push(
         <div
           key={key}
-          className="absolute rounded-md border-2 border-dashed"
+          className="absolute rounded-md border-2"
           style={{
-            left: `${clamp01(box.bbox.x) * 100}%`,
-            top: `${clamp01(box.bbox.y) * 100}%`,
-            width: `${clamp01(box.bbox.w) * 100}%`,
-            height: `${clamp01(box.bbox.h) * 100}%`,
+            left: `${clamp01(box.x) * 100}%`,
+            top: `${clamp01(box.y) * 100}%`,
+            width: `${clamp01(box.w) * 100}%`,
+            height: `${clamp01(box.h) * 100}%`,
+            borderStyle,
             borderColor: color,
             opacity: 0.72,
             boxShadow: `0 0 0 1px rgba(0,0,0,0.3), 0 0 10px ${color}`,
@@ -64,7 +97,7 @@ export function ProjectedRemoteOverlay({
             className="absolute -bottom-5 left-0 whitespace-nowrap rounded px-1 py-0.5 text-[9px] font-medium text-white/80"
             style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
           >
-            {box.method} · {Math.round(box.confidence * 100)}%
+            {methodLabel} · {Math.round(rawBox.confidence * 100)}%
           </span>
         </div>,
       );
