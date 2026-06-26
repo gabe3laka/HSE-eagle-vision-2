@@ -201,3 +201,39 @@ export function buildProjectedRemoteEntity(
     projectionReason: reason,
   };
 }
+
+/**
+ * Receiver-side projection pipeline for one peer.
+ *
+ * The sender owns detection; the receiver owns projection. This walks the
+ * peer's sender-space entities and computes each entity's projectedLocal box
+ * using THIS receiver's LocalPeerCalibration for that peer. The result is the
+ * `projectedEntities` array stored on RemotePeerState and rendered by
+ * ProjectedRemoteOverlay.
+ *
+ * Detection boxes are the primary source: projection uses bboxRemote /
+ * groundPointRemote (bbox bottom-center by default). Worker-provided pose is
+ * never required — if absent, box-only projection still works. The app never
+ * generates pose.
+ *
+ * Phase 1: calibration is always null → returns [] → fallback UI only.
+ * Phase 1B+: returns projected entities that pass every render gate.
+ */
+export function buildProjectedRemoteEntities(params: {
+  peer: RemotePeerState;
+  calibration: LocalPeerCalibration | null;
+  hseActive: boolean;
+}): ProjectedRemoteEntity[] {
+  const { peer, calibration, hseActive } = params;
+  if (!calibration) return [];
+
+  const projected: ProjectedRemoteEntity[] = [];
+  for (const entity of peer.entities) {
+    // Master gate: peer freshness, calibration status/confidence/freshness,
+    // projection confidence, viewport bounds, hseActive.
+    if (!canRenderProjectedRemoteEntity(entity, peer, calibration, hseActive)) continue;
+    const entityProjection = buildProjectedRemoteEntity(entity, calibration, peer.deviceId);
+    if (entityProjection) projected.push(entityProjection);
+  }
+  return projected;
+}

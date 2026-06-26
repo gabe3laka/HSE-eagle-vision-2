@@ -149,10 +149,14 @@ export interface SvRemoteRiskMessage {
   hazard_type: string;
   severity: "low" | "medium" | "high" | "critical";
   confidence: number;
+  /** True when the sender believes this risk can be localized into a receiver
+   *  view. Receivers still validate against their own LocalPeerCalibration. */
   localizable: boolean;
+  // Sender-space only. Receivers project locally if they hold a transform.
+  // NOTE: no projected_local here — projection is receiver-owned and never on
+  // the wire (same rule as RemoteHiveEntity).
   remote_bbox_norm: { x: number; y: number; w: number; h: number } | null;
   worldPoint?: { x_m: number; y_m: number; z_m: number; confidence: number } | null;
-  projected_local: ProjectedLocalBox | null;
 }
 
 /** Scaffold only — Phase 3+ targeted projection (not used in Phases 1–2). */

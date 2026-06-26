@@ -111,6 +111,8 @@ import {
   getOrCreateDeviceId,
 } from "@/features/shared-vision/hooks/useSharedVision";
 import { useLocalPeerCalibrations } from "@/features/shared-vision/hooks/useLocalPeerCalibrations";
+import { useProjectedRemotePeers } from "@/features/shared-vision/hooks/useProjectedRemotePeers";
+import { useCameraStability } from "@/features/shared-vision/hooks/useCameraStability";
 import { useDeviceOrientation } from "@/features/shared-vision/hooks/useDeviceOrientation";
 import { usePeerBearings } from "@/features/shared-vision/hooks/usePeerBearings";
 import { ProjectedRemoteOverlay } from "@/features/shared-vision/components/ProjectedRemoteOverlay";
@@ -358,9 +360,14 @@ export default function Live() {
   const { bearings, pairPeer, clearPeer } = usePeerBearings();
   // Stable per-tab deviceId read early (same value useSharedVision uses internally).
   const hiveDeviceId = useMemo(() => (hiveEnabled ? getOrCreateDeviceId() : null), [hiveEnabled]);
+  // Handheld-movement gate: when the receiving camera is moving, manual-map
+  // in-scene overlays are suppressed (fallback portal/awareness/feed remain).
+  const cameraStability = useCameraStability(hiveEnabled);
   const localCalibration = useLocalPeerCalibrations(
     hiveEnabled ? selectedOrgId : null,
     hiveDeviceId,
+    undefined,
+    cameraStability.isMoving,
   );
 
   const onIncidentSaved = useCallback(() => {
@@ -433,6 +440,20 @@ export default function Live() {
     capture: { w: null, h: null, mirrored: facing === "user", facing },
     session,
   });
+
+  // Receiver-side projection: compute each peer's projectedEntities locally from
+  // this device's LocalPeerCalibration. The overlay/portal/panels all read from
+  // these projected peers — projection ownership stays on the receiver and never
+  // travels on the wire. Phase 1 (no calibration) → projectedEntities is [].
+  const projectedRemotePeers = useProjectedRemotePeers({
+    remotePeers,
+    localCalibration,
+    hseActive,
+  });
+  const projectedPeerList = useMemo(
+    () => [...projectedRemotePeers.values()],
+    [projectedRemotePeers],
+  );
 
   // Reasoner scene-reasoning heartbeat (HSE only). Runs at a low frequency,
   // never replaces backendEntities/backendPoses/backendSegments. Merged into the
@@ -1277,15 +1298,13 @@ export default function Live() {
           ) : null
         }
         remoteOverlay={
-          hiveEnabled && remotePeers.size > 0 ? (
+          hiveEnabled && projectedRemotePeers.size > 0 ? (
             <ProjectedRemoteOverlay
-              peers={[...remotePeers.values()]}
-              localCalibration={localCalibration}
+              peers={projectedPeerList}
               localFacing={facing}
-              hseActive={hseActive}
               fallback={
                 <DirectionalRemotePortal
-                  peers={[...remotePeers.values()]}
+                  peers={projectedPeerList}
                   bearings={bearings}
                   headingDeg={heading.headingDeg}
                 />
@@ -1464,7 +1483,7 @@ export default function Live() {
             {hiveEnabled && (
               <>
                 <SharedVisionControls
-                  peers={[...remotePeers.values()]}
+                  peers={projectedPeerList}
                   isConnected={hiveConnected}
                   sharedSessionId={sharedSessionId}
                   heading={heading}
@@ -1480,10 +1499,9 @@ export default function Live() {
                     userId={user.id}
                     deviceId={hiveDeviceId}
                     cameraLabel={authProfile?.full_name ?? authProfile?.email ?? "This camera"}
-                    onCalibrationReady={() => {}}
                   />
                 )}
-                <RemoteAwarenessPanel peers={[...remotePeers.values()]} />
+                <RemoteAwarenessPanel peers={projectedPeerList} />
                 <RemoteRiskFeed risks={remoteRisks} />
               </>
             )}

@@ -4,35 +4,30 @@ import { useSiteMaps, useOrgCameraDevices } from "../hooks/useSiteMaps";
 import { SiteMapEditor } from "./SiteMapEditor";
 import { CameraPlacementEditor } from "./CameraPlacementEditor";
 import type { SiteMap } from "../hooks/useSiteMaps";
-import type { LocalPeerCalibration } from "../types";
 
 interface Props {
   orgId: string;
   userId: string;
   deviceId: string;
   cameraLabel: string;
-  onCalibrationReady: (cal: LocalPeerCalibration) => void;
 }
 
 /**
- * Phase 1B: Manual map calibration panel.
+ * Phase 1B: Manual map placement panel.
  *
  * Guides the operator through:
  *  1. Select or create a site map
  *  2. Place this camera on the map (position + heading + FOV)
  *  3. Review peer camera placements
  *
- * When both Camera A and Camera B have placements on the same map, the
- * projection engine can compute approximate in-scene ghost overlays.
- * Label: "Remote · Camera B · manual map"
+ * This panel ONLY persists camera placement into org_camera_devices. It does
+ * NOT emit a render-ready calibration — useLocalPeerCalibrations is the single
+ * source that builds valid manual_map LocalPeerCalibration objects from BOTH
+ * the local and peer camera placements. Manual-map projection then activates
+ * automatically once this camera and a peer camera both have valid positions,
+ * headings, and FOV. Label: "Remote · Camera B · manual map".
  */
-export function ManualMapCalibrationPanel({
-  orgId,
-  userId,
-  deviceId,
-  cameraLabel,
-  onCalibrationReady,
-}: Props) {
+export function ManualMapCalibrationPanel({ orgId, userId, deviceId, cameraLabel }: Props) {
   const [step, setStep] = useState<"map" | "place" | "done">("map");
   const [selectedMap, setSelectedMap] = useState<SiteMap | null>(null);
 
@@ -46,26 +41,11 @@ export function ManualMapCalibrationPanel({
     setStep("place");
   }
 
-  function handlePlacementSaved(placement: {
-    mapXM: number;
-    mapYM: number;
-    headingDeg: number;
-    fovDeg: number;
-  }) {
-    // Build a manual_map calibration stub. Real projection math lives in projection.ts.
-    // Confidence is intentionally modest (0.5) — manual map is approximate.
-    const cal: LocalPeerCalibration = {
-      peerDeviceId: deviceId,
-      status: "manual_map",
-      method: "manual_map",
-      confidence: 0.5,
-      transformId: `manual_map:${deviceId}:${Date.now()}`,
-      expiresAt: null,
-      homography: null,
-    };
-    onCalibrationReady(cal);
+  function handlePlacementSaved() {
+    // Placement is persisted by CameraPlacementEditor into org_camera_devices.
+    // No fake calibration is created here — useLocalPeerCalibrations derives the
+    // real manual_map transform from local + peer placements.
     setStep("done");
-    void placement;
   }
 
   const peerDevices = devices.filter((d) => d.device_id !== deviceId && d.map_x_m !== null);
@@ -99,8 +79,9 @@ export function ManualMapCalibrationPanel({
       {step === "done" && (
         <div className="space-y-3">
           <div className="rounded bg-green-950/40 border border-green-800/40 px-3 py-2 text-xs text-green-300">
-            Camera placed on map. Remote detections from calibrated peers will appear as{" "}
-            <span className="font-semibold">Remote · {cameraLabel} · manual map</span>.
+            Camera placement saved. Manual-map projection activates when this camera and a peer
+            camera both have valid map positions, headings, and FOV. Projected detections then
+            appear as <span className="font-semibold">Remote · {cameraLabel} · manual map</span>.
           </div>
 
           {peerDevices.length > 0 && (

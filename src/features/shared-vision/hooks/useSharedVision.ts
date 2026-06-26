@@ -14,6 +14,10 @@ const RISK_EXPIRE_MS = 8_000;
 
 const DEVICE_ID_KEY = "hse_device_id";
 
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
 export function getOrCreateDeviceId(): string {
   try {
     let id = localStorage.getItem(DEVICE_ID_KEY);
@@ -249,20 +253,34 @@ export function useSharedVision({
     if (now - lastFrameSentAt.current < FRAME_GATE_MS) return;
     lastFrameSentAt.current = now;
 
-    const entities = backendEntities.map((e) => ({
-      id: e.track_id ? String(e.track_id) : undefined,
-      label: e.label,
-      confidence: e.confidence ?? 0,
-      bboxRemote: e.bbox ?? { x: 0, y: 0, w: 0, h: 0 },
-      class_id: (e as { class_id?: number | null }).class_id ?? null,
-      source: (e as { source?: string | null }).source ?? null,
-      track_id: e.track_id,
-      risk_level: e.risk_level,
-      risk_reason: e.risk_reason,
-      recommended_action: e.recommended_action,
-      groundPointRemote: null,
-      worldPoint: null,
-    }));
+    const entities = backendEntities.map((e) => {
+      const bbox = e.bbox ?? { x: 0, y: 0, w: 0, h: 0 };
+      // Default ground contact = bbox bottom-center, in the sender image plane.
+      // Box-first: works with detection boxes alone and never requires pose.
+      // TODO: if worker-provided backendPoses can be reliably associated with this
+      // entity, upgrade groundPointRemote.method to "worker_pose_ankles" using the
+      // confident ankle keypoints. The app never generates pose itself.
+      const groundPointRemote = {
+        x: clamp01(bbox.x + bbox.w / 2),
+        y: clamp01(bbox.y + bbox.h),
+        confidence: Math.min(0.75, e.confidence ?? 0.75),
+        method: "bbox_bottom_center" as const,
+      };
+      return {
+        id: e.track_id ? String(e.track_id) : undefined,
+        label: e.label,
+        confidence: e.confidence ?? 0,
+        bboxRemote: bbox,
+        class_id: (e as { class_id?: number | null }).class_id ?? null,
+        source: (e as { source?: string | null }).source ?? null,
+        track_id: e.track_id,
+        risk_level: e.risk_level,
+        risk_reason: e.risk_reason,
+        recommended_action: e.recommended_action,
+        groundPointRemote,
+        worldPoint: null,
+      };
+    });
 
     const msg: SvFrameMessage = {
       kind: "sv_frame",
@@ -283,6 +301,9 @@ export function useSharedVision({
       calibration: makeDefaultCalibration(),
       projection: makeDefaultProjection(),
       entities,
+      // Optional, worker-owned. The app NEVER generates pose/skeletons — these
+      // are only the worker's backendPoses forwarded as-is. Empty when the worker
+      // did not run pose tasks; Hive works box-only without them.
       poses: backendPoses,
       sceneRisks: backendRisk?.sceneRisks ?? [],
       riskSummary: backendRisk?.riskSummary ?? null,

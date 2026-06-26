@@ -5,6 +5,7 @@ import {
   isProjectionConfidenceHighEnough,
   isInsideViewport,
   canRenderProjectedRemoteEntity,
+  buildProjectedRemoteEntities,
 } from "../lib/projection";
 import type { RemoteHiveEntity, RemotePeerState, LocalPeerCalibration } from "../types";
 
@@ -148,5 +149,118 @@ describe("canRenderProjectedRemoteEntity", () => {
       bboxRemote: { x: 0.3, y: 0.2, w: 0.15, h: 0.4 },
     });
     expect(canRenderProjectedRemoteEntity(entity, makePeer(), makeCal(), true)).toBe(true);
+  });
+});
+
+/** Valid manual-map calibration: local camera 5m south of the peer, both facing
+ *  north, 65° FOV. A centred peer detection lands inside Camera A's view. */
+function makeManualMapCal(overrides: Partial<LocalPeerCalibration> = {}): LocalPeerCalibration {
+  return {
+    peerDeviceId: "device-b",
+    status: "manual_map",
+    method: "manual_map",
+    confidence: 0.72,
+    transformId: "manual-1",
+    expiresAt: null,
+    homography: null,
+    mapTransform: {
+      localCamera: { x_m: 0, y_m: -5, heading_deg: 0, fov_deg: 65 },
+      peerCamera: { x_m: 0, y_m: 0, heading_deg: 0, fov_deg: 65 },
+      assumedDistanceM: 5,
+    },
+    ...overrides,
+  };
+}
+
+describe("buildProjectedRemoteEntities", () => {
+  it("returns empty array when calibration is null (Phase 1 default)", () => {
+    const peer = makePeer({ entities: [makeEntity()] });
+    expect(buildProjectedRemoteEntities({ peer, calibration: null, hseActive: true })).toEqual([]);
+  });
+
+  it("returns projected entities when manual-map calibration is valid", () => {
+    const peer = makePeer({ entities: [makeEntity()] });
+    const out = buildProjectedRemoteEntities({
+      peer,
+      calibration: makeManualMapCal(),
+      hseActive: true,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].projectionReason).toBe("manual_map");
+    expect(out[0].projectedLocal.method).toBe("manual_map");
+    expect(out[0].sourceDeviceId).toBe("device-b");
+  });
+
+  it("does not mutate the original RemotePeerState", () => {
+    const peer = makePeer({ entities: [makeEntity()] });
+    const originalProjected = peer.projectedEntities;
+    const originalEntityCount = peer.entities.length;
+    buildProjectedRemoteEntities({ peer, calibration: makeManualMapCal(), hseActive: true });
+    expect(peer.projectedEntities).toBe(originalProjected);
+    expect(peer.projectedEntities).toHaveLength(0);
+    expect(peer.entities).toHaveLength(originalEntityCount);
+  });
+
+  it("uses bbox bottom-center when the entity has no pose / groundPointRemote", () => {
+    // Entity intentionally has no groundPointRemote — projection must still work.
+    const entity = makeEntity();
+    expect(entity.groundPointRemote).toBeUndefined();
+    const peer = makePeer({ entities: [entity] });
+    const out = buildProjectedRemoteEntities({
+      peer,
+      calibration: makeManualMapCal(),
+      hseActive: true,
+    });
+    expect(out).toHaveLength(1);
+  });
+
+  it("does not require poses (empty poses still projects)", () => {
+    const peer = makePeer({ entities: [makeEntity()], poses: [] });
+    const out = buildProjectedRemoteEntities({
+      peer,
+      calibration: makeManualMapCal(),
+      hseActive: true,
+    });
+    expect(out).toHaveLength(1);
+  });
+
+  it("blocks projection below calibration confidence threshold", () => {
+    const peer = makePeer({ entities: [makeEntity()] });
+    const out = buildProjectedRemoteEntities({
+      peer,
+      calibration: makeManualMapCal({ confidence: 0.5 }),
+      hseActive: true,
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("blocks projection when the peer is stale", () => {
+    const peer = makePeer({ entities: [makeEntity()], isStale: true });
+    const out = buildProjectedRemoteEntities({
+      peer,
+      calibration: makeManualMapCal(),
+      hseActive: true,
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("blocks projection when the calibration is expired", () => {
+    const peer = makePeer({ entities: [makeEntity()] });
+    const out = buildProjectedRemoteEntities({
+      peer,
+      calibration: makeManualMapCal({ expiresAt: Date.now() - 1 }),
+      hseActive: true,
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("blocks projection when HSE is inactive", () => {
+    const peer = makePeer({ entities: [makeEntity()] });
+    const out = buildProjectedRemoteEntities({
+      peer,
+      calibration: makeManualMapCal(),
+      hseActive: false,
+    });
+    expect(out).toEqual([]);
   });
 });

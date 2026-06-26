@@ -12,6 +12,12 @@ const PORTAL_HALF_FOV = 33;
  * Fallback/inspection portal — used when no projection is available.
  * Shows Camera B's detections in a floating framed window, direction-anchored
  * via compass bearing. NEVER draws onto the local scene plane.
+ *
+ * Pose handling: poses are optional, worker-owned data. The app never generates
+ * them. The portal renders peer.poses ONLY when peer.poses.length > 0 — and only
+ * inside the framed window in Camera B's own image space (safe — no scene-plane
+ * mapping). When poses are empty the portal shows boxes only. Full remote
+ * skeleton projection into the local scene is NOT active in Phase 1/1B.
  */
 export function DirectionalRemotePortal({
   peers,

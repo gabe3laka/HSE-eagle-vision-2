@@ -1,5 +1,4 @@
-import type { RemotePeerState, LocalPeerCalibration } from "../types";
-import { canRenderProjectedRemoteEntity, projectRemoteEntityToLocal } from "../lib/projection";
+import type { RemotePeerState } from "../types";
 import { riskLevelColor, normalizeRiskLevel } from "@/lib/detection/riskTypes";
 import { mirrorBox } from "@/lib/detection/mirror";
 
@@ -10,48 +9,43 @@ function clamp01(v: number) {
 }
 
 /**
- * Headline Hive overlay: draws Camera B's detections into Camera A's live view
- * as magenta ghost boxes when a valid projection exists.
+ * Headline Hive overlay — purely presentational.
  *
- * Projection ownership: entities are sender-space; each receiver computes
- * projectedLocal locally from its own LocalPeerCalibration. Never reads
- * projectedLocal from the broadcast wire.
+ * Renders Camera B's detections into Camera A's live view as magenta ghost
+ * boxes. Projection is NOT computed here: it is precomputed receiver-side by
+ * useProjectedRemotePeers (which calls buildProjectedRemoteEntities) and
+ * arrives on `peer.projectedEntities`. This component only reads
+ * projectedEntities and draws — it never calls projectRemoteEntityToLocal.
+ *
+ * Projection ownership: projectedLocal is always receiver-computed and never
+ * read from the broadcast wire.
  *
  * Mirror: projected boxes are run through mirrorBox with the LOCAL camera's
  * facing so front-camera receivers don't left/right-flip remote ghosts.
  *
- * When projection gates fail for all peers, renders the `fallback` prop.
- * Local HSE overlay (later sibling in CameraView) always draws on top.
+ * Detection boxes only — no remote skeletons are drawn in the local scene
+ * (poses stay inside the fallback portal). When no peer has drawable
+ * projectedEntities, renders the `fallback` prop. The local HSE overlay (a
+ * later sibling in CameraView) always draws on top.
  */
 export function ProjectedRemoteOverlay({
   peers,
-  localCalibration,
   localFacing = "environment",
-  hseActive = true,
   fallback,
 }: {
   peers: RemotePeerState[];
-  localCalibration: Map<string, LocalPeerCalibration>;
   localFacing?: "user" | "environment";
-  hseActive?: boolean;
   fallback?: React.ReactNode;
 }) {
   const localMirrored = localFacing === "user";
-  let anyProjected = false;
   const projected: React.ReactNode[] = [];
 
   for (const peer of peers) {
-    const cal = localCalibration.get(peer.deviceId) ?? null;
-    for (const entity of peer.entities) {
-      if (!canRenderProjectedRemoteEntity(entity, peer, cal, hseActive)) continue;
-      // Compute projection locally — receiver owns projection, never reads from wire.
-      const rawBox = projectRemoteEntityToLocal(entity, cal!);
-      if (!rawBox) continue;
+    for (const entity of peer.projectedEntities) {
+      const projectedLocal = entity.projectedLocal;
 
-      // Mirror with the local camera's facing so front-camera receivers align correctly.
-      const box = mirrorBox(rawBox.bbox, localMirrored);
-
-      anyProjected = true;
+      // Mirror with the local camera's facing so front-camera receivers align.
+      const box = mirrorBox(projectedLocal.bbox, localMirrored);
 
       const riskLevel = normalizeRiskLevel(entity.risk_level ?? null, null);
       const color = riskLevel && riskLevel !== "GREEN" ? riskLevelColor(riskLevel) : MAGENTA_BORDER;
@@ -59,18 +53,18 @@ export function ProjectedRemoteOverlay({
       const label = `Remote · ${deviceLabel} · ${entity.label}`;
       const key = `${peer.deviceId}-${entity.id ?? entity.label}-${entity.bboxRemote.x}`;
 
-      // Confidence-driven border: solid ≥0.85, dashed 0.65–0.85
-      const borderStyle = rawBox.confidence >= 0.85 ? "solid" : "dashed";
+      // Confidence-driven border: solid ≥0.85, dashed 0.65–0.85.
+      const borderStyle = projectedLocal.confidence >= 0.85 ? "solid" : "dashed";
 
-      // Method label per projection tier
+      // Method label per projection tier.
       const methodLabel =
-        rawBox.method === "manual_map"
+        projectedLocal.method === "manual_map"
           ? "manual map"
-          : rawBox.method === "homography_4pt"
+          : projectedLocal.method === "homography_4pt"
             ? "homography"
-            : rawBox.method === "marker"
+            : projectedLocal.method === "marker"
               ? "calibrated"
-              : rawBox.method;
+              : projectedLocal.method;
 
       projected.push(
         <div
@@ -97,14 +91,14 @@ export function ProjectedRemoteOverlay({
             className="absolute -bottom-5 left-0 whitespace-nowrap rounded px-1 py-0.5 text-[9px] font-medium text-white/80"
             style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
           >
-            {methodLabel} · {Math.round(rawBox.confidence * 100)}%
+            {methodLabel} · {Math.round(projectedLocal.confidence * 100)}%
           </span>
         </div>,
       );
     }
   }
 
-  if (!anyProjected) {
+  if (projected.length === 0) {
     return <>{fallback}</>;
   }
 
