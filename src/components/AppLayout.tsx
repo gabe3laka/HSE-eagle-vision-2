@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { useOrg } from "@/features/organizations/context/OrgContext";
 
 const mainNav = [
   { path: "/", label: "Live", icon: Camera },
@@ -23,6 +24,22 @@ const mainNav = [
 const bottomNav = [{ path: "/settings", label: "Settings", icon: Settings }];
 
 const mobileNav = [...mainNav, ...bottomNav];
+
+function OrgChip() {
+  const { selectedOrg, myMembership } = useOrg();
+  if (!selectedOrg) return null;
+  return (
+    <div className="mb-1 flex items-center gap-1.5 rounded-md border border-purple-500/30 bg-purple-950/30 px-2 py-1">
+      <Radio className="h-3 w-3 shrink-0 text-purple-400" />
+      <div className="min-w-0">
+        <p className="truncate text-[11px] font-medium text-purple-200">{selectedOrg.name}</p>
+        <p className="text-[9px] uppercase tracking-wider text-purple-400">
+          {myMembership?.role ?? "member"}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { profile, signOut } = useAuth();
@@ -126,6 +143,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           )}
+          {!collapsed && <OrgChip />}
           <Button
             variant="ghost"
             size="sm"

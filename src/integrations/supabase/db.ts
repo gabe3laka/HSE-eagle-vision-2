@@ -74,3 +74,84 @@ export const db = supabase as unknown as {
   auth: typeof supabase.auth;
   channel: typeof supabase.channel;
 };
+
+export interface OrganizationRow {
+  id: string;
+  name: string;
+  slug: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+export interface OrganizationMemberRow {
+  id: string;
+  org_id: string;
+  user_id: string;
+  role: "owner" | "admin" | "member" | "viewer";
+  status: "active" | "removed";
+  joined_at: string;
+}
+export interface OrganizationJoinRequestRow {
+  id: string;
+  org_id: string;
+  user_id: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  message: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+export interface SharedVisionSessionRow {
+  id: string;
+  org_id: string;
+  owner_id: string;
+  monitoring_session_id: string | null;
+  label: string | null;
+  status: "active" | "ended";
+  started_at: string;
+  ended_at: string | null;
+}
+export interface SharedVisionPeerRow {
+  id: string;
+  shared_session_id: string;
+  org_id: string;
+  user_id: string;
+  device_id: string;
+  peer_label: string | null;
+  camera_id: string | null;
+  device_label: string | null;
+  role: "host" | "peer";
+  last_seen_at: string;
+  status: "online" | "offline";
+}
+export interface SiteMapRow {
+  id: string;
+  org_id: string;
+  name: string;
+  description: string | null;
+  image_url: string | null;
+  map_image_url: string | null;
+  width_m: number | null;
+  height_m: number | null;
+  scale_m_per_px: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrgCameraDeviceRow {
+  id: string;
+  org_id: string;
+  user_id: string;
+  device_id: string;
+  camera_label: string;
+  device_label: string | null;
+  status: string;
+  site_map_id: string | null;
+  map_x_m: number | null;
+  map_y_m: number | null;
+  heading_deg: number | null;
+  fov_deg: number | null;
+  placement_accuracy: string;
+  created_at: string;
+  updated_at: string;
+}
