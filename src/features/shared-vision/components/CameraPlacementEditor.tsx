@@ -26,8 +26,8 @@ interface Props {
  * The user enters X/Y position (metres from map origin) and heading (degrees
  * the camera faces, clockwise from north). FOV defaults to 65°.
  *
- * A calibrated sender broadcasts map placement fields; each receiver projects
- * remote detections using the relative transform between the two camera placements.
+ * siteMap.id is saved as site_map_id so useLocalPeerCalibrations can reject
+ * cross-map pairs (cameras on different maps cannot share a coordinate origin).
  */
 export function CameraPlacementEditor({
   orgId,
@@ -56,6 +56,7 @@ export function CameraPlacementEditor({
       userId,
       deviceId,
       cameraLabel,
+      siteMapId: siteMap.id,
       mapXM,
       mapYM,
       headingDeg,
@@ -134,7 +135,7 @@ export function CameraPlacementEditor({
 
       <p className="text-[11px] text-muted-foreground">
         Approximate placement only. Projection will show{" "}
-        <span className="font-medium">Remote · manual map</span> labels.
+        <span className="font-medium">Remote · manual map (approximate)</span> labels.
       </p>
 
       <Button

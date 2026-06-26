@@ -70,6 +70,7 @@ export interface UseSharedVisionResult {
   sharedSessionId: string | null;
   deviceId: string;
   startSession: (label?: string) => Promise<void>;
+  joinSession: (sharedSessionId: string) => Promise<void>;
   leaveSession: () => Promise<void>;
 }
 
@@ -176,7 +177,16 @@ export function useSharedVision({
         ({ payload }: { payload: SvMessage }) => {
           if (payload.kind !== "sv_calibration_status") return;
           if (payload.status === "stale" || payload.status === "failed") {
-            // Receiver clears its local calibration for this peer (Phase 2+ action)
+            // Peer's calibration is no longer valid — clear its projectedEntities
+            // immediately so the overlay reverts to fallback UI. The raw entity +
+            // risk data stays so RemoteAwarenessPanel and RemoteRiskFeed remain live.
+            setRemotePeers((prev) => {
+              const existing = prev.get(payload.deviceId);
+              if (!existing) return prev;
+              const next = new Map(prev);
+              next.set(payload.deviceId, { ...existing, projectedEntities: [] });
+              return next;
+            });
           }
         },
       );
@@ -222,6 +232,30 @@ export function useSharedVision({
         },
         { onConflict: "shared_session_id,device_id" },
       );
+      subscribeChannel(ssId);
+    },
+    [orgId, userId, deviceLabel, getOrSetSharedSessionId, subscribeChannel],
+  );
+
+  // Join an existing session created by another peer. Does NOT create a new
+  // session row — only upserts the peer row and subscribes to the channel.
+  const joinSession = useCallback(
+    async (ssId: string) => {
+      if (!orgId || !userId) return;
+      await db.from("shared_vision_peers").upsert(
+        {
+          shared_session_id: ssId,
+          org_id: orgId,
+          user_id: userId,
+          device_id: deviceId.current,
+          peer_label: deviceLabel,
+          role: "peer",
+          status: "online",
+          last_seen_at: new Date().toISOString(),
+        },
+        { onConflict: "shared_session_id,device_id" },
+      );
+      getOrSetSharedSessionId(ssId);
       subscribeChannel(ssId);
     },
     [orgId, userId, deviceLabel, getOrSetSharedSessionId, subscribeChannel],
@@ -361,6 +395,7 @@ export function useSharedVision({
     sharedSessionId,
     deviceId: deviceId.current,
     startSession,
+    joinSession,
     leaveSession,
   };
 }

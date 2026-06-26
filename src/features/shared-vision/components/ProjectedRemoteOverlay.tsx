@@ -56,10 +56,11 @@ export function ProjectedRemoteOverlay({
       // Confidence-driven border: solid ≥0.85, dashed 0.65–0.85.
       const borderStyle = projectedLocal.confidence >= 0.85 ? "solid" : "dashed";
 
-      // Method label per projection tier.
+      // Method label per projection tier. manual_map is explicitly approximate
+      // so the label communicates position accuracy to the operator.
       const methodLabel =
         projectedLocal.method === "manual_map"
-          ? "manual map"
+          ? "manual map (approximate)"
           : projectedLocal.method === "homography_4pt"
             ? "homography"
             : projectedLocal.method === "marker"

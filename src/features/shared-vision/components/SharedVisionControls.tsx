@@ -1,30 +1,39 @@
 import { useState } from "react";
-import { Radio, Users } from "lucide-react";
+import { Radio, Users, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useActiveSharedVisionSessions } from "../hooks/useSharedVisionSessions";
 import type { RemotePeerState, DeviceHeading, PeerBearing } from "../types";
 
 export function SharedVisionControls({
+  orgId,
   peers,
   isConnected,
   sharedSessionId,
   heading,
   bearings,
   onStart,
+  onJoin,
   onLeave,
   onPair,
   onUnpair,
 }: {
+  orgId: string | null;
   peers: RemotePeerState[];
   isConnected: boolean;
   sharedSessionId: string | null;
   heading: DeviceHeading;
   bearings: Map<string, PeerBearing>;
   onStart: (label?: string) => Promise<void>;
+  onJoin: (sessionId: string) => Promise<void>;
   onLeave: () => Promise<void>;
   onPair: (deviceId: string) => void;
   onUnpair: (deviceId: string) => void;
 }) {
   const [starting, setStarting] = useState(false);
+  const [joiningId, setJoiningId] = useState<string | null>(null);
+  const { data: activeSessions = [] } = useActiveSharedVisionSessions(
+    sharedSessionId ? null : orgId, // stop polling once we're in a session
+  );
 
   const handleStart = async () => {
     setStarting(true);
@@ -32,6 +41,15 @@ export function SharedVisionControls({
       await onStart();
     } finally {
       setStarting(false);
+    }
+  };
+
+  const handleJoin = async (sessionId: string) => {
+    setJoiningId(sessionId);
+    try {
+      await onJoin(sessionId);
+    } finally {
+      setJoiningId(null);
     }
   };
 
@@ -57,15 +75,45 @@ export function SharedVisionControls({
       </div>
 
       {!sharedSessionId ? (
-        <Button
-          size="sm"
-          variant="outline"
-          className="mt-2 w-full border-purple-500/50 text-purple-300 hover:bg-purple-900/40"
-          onClick={handleStart}
-          disabled={starting}
-        >
-          {starting ? "Starting…" : "Start shared session"}
-        </Button>
+        <div className="mt-2 space-y-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full border-purple-500/50 text-purple-300 hover:bg-purple-900/40"
+            onClick={handleStart}
+            disabled={starting}
+          >
+            {starting ? "Starting…" : "Start new session"}
+          </Button>
+
+          {activeSessions.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Active sessions
+              </p>
+              {activeSessions.map((s) => (
+                <div
+                  key={s.id}
+                  className="flex items-center justify-between gap-2 rounded border border-purple-500/20 px-2 py-1.5"
+                >
+                  <span className="truncate text-[11px] text-purple-200">
+                    {s.label ?? `Session ${s.id.slice(0, 6)}`}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 shrink-0 border-purple-500/40 px-2 text-[10px] text-purple-300"
+                    onClick={() => handleJoin(s.id)}
+                    disabled={joiningId === s.id}
+                  >
+                    <LogIn className="mr-1 h-3 w-3" />
+                    {joiningId === s.id ? "Joining…" : "Join"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       ) : (
         <Button
           size="sm"

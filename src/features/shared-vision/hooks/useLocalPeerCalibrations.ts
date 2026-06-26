@@ -6,12 +6,14 @@ import type { CameraPlacement } from "./useSiteMaps";
 const DEFAULT_ASSUMED_DISTANCE_M = 5;
 const DEFAULT_FOV_DEG = 65;
 
-/** A device is map-placeable only with a real (non-uncalibrated) placement and
- *  all required fields present. Heading 0 / position 0 are valid values, so
- *  check explicitly for null rather than falsiness. */
+/** A device is map-placeable only with a real (non-uncalibrated) placement,
+ *  all required fields present, and a known site_map_id so cross-map pairs
+ *  can be rejected. Heading 0 / position 0 are valid values, so check
+ *  explicitly for null rather than falsiness. */
 function hasStablePlacement(d: CameraPlacement): boolean {
   return (
     d.placement_accuracy !== "uncalibrated" &&
+    d.site_map_id !== null &&
     d.map_x_m !== null &&
     d.map_y_m !== null &&
     d.heading_deg !== null
@@ -72,6 +74,9 @@ export function useLocalPeerCalibrations(
     for (const peer of devices) {
       if (peer.device_id === myDeviceId) continue;
       if (!hasStablePlacement(peer)) continue;
+      // Reject cross-map pairs — cameras on different maps cannot share a
+      // coordinate origin so their (x_m, y_m) values are incompatible.
+      if (peer.site_map_id !== myDevice.site_map_id) continue;
 
       calibrations.set(peer.device_id, {
         peerDeviceId: peer.device_id,

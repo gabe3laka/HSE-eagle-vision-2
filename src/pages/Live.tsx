@@ -428,6 +428,7 @@ export default function Live() {
     isConnected: hiveConnected,
     sharedSessionId,
     startSession: hiveStartSession,
+    joinSession: hiveJoinSession,
     leaveSession: hiveLeaveSession,
   } = useSharedVision({
     enabled: hiveEnabled,
@@ -1483,12 +1484,14 @@ export default function Live() {
             {hiveEnabled && (
               <>
                 <SharedVisionControls
+                  orgId={selectedOrgId}
                   peers={projectedPeerList}
                   isConnected={hiveConnected}
                   sharedSessionId={sharedSessionId}
                   heading={heading}
                   bearings={bearings}
                   onStart={hiveStartSession}
+                  onJoin={hiveJoinSession}
                   onLeave={hiveLeaveSession}
                   onPair={(id) => pairPeer(id, heading.headingDeg)}
                   onUnpair={clearPeer}

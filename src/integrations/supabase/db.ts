@@ -132,6 +132,7 @@ export interface OrgCameraDeviceRow {
   camera_label: string;
   device_label: string | null;
   status: string;
+  site_map_id: string | null;
   map_x_m: number | null;
   map_y_m: number | null;
   heading_deg: number | null;

@@ -80,8 +80,10 @@ export function ManualMapCalibrationPanel({ orgId, userId, deviceId, cameraLabel
         <div className="space-y-3">
           <div className="rounded bg-green-950/40 border border-green-800/40 px-3 py-2 text-xs text-green-300">
             Camera placement saved. Manual-map projection activates when this camera and a peer
-            camera both have valid map positions, headings, and FOV. Projected detections then
-            appear as <span className="font-semibold">Remote · {cameraLabel} · manual map</span>.
+            camera are both placed on the <em>same</em> site map with valid positions, headings, and
+            FOV. Projected detections appear as{" "}
+            <span className="font-semibold">Remote · {cameraLabel} · manual map (approximate)</span>
+            .
           </div>
 
           {peerDevices.length > 0 && (

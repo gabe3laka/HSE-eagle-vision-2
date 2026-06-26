@@ -32,6 +32,7 @@ export interface CameraPlacement {
   device_id: string;
   camera_label: string;
   device_label: string | null;
+  site_map_id: string | null;
   map_x_m: number | null;
   map_y_m: number | null;
   heading_deg: number | null;
@@ -80,6 +81,7 @@ export function useUpdateCameraPlacement() {
       userId: string;
       deviceId: string;
       cameraLabel: string;
+      siteMapId: string;
       mapXM: number;
       mapYM: number;
       headingDeg: number;
@@ -91,6 +93,7 @@ export function useUpdateCameraPlacement() {
           user_id: patch.userId,
           device_id: patch.deviceId,
           camera_label: patch.cameraLabel,
+          site_map_id: patch.siteMapId,
           map_x_m: patch.mapXM,
           map_y_m: patch.mapYM,
           heading_deg: patch.headingDeg,
