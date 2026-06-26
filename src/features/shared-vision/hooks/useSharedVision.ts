@@ -69,6 +69,9 @@ export interface UseSharedVisionResult {
   isConnected: boolean;
   sharedSessionId: string | null;
   deviceId: string;
+  // Peers whose calibration is stale/failed — in-scene projection must be
+  // suppressed for these (passed to useProjectedRemotePeers as blockedPeerIds).
+  invalidProjectionPeerIds: Set<string>;
   startSession: (label?: string) => Promise<void>;
   joinSession: (sharedSessionId: string) => Promise<void>;
   leaveSession: () => Promise<void>;
@@ -102,6 +105,9 @@ export function useSharedVision({
   >([]);
   const [isConnected, setIsConnected] = useState(false);
   const [sharedSessionId, setSharedSessionId] = useState<string | null>(null);
+  // Peers with a stale/failed calibration. Projection for these is suppressed
+  // downstream until a fresh valid calibration status arrives for the peer.
+  const [invalidProjectionPeerIds, setInvalidProjectionPeerIds] = useState<Set<string>>(new Set());
 
   const getOrSetSharedSessionId = useCallback((id: string) => {
     sharedSessionIdRef.current = id;
@@ -176,18 +182,27 @@ export function useSharedVision({
         { event: "sv_calibration_status" },
         ({ payload }: { payload: SvMessage }) => {
           if (payload.kind !== "sv_calibration_status") return;
-          if (payload.status === "stale" || payload.status === "failed") {
-            // Peer's calibration is no longer valid — clear its projectedEntities
-            // immediately so the overlay reverts to fallback UI. The raw entity +
-            // risk data stays so RemoteAwarenessPanel and RemoteRiskFeed remain live.
-            setRemotePeers((prev) => {
-              const existing = prev.get(payload.deviceId);
-              if (!existing) return prev;
-              const next = new Map(prev);
-              next.set(payload.deviceId, { ...existing, projectedEntities: [] });
+          const invalid = payload.status === "stale" || payload.status === "failed";
+          // Maintain the projection blocklist. A stale/failed status suppresses
+          // in-scene projection for the peer (handled in useProjectedRemotePeers);
+          // a fresh valid status re-enables it. We do NOT clear projectedEntities
+          // here because useProjectedRemotePeers recomputes them — the blocklist
+          // is the durable signal that survives recompute. Raw entities/risks are
+          // untouched so awareness panel + risk feed stay live.
+          setInvalidProjectionPeerIds((prev) => {
+            const has = prev.has(payload.deviceId);
+            if (invalid && !has) {
+              const next = new Set(prev);
+              next.add(payload.deviceId);
               return next;
-            });
-          }
+            }
+            if (!invalid && has) {
+              const next = new Set(prev);
+              next.delete(payload.deviceId);
+              return next;
+            }
+            return prev;
+          });
         },
       );
 
@@ -275,6 +290,7 @@ export function useSharedVision({
     sharedSessionIdRef.current = null;
     setRemotePeers(new Map());
     setRemoteRisks([]);
+    setInvalidProjectionPeerIds(new Set());
   }, [orgId, userId, unsubscribeChannel]);
 
   // Broadcast sv_frame heartbeat
@@ -394,6 +410,7 @@ export function useSharedVision({
     isConnected,
     sharedSessionId,
     deviceId: deviceId.current,
+    invalidProjectionPeerIds,
     startSession,
     joinSession,
     leaveSession,

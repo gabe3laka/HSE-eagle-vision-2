@@ -58,6 +58,10 @@ CREATE TABLE org_camera_devices (
   camera_label text NOT NULL,
   device_label text,
   status text NOT NULL DEFAULT 'active',
+  -- Phase 1B+ map fields. site_map_id binds a placement to one site map so the
+  -- projection engine can reject cross-map pairs. Nullable; the FK to site_maps
+  -- is added in 20260625000004 once that table exists (guarded DO block).
+  site_map_id uuid,
   map_x_m numeric,
   map_y_m numeric,
   heading_deg numeric,

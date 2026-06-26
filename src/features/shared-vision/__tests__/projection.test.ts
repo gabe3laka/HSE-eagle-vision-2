@@ -6,6 +6,7 @@ import {
   isInsideViewport,
   canRenderProjectedRemoteEntity,
   buildProjectedRemoteEntities,
+  computeProjectedPeers,
 } from "../lib/projection";
 import type { RemoteHiveEntity, RemotePeerState, LocalPeerCalibration } from "../types";
 
@@ -262,5 +263,85 @@ describe("buildProjectedRemoteEntities", () => {
       hseActive: false,
     });
     expect(out).toEqual([]);
+  });
+});
+
+describe("computeProjectedPeers", () => {
+  it("returns an empty map when there are no remote peers (no-peer safety)", () => {
+    const out = computeProjectedPeers({
+      remotePeers: new Map(),
+      localCalibration: new Map(),
+      hseActive: true,
+    });
+    expect(out.size).toBe(0);
+  });
+
+  it("projects entities for a peer with a valid manual-map calibration", () => {
+    const peer = makePeer({ entities: [makeEntity()] });
+    const out = computeProjectedPeers({
+      remotePeers: new Map([[peer.deviceId, peer]]),
+      localCalibration: new Map([[peer.deviceId, makeManualMapCal()]]),
+      hseActive: true,
+    });
+    expect(out.get(peer.deviceId)?.projectedEntities).toHaveLength(1);
+  });
+
+  it("suppresses projection for a blocked (stale/failed) peer even when a valid calibration exists", () => {
+    const peer = makePeer({ entities: [makeEntity()] });
+    const out = computeProjectedPeers({
+      remotePeers: new Map([[peer.deviceId, peer]]),
+      // Valid calibration is present — but the peer is blocked, so projection
+      // must NOT be recomputed back into ghost boxes.
+      localCalibration: new Map([[peer.deviceId, makeManualMapCal()]]),
+      hseActive: true,
+      blockedPeerIds: new Set([peer.deviceId]),
+    });
+    expect(out.get(peer.deviceId)?.projectedEntities).toEqual([]);
+  });
+
+  it("keeps raw entities/risks available for a blocked peer (awareness/feed still work)", () => {
+    const entity = makeEntity();
+    const peer = makePeer({ entities: [entity] });
+    const out = computeProjectedPeers({
+      remotePeers: new Map([[peer.deviceId, peer]]),
+      localCalibration: new Map([[peer.deviceId, makeManualMapCal()]]),
+      hseActive: true,
+      blockedPeerIds: new Set([peer.deviceId]),
+    });
+    const result = out.get(peer.deviceId);
+    expect(result?.projectedEntities).toEqual([]);
+    expect(result?.entities).toHaveLength(1);
+    expect(result?.entities[0]).toBe(entity);
+  });
+
+  it("does not mutate the source peer map or peer objects", () => {
+    const peer = makePeer({ entities: [makeEntity()] });
+    const source = new Map([[peer.deviceId, peer]]);
+    computeProjectedPeers({
+      remotePeers: source,
+      localCalibration: new Map([[peer.deviceId, makeManualMapCal()]]),
+      hseActive: true,
+    });
+    expect(source.get(peer.deviceId)).toBe(peer);
+    expect(peer.projectedEntities).toHaveLength(0);
+  });
+
+  it("projects unblocked peers while suppressing blocked peers in the same pass", () => {
+    const peerA = makePeer({ deviceId: "device-a", entities: [makeEntity()] });
+    const peerB = makePeer({ deviceId: "device-b", entities: [makeEntity()] });
+    const out = computeProjectedPeers({
+      remotePeers: new Map([
+        [peerA.deviceId, peerA],
+        [peerB.deviceId, peerB],
+      ]),
+      localCalibration: new Map([
+        [peerA.deviceId, makeManualMapCal({ peerDeviceId: "device-a" })],
+        [peerB.deviceId, makeManualMapCal({ peerDeviceId: "device-b" })],
+      ]),
+      hseActive: true,
+      blockedPeerIds: new Set(["device-b"]),
+    });
+    expect(out.get("device-a")?.projectedEntities).toHaveLength(1);
+    expect(out.get("device-b")?.projectedEntities).toEqual([]);
   });
 });

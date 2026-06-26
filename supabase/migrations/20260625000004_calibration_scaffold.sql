@@ -78,3 +78,28 @@ CREATE POLICY "cal_select" ON camera_calibrations FOR SELECT TO authenticated
   USING (public.is_org_member(org_id));
 CREATE POLICY "cal_self" ON camera_calibrations FOR ALL TO authenticated
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- org_camera_devices.site_map_id was created (nullable) in 20260625000002.
+-- Now that site_maps exists, add the FK safely. Guarded so it never fails on a
+-- re-run or where the column/constraint already exists (e.g. remote already
+-- has it applied). Same guarded style as the monitoring_sessions FK.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'site_maps'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.table_constraints
+      WHERE constraint_schema = 'public'
+        AND table_name = 'org_camera_devices'
+        AND constraint_name = 'org_camera_devices_site_map_id_fkey'
+    ) THEN
+      ALTER TABLE public.org_camera_devices
+        ADD CONSTRAINT org_camera_devices_site_map_id_fkey
+        FOREIGN KEY (site_map_id)
+        REFERENCES public.site_maps(id)
+        ON DELETE SET NULL;
+    END IF;
+  END IF;
+END $$;

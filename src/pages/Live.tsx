@@ -427,6 +427,7 @@ export default function Live() {
     remoteRisks,
     isConnected: hiveConnected,
     sharedSessionId,
+    invalidProjectionPeerIds,
     startSession: hiveStartSession,
     joinSession: hiveJoinSession,
     leaveSession: hiveLeaveSession,
@@ -450,6 +451,9 @@ export default function Live() {
     remotePeers,
     localCalibration,
     hseActive,
+    // Suppress in-scene projection for peers whose calibration went stale/failed,
+    // even if a localCalibration still exists — prevents recompute from undoing it.
+    blockedPeerIds: invalidProjectionPeerIds,
   });
   const projectedPeerList = useMemo(
     () => [...projectedRemotePeers.values()],

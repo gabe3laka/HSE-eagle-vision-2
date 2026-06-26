@@ -237,3 +237,39 @@ export function buildProjectedRemoteEntities(params: {
   }
   return projected;
 }
+
+/**
+ * Pure receiver-side projection selector. For each remote peer, computes its
+ * `projectedEntities` from THIS receiver's LocalPeerCalibration, EXCEPT peers
+ * in `blockedPeerIds` (those that broadcast a stale/failed calibration status)
+ * — their in-scene projection is suppressed and projectedEntities stays [].
+ *
+ * Crucially, blocked peers are suppressed even when a valid localCalibration
+ * still exists, so a stale/failed status cannot be silently undone by a
+ * recompute. Raw entities/poses/risks are preserved on the returned peer so
+ * RemoteAwarenessPanel and RemoteRiskFeed keep showing remote metadata.
+ *
+ * Returns a NEW Map with fresh peer objects — the source RemotePeerState
+ * instances are never mutated. useProjectedRemotePeers wraps this in useMemo.
+ */
+export function computeProjectedPeers(params: {
+  remotePeers: Map<string, RemotePeerState>;
+  localCalibration: Map<string, LocalPeerCalibration>;
+  hseActive: boolean;
+  blockedPeerIds?: Set<string>;
+}): Map<string, RemotePeerState> {
+  const { remotePeers, localCalibration, hseActive, blockedPeerIds } = params;
+  const out = new Map<string, RemotePeerState>();
+  for (const [deviceId, peer] of remotePeers) {
+    if (blockedPeerIds?.has(deviceId)) {
+      // Stale/failed calibration — suppress in-scene projection regardless of
+      // any localCalibration that may still be present.
+      out.set(deviceId, { ...peer, projectedEntities: [] });
+      continue;
+    }
+    const calibration = localCalibration.get(deviceId) ?? null;
+    const projectedEntities = buildProjectedRemoteEntities({ peer, calibration, hseActive });
+    out.set(deviceId, { ...peer, projectedEntities });
+  }
+  return out;
+}

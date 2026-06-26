@@ -8,7 +8,6 @@ export interface ActiveSharedSession {
   owner_id: string;
   label: string | null;
   started_at: string;
-  peer_count: number;
 }
 
 /**
@@ -38,7 +37,6 @@ export function useActiveSharedVisionSessions(orgId: string | null) {
         owner_id: row.owner_id,
         label: row.label,
         started_at: row.started_at,
-        peer_count: 0,
       }));
     },
     enabled: !!orgId,
