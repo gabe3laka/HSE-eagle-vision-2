@@ -25,7 +25,8 @@ export type RiskFeatureFlag =
   | "VITE_HSE_SHOW_QWEN_CANDIDATES"
   | "VITE_HSE_LOCAL_ALERTS_ENABLED"
   | "VITE_HSE_QWEN_HEARTBEAT_ENABLED"
-  | "VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON";
+  | "VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON"
+  | "VITE_SHARED_VISION_ENABLED";
 
 /** PURE: read a single boolean flag from an env bag. Returns `true` for the
  *  string "true", `false` for the string "false", and `defaultValue` otherwise

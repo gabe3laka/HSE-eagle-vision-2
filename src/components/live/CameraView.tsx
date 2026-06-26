@@ -66,6 +66,9 @@ interface Props {
   buildOverlay?: React.ReactNode;
   /** Eagle Vision HSE HUD overlay — rendered in the same orientation layer. */
   hseOverlay?: React.ReactNode;
+  /** Remote hive overlay slot. Hosts ProjectedRemoteOverlay when projection is valid;
+   *  DirectionalRemotePortal as fallback. Rendered before hseOverlay so local HUD wins. */
+  remoteOverlay?: React.ReactNode;
 }
 
 /**
@@ -117,6 +120,7 @@ export function CameraView({
   onZoneCreate,
   buildOverlay,
   hseOverlay,
+  remoteOverlay,
 }: Props) {
   const TopIcon = topAlert ? HAZARD_ICONS[topAlert.hazardType] : null;
   const topSev = topAlert ? SEVERITY_META[topAlert.severity] : null;
@@ -328,6 +332,7 @@ export function CameraView({
           )}
 
           {active && buildOverlay}
+          {active && remoteOverlay}
           {active && hseOverlay}
           {active && privacyNotice}
         </div>

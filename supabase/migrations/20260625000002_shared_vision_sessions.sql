@@ -1,0 +1,64 @@
+CREATE TABLE shared_vision_sessions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  owner_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  monitoring_session_id uuid REFERENCES monitoring_sessions(id) ON DELETE SET NULL,
+  label text,
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','ended')),
+  started_at timestamptz DEFAULT now(),
+  ended_at timestamptz
+);
+ALTER TABLE shared_vision_sessions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "sv_sessions_select" ON shared_vision_sessions FOR SELECT TO authenticated
+  USING (public.is_org_member(org_id));
+CREATE POLICY "sv_sessions_insert" ON shared_vision_sessions FOR INSERT TO authenticated
+  WITH CHECK (public.is_org_member(org_id) AND auth.uid() = owner_id);
+CREATE POLICY "sv_sessions_update" ON shared_vision_sessions FOR UPDATE TO authenticated
+  USING (auth.uid() = owner_id) WITH CHECK (auth.uid() = owner_id);
+
+CREATE TABLE shared_vision_peers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shared_session_id uuid NOT NULL REFERENCES shared_vision_sessions(id) ON DELETE CASCADE,
+  org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  device_id text NOT NULL,
+  peer_label text,
+  camera_id text,
+  device_label text,
+  role text NOT NULL DEFAULT 'peer' CHECK (role IN ('host','peer')),
+  last_seen_at timestamptz DEFAULT now(),
+  status text NOT NULL DEFAULT 'online' CHECK (status IN ('online','offline')),
+  UNIQUE (shared_session_id, device_id)
+);
+ALTER TABLE shared_vision_peers ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "sv_peers_select" ON shared_vision_peers FOR SELECT TO authenticated
+  USING (public.is_org_member(org_id));
+CREATE POLICY "sv_peers_self" ON shared_vision_peers FOR ALL TO authenticated
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Device registry for labeling and Phase 2+ map placement.
+-- user_id is NOT NULL + CASCADE so orphan rows never occur.
+CREATE TABLE org_camera_devices (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  device_id text NOT NULL,
+  camera_label text NOT NULL,
+  device_label text,
+  status text NOT NULL DEFAULT 'active',
+  map_x_m numeric,
+  map_y_m numeric,
+  heading_deg numeric,
+  fov_deg numeric,
+  placement_accuracy text NOT NULL DEFAULT 'uncalibrated',
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE (org_id, device_id)
+);
+ALTER TABLE org_camera_devices ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "cam_select" ON org_camera_devices FOR SELECT TO authenticated
+  USING (public.is_org_member(org_id));
+CREATE POLICY "cam_self" ON org_camera_devices FOR ALL TO authenticated
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "cam_admin" ON org_camera_devices FOR ALL TO authenticated
+  USING (public.is_org_admin(org_id)) WITH CHECK (public.is_org_admin(org_id));

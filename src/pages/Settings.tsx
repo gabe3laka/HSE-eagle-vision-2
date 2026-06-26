@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { OrganizationsCard } from "@/features/organizations/components/OrganizationsCard";
 import { Lock, Save, ShieldCheck } from "lucide-react";
 import { useAlertSettings, DEFAULT_ALERT_CONFIG, type AlertConfig } from "@/hooks/useAlertSettings";
 import { ALL_HAZARDS, HAZARDS } from "@/lib/detection/hazardCatalog";
@@ -222,6 +223,8 @@ export default function Settings() {
           </li>
         </ul>
       </section>
+
+      <OrganizationsCard />
 
       <div className="console-panel sticky bottom-[calc(env(safe-area-inset-bottom)+72px)] z-20 flex items-center justify-between gap-3 p-3 lg:bottom-5">
         <p className="hidden text-xs text-muted-foreground sm:block">

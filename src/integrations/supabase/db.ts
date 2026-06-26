@@ -74,3 +74,69 @@ export const db = supabase as unknown as {
   auth: typeof supabase.auth;
   channel: typeof supabase.channel;
 };
+
+export interface OrganizationRow {
+  id: string;
+  name: string;
+  slug: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+export interface OrganizationMemberRow {
+  id: string;
+  org_id: string;
+  user_id: string;
+  role: "owner" | "admin" | "member" | "viewer";
+  status: "active" | "removed";
+  joined_at: string;
+}
+export interface OrganizationJoinRequestRow {
+  id: string;
+  org_id: string;
+  user_id: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  message: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+export interface SharedVisionSessionRow {
+  id: string;
+  org_id: string;
+  owner_id: string;
+  monitoring_session_id: string | null;
+  label: string | null;
+  status: "active" | "ended";
+  started_at: string;
+  ended_at: string | null;
+}
+export interface SharedVisionPeerRow {
+  id: string;
+  shared_session_id: string;
+  org_id: string;
+  user_id: string;
+  device_id: string;
+  peer_label: string | null;
+  camera_id: string | null;
+  device_label: string | null;
+  role: "host" | "peer";
+  last_seen_at: string;
+  status: "online" | "offline";
+}
+export interface OrgCameraDeviceRow {
+  id: string;
+  org_id: string;
+  user_id: string;
+  device_id: string;
+  camera_label: string;
+  device_label: string | null;
+  status: string;
+  map_x_m: number | null;
+  map_y_m: number | null;
+  heading_deg: number | null;
+  fov_deg: number | null;
+  placement_accuracy: string;
+  created_at: string;
+  updated_at: string;
+}
