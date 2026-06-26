@@ -4,6 +4,8 @@ import {
   rawToCapturePoint,
   captureToRawPoint,
   captureToDisplayPoint,
+  displayToCapturePoint,
+  displayToCaptureNormPoint,
   adjustIntrinsicsForCrop,
   normalizeCaptureBox,
   denormalizeCaptureBox,
@@ -74,6 +76,37 @@ describe("captureToDisplayPoint", () => {
     const pt = captureToDisplayPoint({ x: 0, y: 0 }, portrait);
     expect(pt.x).toBe(0);
     expect(pt.y).toBe(0);
+  });
+});
+
+describe("displayToCapturePoint", () => {
+  it("is the inverse of captureToDisplayPoint", () => {
+    const orig = { x: 200, y: 333 };
+    const display = captureToDisplayPoint(orig, portrait);
+    const back = displayToCapturePoint(display, portrait);
+    expect(back.x).toBeCloseTo(orig.x, 4);
+    expect(back.y).toBeCloseTo(orig.y, 4);
+  });
+
+  it("display corner maps to capture corner", () => {
+    const pt = displayToCapturePoint({ x: 375, y: 375 }, portrait);
+    expect(pt.x).toBeCloseTo(640, 4);
+    expect(pt.y).toBeCloseTo(640, 4);
+  });
+});
+
+describe("displayToCaptureNormPoint", () => {
+  it("maps a tapped display point to capture-normalized 0..1 (homography domain)", () => {
+    // Center of the display → center of capture-normalized space.
+    const pt = displayToCaptureNormPoint({ x: 375 / 2, y: 375 / 2 }, portrait);
+    expect(pt.x).toBeCloseTo(0.5, 5);
+    expect(pt.y).toBeCloseTo(0.5, 5);
+  });
+
+  it("display corner maps to (1,1) normalized", () => {
+    const pt = displayToCaptureNormPoint({ x: 375, y: 375 }, portrait);
+    expect(pt.x).toBeCloseTo(1, 5);
+    expect(pt.y).toBeCloseTo(1, 5);
   });
 });
 

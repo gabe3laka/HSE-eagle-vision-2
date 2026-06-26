@@ -60,13 +60,30 @@ export interface RemoteHiveEntity {
   } | null;
 }
 
+/** Honest description of how a remote entity was projected into the local view.
+ *  - manual_map:          Tier 1 angular guess with a fixed assumed distance.
+ *  - manual_map_anchored: receiver heading/FOV model fed a REAL world point
+ *                         recovered from the peer's homography (no exact local
+ *                         homography, or receiver pose drifted). Better than
+ *                         Tier 1, still approximate — never labelled accurate.
+ *  - homography_4pt:      exact in-view foot point via the local camera's
+ *                         ground-plane homography (mounted + steady pose).
+ *  - marker:              Phase 3 marker pose (not used yet). */
+export type ProjectionReason = "manual_map" | "manual_map_anchored" | "homography_4pt" | "marker";
+
 /** Receiver-side projected entity. Never broadcast by default.
  *  Computed locally by each receiver from RemoteHiveEntity + LocalPeerCalibration. */
 export interface ProjectedRemoteEntity extends RemoteHiveEntity {
   projectedLocal: ProjectedLocalBox;
   projectedAt: number;
   sourceDeviceId: string;
-  projectionReason: "manual_map" | "homography_4pt" | "marker";
+  projectionReason: ProjectionReason;
+  /** Real distance (m) from the PEER camera to the recovered world point.
+   *  Populated whenever the peer has a ground-plane homography; null otherwise. */
+  distanceFromPeerM?: number | null;
+  /** Real distance (m) from the LOCAL camera to the recovered world point.
+   *  Requires the local camera's map placement; null otherwise. */
+  distanceFromLocalM?: number | null;
 }
 
 /** Crop/resize info for coordinate alignment between /detect and CameraView overlay.
@@ -227,8 +244,15 @@ export interface MapCameraPlacement {
 
 /** Receiver-side transform for a given peer. Phase 1: always null.
  *  Phase 1B: mapTransform populated from org_camera_devices.
- *  Phase 2: homography populated from 4-point wizard.
- *  Phase 3: worldTransform TBD (marker pose). */
+ *  Phase 2: peerImageToMapH / localMapToImageH populated from 4-point wizard.
+ *  Phase 3: worldTransform TBD (marker pose).
+ *
+ *  Projection composes two ground-plane homographies (see lib/projection.ts):
+ *    peer foot (capture-norm 0..1) ──peerImageToMapH──▶ world (map meters)
+ *    world (map meters) ──localMapToImageH──▶ local foot (capture-norm 0..1)
+ *  The peer half alone already recovers a REAL world point + real distance, so
+ *  a mounted peer + handheld receiver degrades gracefully (manual_map_anchored)
+ *  instead of failing. */
 export interface LocalPeerCalibration {
   peerDeviceId: string;
   status: CalibrationStatus;
@@ -236,8 +260,26 @@ export interface LocalPeerCalibration {
   confidence: number;
   transformId: string;
   expiresAt: number | null;
-  /** Tier 2: 3×3 row-major homography for ground-plane foot-point projection. */
+  /** Legacy/direct 3×3 row-major image→image homography (kept for back-compat
+   *  and identity tests). Phase 2 prefers the composed peer/local homographies. */
   homography?: number[] | null;
+  /** Tier 2: peer camera image (capture-norm 0..1) → site-map meters. Recovers
+   *  the real world point of a peer detection. Domain MUST be capture-normalized
+   *  0..1 — the same space as bboxRemote / getEntityFootPoint. */
+  peerImageToMapH?: number[] | null;
+  /** Tier 2: local camera site-map meters → image (capture-norm 0..1). Only
+   *  trustworthy for a mounted camera holding its calibration pose; gated by
+   *  receiverHomographyUsable. */
+  localMapToImageH?: number[] | null;
+  /** Peer camera position in site-map meters — for distanceFromPeerM. */
+  peerCameraWorld?: { x_m: number; y_m: number } | null;
+  /** Local camera position in site-map meters — for distanceFromLocalM. */
+  localCameraWorld?: { x_m: number; y_m: number } | null;
+  /** Pose/stability gate result computed by useLocalPeerCalibrations. When false
+   *  (receiver moved past the heading threshold, unsteady, capture-transform
+   *  mismatch, or expired), the in-view homography path is skipped and projection
+   *  degrades to manual_map_anchored — never a stale `homography` label. */
+  receiverHomographyUsable?: boolean;
   /** Tier 1: manual map placement data for approximate angular projection. */
   mapTransform?: {
     localCamera: MapCameraPlacement;

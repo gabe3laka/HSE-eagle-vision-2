@@ -5,9 +5,12 @@ import {
   isProjectionConfidenceHighEnough,
   isInsideViewport,
   canRenderProjectedRemoteEntity,
+  buildProjectedRemoteEntity,
   buildProjectedRemoteEntities,
+  computeProjectionDetail,
   computeProjectedPeers,
 } from "../lib/projection";
+import { solveHomography, type Pt } from "../lib/homography";
 import type { RemoteHiveEntity, RemotePeerState, LocalPeerCalibration } from "../types";
 
 function makeEntity(overrides: Partial<RemoteHiveEntity> = {}): RemoteHiveEntity {
@@ -343,5 +346,133 @@ describe("computeProjectedPeers", () => {
     });
     expect(out.get("device-a")?.projectedEntities).toHaveLength(1);
     expect(out.get("device-b")?.projectedEntities).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 — ground-plane homography projection + graceful degradation
+// ---------------------------------------------------------------------------
+
+// A floor quad mapping: peer image (capture-norm 0..1) corners → site-map meters.
+const IMG_CORNERS: Pt[] = [
+  { x: 0, y: 0 },
+  { x: 1, y: 0 },
+  { x: 1, y: 1 },
+  { x: 0, y: 1 },
+];
+const MAP_CORNERS: Pt[] = [
+  { x: 2, y: 10 },
+  { x: 8, y: 10 },
+  { x: 10, y: 0 },
+  { x: 0, y: 0 },
+];
+const PEER_IMAGE_TO_MAP_H = solveHomography(IMG_CORNERS, MAP_CORNERS)!;
+const LOCAL_MAP_TO_IMAGE_H = solveHomography(MAP_CORNERS, IMG_CORNERS)!;
+
+/** Calibration where the peer has a real ground-plane homography. The receiver
+ *  half (localMapToImageH / mapTransform / pose gate) is overridable per test. */
+function makeHomographyCal(overrides: Partial<LocalPeerCalibration> = {}): LocalPeerCalibration {
+  return {
+    peerDeviceId: "device-b",
+    status: "homography",
+    method: "homography_4pt",
+    confidence: 0.88,
+    transformId: "hg-1",
+    expiresAt: Date.now() + 30_000,
+    peerImageToMapH: PEER_IMAGE_TO_MAP_H,
+    localMapToImageH: LOCAL_MAP_TO_IMAGE_H,
+    receiverHomographyUsable: true,
+    peerCameraWorld: { x_m: 5, y_m: -2 },
+    localCameraWorld: { x_m: 5, y_m: -3 },
+    mapTransform: {
+      localCamera: { x_m: 5, y_m: -3, heading_deg: 0, fov_deg: 65 },
+      peerCamera: { x_m: 5, y_m: -2, heading_deg: 0, fov_deg: 65 },
+      assumedDistanceM: 5,
+    },
+    ...overrides,
+  };
+}
+
+describe("computeProjectionDetail — peer homography", () => {
+  it("recovers a real world point and real distances", () => {
+    const detail = computeProjectionDetail(makeEntity(), makeHomographyCal())!;
+    expect(detail).not.toBeNull();
+    expect(detail.worldPoint).not.toBeNull();
+    expect(Number.isFinite(detail.worldPoint!.x_m)).toBe(true);
+    expect(Number.isFinite(detail.worldPoint!.y_m)).toBe(true);
+    expect(detail.distanceFromPeerM).toBeGreaterThan(0);
+    expect(detail.distanceFromLocalM).toBeGreaterThan(0);
+  });
+
+  it("uses the exact homography path when the receiver pose is usable", () => {
+    const detail = computeProjectionDetail(makeEntity(), makeHomographyCal())!;
+    expect(detail.reason).toBe("homography_4pt");
+    expect(detail.box.method).toBe("homography_4pt");
+  });
+
+  it("ACCEPTANCE #20: stale receiver homography still yields world point + distance, downgrades to anchored (never homography_4pt)", () => {
+    const detail = computeProjectionDetail(
+      makeEntity(),
+      makeHomographyCal({ receiverHomographyUsable: false }),
+    )!;
+    expect(detail.worldPoint).not.toBeNull();
+    expect(detail.distanceFromPeerM).toBeGreaterThan(0);
+    expect(detail.reason).toBe("manual_map_anchored");
+    expect(detail.reason).not.toBe("homography_4pt");
+  });
+
+  it("ACCEPTANCE #18: mounted peer + handheld receiver (no local homography) still produces a real distance + anchored ghost", () => {
+    const detail = computeProjectionDetail(
+      makeEntity(),
+      makeHomographyCal({ localMapToImageH: null, receiverHomographyUsable: false }),
+    )!;
+    expect(detail.reason).toBe("manual_map_anchored");
+    expect(detail.distanceFromPeerM).toBeGreaterThan(0);
+    expect(detail.worldPoint).not.toBeNull();
+  });
+
+  it("anchored confidence is capped below the solid threshold (never reads as accurate)", () => {
+    const detail = computeProjectionDetail(
+      makeEntity(),
+      makeHomographyCal({ receiverHomographyUsable: false, confidence: 0.95 }),
+    )!;
+    expect(detail.box.confidence).toBeLessThan(0.85);
+  });
+
+  it("attaches a metric distance label to the projected box", () => {
+    const detail = computeProjectionDetail(makeEntity(), makeHomographyCal())!;
+    expect(detail.box.distanceLabel).toMatch(/^\d/);
+    expect(detail.box.distanceLabel).toMatch(/m$/);
+  });
+});
+
+describe("buildProjectedRemoteEntity — homography", () => {
+  it("populates worldPoint, distances, and honest projectionReason", () => {
+    const out = buildProjectedRemoteEntity(makeEntity(), makeHomographyCal(), "device-b")!;
+    expect(out).not.toBeNull();
+    expect(out.projectionReason).toBe("homography_4pt");
+    expect(out.worldPoint).not.toBeNull();
+    expect(out.worldPoint!.method).toBe("homography_4pt");
+    expect(out.distanceFromPeerM).toBeGreaterThan(0);
+    expect(out.sourceDeviceId).toBe("device-b");
+  });
+
+  it("downgrades projectionReason to manual_map_anchored when receiver pose drifts", () => {
+    const out = buildProjectedRemoteEntity(
+      makeEntity(),
+      makeHomographyCal({ receiverHomographyUsable: false }),
+      "device-b",
+    )!;
+    expect(out.projectionReason).toBe("manual_map_anchored");
+    expect(out.worldPoint!.method).toBe("manual_map");
+  });
+});
+
+describe("manual-map fallback is unchanged when no homography is present", () => {
+  it("pure Tier-1 manual map still projects with reason manual_map and no world point", () => {
+    const detail = computeProjectionDetail(makeEntity(), makeManualMapCal())!;
+    expect(detail.reason).toBe("manual_map");
+    expect(detail.worldPoint).toBeNull();
+    expect(detail.distanceFromPeerM).toBeNull();
   });
 });

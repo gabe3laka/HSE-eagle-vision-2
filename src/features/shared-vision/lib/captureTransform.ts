@@ -56,6 +56,27 @@ export function captureToDisplayPoint(pt: Point, t: CaptureTransform): Point {
   };
 }
 
+/** Convert a point from display pixel space back to capture/detector pixel space.
+ *  Inverse of captureToDisplayPoint. Used by the homography wizard to convert
+ *  tapped display points into the capture-normalized 0..1 domain that
+ *  bboxRemote / getEntityFootPoint live in BEFORE solving the homography. */
+export function displayToCapturePoint(pt: Point, t: CaptureTransform): Point {
+  const scaleX = t.captureW / t.displayW;
+  const scaleY = t.captureH / t.displayH;
+  return {
+    x: pt.x * scaleX,
+    y: pt.y * scaleY,
+  };
+}
+
+/** Convert a display point straight to capture-NORMALIZED 0..1 coordinates —
+ *  the homography "image" domain. Combines displayToCapturePoint with the
+ *  capture dimensions so the wizard never mixes spaces. */
+export function displayToCaptureNormPoint(pt: Point, t: CaptureTransform): Point {
+  const cap = displayToCapturePoint(pt, t);
+  return { x: cap.x / t.captureW, y: cap.y / t.captureH };
+}
+
 /** Adjust camera intrinsics from raw video space into capture/detector space.
  *  Required for Phase 2 homography and Phase 3 marker intrinsics. */
 export function adjustIntrinsicsForCrop(
