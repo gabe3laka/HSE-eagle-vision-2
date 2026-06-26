@@ -7,9 +7,11 @@ CREATE TABLE site_maps (
   org_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name text NOT NULL,
   description text,
+  image_url text,
   map_image_url text,
   width_m numeric,
   height_m numeric,
+  scale_m_per_px numeric,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );

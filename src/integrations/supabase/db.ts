@@ -124,6 +124,20 @@ export interface SharedVisionPeerRow {
   last_seen_at: string;
   status: "online" | "offline";
 }
+export interface SiteMapRow {
+  id: string;
+  org_id: string;
+  name: string;
+  description: string | null;
+  image_url: string | null;
+  map_image_url: string | null;
+  width_m: number | null;
+  height_m: number | null;
+  scale_m_per_px: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface OrgCameraDeviceRow {
   id: string;
   org_id: string;
