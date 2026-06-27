@@ -1,59 +1,43 @@
-import { useState } from "react";
-import { Radio, Users, LogIn } from "lucide-react";
+import { Radio, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useActiveSharedVisionSessions } from "../hooks/useSharedVisionSessions";
 import type { RemotePeerState, DeviceHeading, PeerBearing } from "../types";
+import type { LivePeer } from "../hooks/useSharedVision";
 
+/**
+ * Hive Mode controls — org-wide room model.
+ *
+ * There is no "start" or "join session": being live in the org's HSE puts you in
+ * the single org hive room automatically, where every live member's detections
+ * merge (metadata only — never raw video). This panel just shows connection +
+ * who's live, a Leave/Rejoin toggle, and the compass pairing for the fallback
+ * directional portal.
+ */
 export function SharedVisionControls({
-  orgId,
   peers,
+  livePeers,
   isConnected,
-  sharedSessionId,
+  hivePaused,
   heading,
   bearings,
-  onStart,
-  onJoin,
   onLeave,
+  onRejoin,
   onPair,
   onUnpair,
 }: {
-  orgId: string | null;
   peers: RemotePeerState[];
+  livePeers: LivePeer[];
   isConnected: boolean;
-  sharedSessionId: string | null;
+  hivePaused: boolean;
   heading: DeviceHeading;
   bearings: Map<string, PeerBearing>;
-  onStart: (label?: string) => Promise<void>;
-  onJoin: (sessionId: string) => Promise<void>;
-  onLeave: () => Promise<void>;
+  onLeave: () => void;
+  onRejoin: () => void;
   onPair: (deviceId: string) => void;
   onUnpair: (deviceId: string) => void;
 }) {
-  const [starting, setStarting] = useState(false);
-  const [joiningId, setJoiningId] = useState<string | null>(null);
-  const { data: activeSessions = [] } = useActiveSharedVisionSessions(
-    sharedSessionId ? null : orgId, // stop polling once we're in a session
-  );
-
-  const handleStart = async () => {
-    setStarting(true);
-    try {
-      await onStart();
-    } finally {
-      setStarting(false);
-    }
-  };
-
-  const handleJoin = async (sessionId: string) => {
-    setJoiningId(sessionId);
-    try {
-      await onJoin(sessionId);
-    } finally {
-      setJoiningId(null);
-    }
-  };
-
+  // Peers actively broadcasting detections (have a bearing slot for pairing).
   const onlinePeers = peers.filter((p) => !p.isStale);
+  const liveCount = livePeers.length;
 
   return (
     <div className="rounded-lg border border-purple-500/30 bg-purple-950/30 p-3 text-sm">
@@ -64,101 +48,48 @@ export function SharedVisionControls({
         </div>
         <div className="flex items-center gap-1.5">
           <span
-            className={`h-2 w-2 rounded-full ${isConnected ? "bg-green-400 animate-pulse" : "bg-gray-500"}`}
+            className={`h-2 w-2 rounded-full ${isConnected ? "animate-pulse bg-green-400" : "bg-gray-500"}`}
           />
           <span className="text-[11px] text-muted-foreground">
-            {isConnected
-              ? `${onlinePeers.length} peer${onlinePeers.length !== 1 ? "s" : ""}`
-              : "Disconnected"}
+            {hivePaused ? "Left hive" : isConnected ? `${liveCount} live` : "Connecting…"}
           </span>
         </div>
       </div>
 
-      {!sharedSessionId ? (
+      {hivePaused ? (
         <div className="mt-2 space-y-2">
-          {/* Prominent affordance — the first live teammate, one tap to merge. */}
-          {activeSessions.length > 0 && (
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md border border-red-500/40 bg-red-950/30 px-3 py-2 text-left transition-colors hover:bg-red-900/30 disabled:opacity-60"
-              onClick={() => handleJoin(activeSessions[0].id)}
-              disabled={joiningId === activeSessions[0].id}
-            >
-              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-red-500" />
-              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-red-100">
-                {activeSessions[0].hostLabel ?? activeSessions[0].label ?? "A teammate"} is live
-              </span>
-              <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-red-200">
-                <LogIn className="h-3 w-3" />
-                {joiningId === activeSessions[0].id ? "Joining…" : "Join"}
-              </span>
-            </button>
-          )}
-
+          <p className="text-[11px] text-muted-foreground">
+            You left your org's hive. Rejoin to see what teammates' cameras detect.
+          </p>
           <Button
             size="sm"
             variant="outline"
             className="w-full border-purple-500/50 text-purple-300 hover:bg-purple-900/40"
-            onClick={handleStart}
-            disabled={starting}
+            onClick={onRejoin}
           >
-            {starting ? "Starting…" : "Start new session"}
+            Rejoin hive
           </Button>
-
-          <div className="space-y-1">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Live now in your org
-            </p>
-            {activeSessions.length === 0 ? (
-              <p className="rounded border border-dashed border-border px-2 py-2 text-[11px] text-muted-foreground">
-                No one is live yet. Start a session, or wait for a teammate to go live — they'll
-                appear here to join.
-              </p>
-            ) : (
-              activeSessions.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between gap-2 rounded border border-purple-500/20 px-2 py-1.5"
-                >
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-green-400" />
-                    <span className="min-w-0">
-                      <span className="block truncate text-[11px] text-purple-200">
-                        {s.hostLabel ?? s.label ?? `Session ${s.id.slice(0, 6)}`}
-                      </span>
-                      <span className="block text-[9px] text-muted-foreground">
-                        {s.onlineCount} online
-                      </span>
-                    </span>
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-6 shrink-0 border-purple-500/40 px-2 text-[10px] text-purple-300"
-                    onClick={() => handleJoin(s.id)}
-                    disabled={joiningId === s.id}
-                  >
-                    <LogIn className="mr-1 h-3 w-3" />
-                    {joiningId === s.id ? "Joining…" : "Join"}
-                  </Button>
-                </div>
-              ))
-            )}
-          </div>
         </div>
       ) : (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="mt-2 w-full text-muted-foreground hover:text-destructive"
-          onClick={onLeave}
-        >
-          Leave session
-        </Button>
+        <div className="mt-2 space-y-2">
+          <p className="text-[11px] text-muted-foreground">
+            {liveCount > 0
+              ? `You're in your org's hive — ${liveCount} teammate${liveCount === 1 ? "" : "s"} live. Their detections merge into your view automatically.`
+              : "You're in your org's hive. When a teammate goes live, their detections appear here automatically — no join needed."}
+          </p>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-full text-muted-foreground hover:text-destructive"
+            onClick={onLeave}
+          >
+            Leave hive
+          </Button>
+        </div>
       )}
 
-      {/* Compass heading and pairing */}
-      {sharedSessionId && (
+      {/* Compass heading + pairing for the directional fallback portal. */}
+      {isConnected && !hivePaused && (
         <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-muted-foreground">Compass</span>
@@ -173,7 +104,7 @@ export function SharedVisionControls({
             <Button
               size="sm"
               variant="outline"
-              className="w-full border-yellow-500/50 text-yellow-300 text-[11px]"
+              className="w-full border-yellow-500/50 text-[11px] text-yellow-300"
               onClick={async () => {
                 const { requestPermission } = heading as unknown as {
                   requestPermission?: () => Promise<void>;

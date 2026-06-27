@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/own-client";
-import { db } from "@/integrations/supabase/db";
 import type { SvFrameMessage, SvRemoteRiskMessage, SvMessage, RemotePeerState } from "../types";
 import type { BackendEntity, BackendPose } from "@/lib/detection/types";
 import type { SceneRisk, RiskSummary } from "@/lib/detection/riskTypes";
@@ -63,18 +62,29 @@ export interface UseSharedVisionOptions {
   session?: { access_token: string } | null;
 }
 
+/** An org-mate currently present in the hive room (from Realtime presence). */
+export interface LivePeer {
+  deviceId: string;
+  userId: string;
+  deviceLabel: string | null;
+}
+
 export interface UseSharedVisionResult {
   remotePeers: Map<string, RemotePeerState>;
   remoteRisks: Array<SvRemoteRiskMessage & { expiresAt: number }>;
   isConnected: boolean;
   sharedSessionId: string | null;
   deviceId: string;
+  // Org-mates currently in the hive room (presence) — includes receive-only
+  // viewers, not just devices actively broadcasting detections.
+  livePeers: LivePeer[];
+  /** True when the user manually left the hive (auto-join is paused). */
+  hivePaused: boolean;
   // Peers whose calibration is stale/failed — in-scene projection must be
   // suppressed for these (passed to useProjectedRemotePeers as blockedPeerIds).
   invalidProjectionPeerIds: Set<string>;
-  startSession: (label?: string) => Promise<void>;
-  joinSession: (sharedSessionId: string) => Promise<void>;
-  leaveSession: () => Promise<void>;
+  leaveHive: () => void;
+  rejoinHive: () => void;
 }
 
 export function useSharedVision({
@@ -93,9 +103,6 @@ export function useSharedVision({
   const sessionEpoch = useRef(crypto.randomUUID());
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const sharedSessionIdRef = useRef<string | null>(null);
-  // True when THIS device created the session (host). Only the host ends the
-  // session row on leave so the active-session list never shows dead sessions.
-  const isHostRef = useRef(false);
   const lastFrameSentAt = useRef(0);
   const lastRiskSent = useRef<Map<string, number>>(new Map());
   const riskSeq = useRef(0);
@@ -111,112 +118,141 @@ export function useSharedVision({
   // Peers with a stale/failed calibration. Projection for these is suppressed
   // downstream until a fresh valid calibration status arrives for the peer.
   const [invalidProjectionPeerIds, setInvalidProjectionPeerIds] = useState<Set<string>>(new Set());
+  // Org-mates currently present in the hive room (Realtime presence).
+  const [livePeers, setLivePeers] = useState<LivePeer[]>([]);
+  // True when the user explicitly left the hive — pauses auto-join until rejoin.
+  const [hivePaused, setHivePaused] = useState(false);
 
-  const getOrSetSharedSessionId = useCallback((id: string) => {
-    sharedSessionIdRef.current = id;
-    setSharedSessionId(id);
-  }, []);
+  // Subscribe to the ORG-WIDE hive room. One room per org: every live member of
+  // the org shares this single channel and auto-merges — there is no per-session
+  // channel and no join step. The Realtime RLS authorizes on the org id (the 2nd
+  // topic segment), so the fixed 'hive' suffix is allowed with no policy change.
+  const subscribeChannel = useCallback(() => {
+    if (!orgId || !userId) return;
+    if (channelRef.current) return; // already subscribed
+    const topic = `org:${orgId}:sv:hive`;
 
-  // Subscribe to the hive channel once a session is active
-  const subscribeChannel = useCallback(
-    (ssId: string) => {
-      if (!orgId || !userId) return;
-      const topic = `org:${orgId}:sv:${ssId}`;
+    // Set realtime auth token
+    if (session?.access_token) {
+      supabase.realtime.setAuth(session.access_token);
+    }
 
-      // Set realtime auth token
-      if (session?.access_token) {
-        supabase.realtime.setAuth(session.access_token);
-      }
+    const ch = supabase.channel(topic, {
+      config: { broadcast: { self: false }, presence: { key: deviceId.current } },
+    });
 
-      const ch = supabase.channel(topic, {
-        config: { broadcast: { self: false }, presence: { key: deviceId.current } },
-      });
-
-      ch.on("broadcast", { event: "sv_frame" }, ({ payload }: { payload: SvFrameMessage }) => {
-        if (!payload || payload.deviceId === deviceId.current) return;
-        setRemotePeers((prev) => {
-          const next = new Map(prev);
-          next.set(payload.deviceId, {
-            deviceId: payload.deviceId,
-            userId: payload.userId,
-            deviceLabel: payload.deviceLabel,
-            lastSeenAt: Date.now(),
-            isStale: false,
-            calibration: payload.calibration,
-            projection: payload.projection,
-            capture: payload.capture,
-            entities: payload.entities,
-            poses: payload.poses ?? [],
-            sceneRisks: payload.sceneRisks,
-            riskSummary: payload.riskSummary,
-            // projectedEntities is always computed locally by the receiver from
-            // LocalPeerCalibration — never from the broadcast payload.
-            // Phase 1: no calibration → always []. Populated in Phase 1B+ when
-            // a valid transform exists (see ProjectedRemoteOverlay computation).
-            projectedEntities: [],
-          });
-          return next;
+    ch.on("broadcast", { event: "sv_frame" }, ({ payload }: { payload: SvFrameMessage }) => {
+      if (!payload || payload.deviceId === deviceId.current) return;
+      setRemotePeers((prev) => {
+        const next = new Map(prev);
+        next.set(payload.deviceId, {
+          deviceId: payload.deviceId,
+          userId: payload.userId,
+          deviceLabel: payload.deviceLabel,
+          lastSeenAt: Date.now(),
+          isStale: false,
+          calibration: payload.calibration,
+          projection: payload.projection,
+          capture: payload.capture,
+          entities: payload.entities,
+          poses: payload.poses ?? [],
+          sceneRisks: payload.sceneRisks,
+          riskSummary: payload.riskSummary,
+          // projectedEntities is always computed locally by the receiver from
+          // LocalPeerCalibration — never from the broadcast payload.
+          // Phase 1: no calibration → always []. Populated in Phase 1B+ when
+          // a valid transform exists (see ProjectedRemoteOverlay computation).
+          projectedEntities: [],
         });
+        return next;
       });
+    });
 
-      ch.on(
-        "broadcast",
-        { event: "sv_remote_risk" },
-        ({ payload }: { payload: SvRemoteRiskMessage }) => {
-          if (!payload || payload.deviceId === deviceId.current) return;
-          // Clock-skew guard
-          if (payload.ts > Date.now() + 5000) return;
-          // De-dupe via (deviceId, session_epoch, seq)
-          const epochKey = `${payload.deviceId}:${payload.session_epoch}`;
-          const lastSeq = lastSeenSeq.current.get(epochKey) ?? -1;
-          if (payload.seq <= lastSeq) return;
-          lastSeenSeq.current.set(epochKey, payload.seq);
+    ch.on(
+      "broadcast",
+      { event: "sv_remote_risk" },
+      ({ payload }: { payload: SvRemoteRiskMessage }) => {
+        if (!payload || payload.deviceId === deviceId.current) return;
+        // Clock-skew guard
+        if (payload.ts > Date.now() + 5000) return;
+        // De-dupe via (deviceId, session_epoch, seq)
+        const epochKey = `${payload.deviceId}:${payload.session_epoch}`;
+        const lastSeq = lastSeenSeq.current.get(epochKey) ?? -1;
+        if (payload.seq <= lastSeq) return;
+        lastSeenSeq.current.set(epochKey, payload.seq);
 
-          const expiry = Date.now() + RISK_EXPIRE_MS;
-          setRemoteRisks((prev) => {
-            const filtered = prev.filter((r) => r.expiresAt > Date.now());
-            return [...filtered, { ...payload, expiresAt: expiry }];
-          });
-        },
-      );
+        const expiry = Date.now() + RISK_EXPIRE_MS;
+        setRemoteRisks((prev) => {
+          const filtered = prev.filter((r) => r.expiresAt > Date.now());
+          return [...filtered, { ...payload, expiresAt: expiry }];
+        });
+      },
+    );
 
-      ch.on(
-        "broadcast",
-        { event: "sv_calibration_status" },
-        ({ payload }: { payload: SvMessage }) => {
-          if (payload.kind !== "sv_calibration_status") return;
-          const invalid = payload.status === "stale" || payload.status === "failed";
-          // Maintain the projection blocklist. A stale/failed status suppresses
-          // in-scene projection for the peer (handled in useProjectedRemotePeers);
-          // a fresh valid status re-enables it. We do NOT clear projectedEntities
-          // here because useProjectedRemotePeers recomputes them — the blocklist
-          // is the durable signal that survives recompute. Raw entities/risks are
-          // untouched so awareness panel + risk feed stay live.
-          setInvalidProjectionPeerIds((prev) => {
-            const has = prev.has(payload.deviceId);
-            if (invalid && !has) {
-              const next = new Set(prev);
-              next.add(payload.deviceId);
-              return next;
-            }
-            if (!invalid && has) {
-              const next = new Set(prev);
-              next.delete(payload.deviceId);
-              return next;
-            }
-            return prev;
-          });
-        },
-      );
+    ch.on(
+      "broadcast",
+      { event: "sv_calibration_status" },
+      ({ payload }: { payload: SvMessage }) => {
+        if (payload.kind !== "sv_calibration_status") return;
+        const invalid = payload.status === "stale" || payload.status === "failed";
+        // Maintain the projection blocklist. A stale/failed status suppresses
+        // in-scene projection for the peer (handled in useProjectedRemotePeers);
+        // a fresh valid status re-enables it. We do NOT clear projectedEntities
+        // here because useProjectedRemotePeers recomputes them — the blocklist
+        // is the durable signal that survives recompute. Raw entities/risks are
+        // untouched so awareness panel + risk feed stay live.
+        setInvalidProjectionPeerIds((prev) => {
+          const has = prev.has(payload.deviceId);
+          if (invalid && !has) {
+            const next = new Set(prev);
+            next.add(payload.deviceId);
+            return next;
+          }
+          if (!invalid && has) {
+            const next = new Set(prev);
+            next.delete(payload.deviceId);
+            return next;
+          }
+          return prev;
+        });
+      },
+    );
 
-      ch.subscribe((status: string) => {
-        setIsConnected(status === "SUBSCRIBED");
-      });
+    // Presence: who is currently in the hive room (incl. receive-only viewers).
+    const syncPresence = () => {
+      const state = ch.presenceState() as Record<
+        string,
+        Array<{ deviceId?: string; userId?: string; deviceLabel?: string | null }>
+      >;
+      const peers: LivePeer[] = [];
+      for (const entries of Object.values(state)) {
+        const e = entries[0];
+        if (!e?.deviceId || e.deviceId === deviceId.current) continue;
+        peers.push({
+          deviceId: e.deviceId,
+          userId: e.userId ?? "",
+          deviceLabel: e.deviceLabel ?? null,
+        });
+      }
+      setLivePeers(peers);
+    };
+    ch.on("presence", { event: "sync" }, syncPresence);
+    ch.on("presence", { event: "join" }, syncPresence);
+    ch.on("presence", { event: "leave" }, syncPresence);
 
-      channelRef.current = ch;
-    },
-    [orgId, userId, session],
-  );
+    ch.subscribe((status: string) => {
+      const connected = status === "SUBSCRIBED";
+      setIsConnected(connected);
+      if (connected) {
+        setSharedSessionId(topic);
+        sharedSessionIdRef.current = topic;
+        // Announce presence so org-mates see us even before we broadcast a frame.
+        void ch.track({ deviceId: deviceId.current, userId, deviceLabel });
+      }
+    });
+
+    channelRef.current = ch;
+  }, [orgId, userId, session, deviceLabel]);
 
   const unsubscribeChannel = useCallback(() => {
     if (channelRef.current) {
@@ -224,96 +260,47 @@ export function useSharedVision({
       channelRef.current = null;
     }
     setIsConnected(false);
+    setLivePeers([]);
   }, []);
 
-  const startSession = useCallback(
-    async (label?: string) => {
-      if (!orgId || !userId) return;
-      const { data, error } = await db
-        .from("shared_vision_sessions")
-        .insert({ org_id: orgId, owner_id: userId, label: label ?? null })
-        .select("id")
-        .single();
-      if (error || !data) return;
-      const ssId = data.id as string;
-      isHostRef.current = true;
-      getOrSetSharedSessionId(ssId);
-      await db.from("shared_vision_peers").upsert(
-        {
-          shared_session_id: ssId,
-          org_id: orgId,
-          user_id: userId,
-          device_id: deviceId.current,
-          peer_label: deviceLabel,
-          role: "host",
-          status: "online",
-          last_seen_at: new Date().toISOString(),
-        },
-        { onConflict: "shared_session_id,device_id" },
-      );
-      subscribeChannel(ssId);
-    },
-    [orgId, userId, deviceLabel, getOrSetSharedSessionId, subscribeChannel],
-  );
-
-  // Join an existing session created by another peer. Does NOT create a new
-  // session row — only upserts the peer row and subscribes to the channel.
-  const joinSession = useCallback(
-    async (ssId: string) => {
-      if (!orgId || !userId) return;
-      isHostRef.current = false;
-      await db.from("shared_vision_peers").upsert(
-        {
-          shared_session_id: ssId,
-          org_id: orgId,
-          user_id: userId,
-          device_id: deviceId.current,
-          peer_label: deviceLabel,
-          role: "peer",
-          status: "online",
-          last_seen_at: new Date().toISOString(),
-        },
-        { onConflict: "shared_session_id,device_id" },
-      );
-      getOrSetSharedSessionId(ssId);
-      subscribeChannel(ssId);
-    },
-    [orgId, userId, deviceLabel, getOrSetSharedSessionId, subscribeChannel],
-  );
-
-  const leaveSession = useCallback(async () => {
-    const ssId = sharedSessionIdRef.current;
-    if (ssId && orgId && userId) {
-      await db
-        .from("shared_vision_peers")
-        .update({ status: "offline" })
-        .eq("shared_session_id", ssId)
-        .eq("device_id", deviceId.current);
-      // Host leaving ends the session so it drops off the active-session list
-      // and peers don't join a dead session. RLS sv_sessions_update restricts
-      // this to the owner, so a guard on owner_id keeps it self-only.
-      if (isHostRef.current) {
-        await db
-          .from("shared_vision_sessions")
-          .update({ status: "ended", ended_at: new Date().toISOString() })
-          .eq("id", ssId)
-          .eq("owner_id", userId);
-      }
-    }
-    isHostRef.current = false;
+  // Leave the hive: pause auto-join and unsubscribe. There is no session row to
+  // end — org-mates drop us via Realtime presence-leave and the 5s frame TTL.
+  const leaveHive = useCallback(() => {
+    setHivePaused(true);
     unsubscribeChannel();
     setSharedSessionId(null);
     sharedSessionIdRef.current = null;
     setRemotePeers(new Map());
     setRemoteRisks([]);
     setInvalidProjectionPeerIds(new Set());
-  }, [orgId, userId, unsubscribeChannel]);
+  }, [unsubscribeChannel]);
 
-  // Broadcast sv_frame heartbeat
+  const rejoinHive = useCallback(() => setHivePaused(false), []);
+
+  // Auto-join the org hive room whenever Hive is enabled and we have an org +
+  // auth, unless the user manually left. Being live in the org == being in the
+  // hive; no explicit start/join. Tears down on disable, org change, or unmount.
+  useEffect(() => {
+    if (!enabled || !orgId || !userId || !session?.access_token || hivePaused) {
+      unsubscribeChannel();
+      return;
+    }
+    subscribeChannel();
+    return () => unsubscribeChannel();
+  }, [
+    enabled,
+    orgId,
+    userId,
+    session?.access_token,
+    hivePaused,
+    subscribeChannel,
+    unsubscribeChannel,
+  ]);
+
+  // Broadcast sv_frame heartbeat while connected to the org hive room.
   useEffect(() => {
     if (!enabled || !isConnected || !channelRef.current || !orgId || !userId) return;
-    const ssId = sharedSessionIdRef.current;
-    if (!ssId) return;
+    const room = sharedSessionIdRef.current ?? `org:${orgId}:sv:hive`;
 
     const now = Date.now();
     if (now - lastFrameSentAt.current < FRAME_GATE_MS) return;
@@ -352,7 +339,7 @@ export function useSharedVision({
       kind: "sv_frame",
       v: 1,
       orgId,
-      sharedSessionId: ssId,
+      sharedSessionId: room,
       deviceId: deviceId.current,
       userId,
       deviceLabel,
@@ -426,9 +413,10 @@ export function useSharedVision({
     isConnected,
     sharedSessionId,
     deviceId: deviceId.current,
+    livePeers,
+    hivePaused,
     invalidProjectionPeerIds,
-    startSession,
-    joinSession,
-    leaveSession,
+    leaveHive,
+    rejoinHive,
   };
 }
