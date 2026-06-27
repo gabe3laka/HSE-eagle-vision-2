@@ -105,6 +105,7 @@ import {
 import { isRecordTargetPhase, isStopTargetPhase } from "@/features/build-mode/lib/holdToTrigger";
 import { readFlag } from "@/lib/featureFlags";
 import { useOrg } from "@/features/organizations/context/OrgContext";
+import { PENDING_SV_JOIN_KEY } from "@/features/shared-vision/constants";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   useSharedVision,
@@ -455,6 +456,29 @@ export default function Live() {
     },
     session,
   });
+
+  // Auto-join a session selected from the Settings → Organizations "Live now"
+  // list. Settings stashes the session id in sessionStorage and navigates here;
+  // we consume it once Hive is ready and we're not already in a session.
+  const autoJoinConsumed = useRef(false);
+  useEffect(() => {
+    if (!hiveEnabled || !selectedOrgId || !user?.id) return;
+    if (sharedSessionId || autoJoinConsumed.current) return;
+    let pending: string | null = null;
+    try {
+      pending = sessionStorage.getItem(PENDING_SV_JOIN_KEY);
+    } catch {
+      pending = null;
+    }
+    if (!pending) return;
+    autoJoinConsumed.current = true;
+    try {
+      sessionStorage.removeItem(PENDING_SV_JOIN_KEY);
+    } catch {
+      /* ignore */
+    }
+    void hiveJoinSession(pending);
+  }, [hiveEnabled, selectedOrgId, user?.id, sharedSessionId, hiveJoinSession]);
 
   // Receiver-side projection: compute each peer's projectedEntities locally from
   // this device's LocalPeerCalibration. The overlay/portal/panels all read from
