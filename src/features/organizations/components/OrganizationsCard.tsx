@@ -1,17 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  Users,
-  Plus,
-  Check,
-  X,
-  LogOut,
-  Crown,
-  Building2,
-  CircleDot,
-  Radio,
-  LogIn,
-} from "lucide-react";
+import { Users, Plus, Check, X, LogOut, Crown, Building2, CircleDot, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useOrg } from "../context/OrgContext";
 import {
@@ -27,8 +16,6 @@ import {
   useRejectRequest,
   useLeaveOrg,
 } from "../hooks/useOrganizations";
-import { useActiveSharedVisionSessions } from "@/features/shared-vision/hooks/useSharedVisionSessions";
-import { PENDING_SV_JOIN_KEY } from "@/features/shared-vision/constants";
 import { readFlag } from "@/lib/featureFlags";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -66,22 +53,10 @@ export function OrganizationsCard() {
   const availableOrgs = (orgs ?? []).filter((o) => !myOrgIds.has(o.id));
   const myLabel = profile?.full_name ?? profile?.email ?? user?.email ?? "You";
 
-  // Live Hive sessions in the active org (only when Hive is enabled). Joining
-  // happens on the Live page (it needs the camera + overlays), so the button
-  // hands the session id to Live via sessionStorage and navigates there.
+  // Hive is an org-wide room: opening Live (in HSE mode) auto-joins your org's
+  // hive — no per-session join. So Settings just links to Live.
   const navigate = useNavigate();
   const hiveFlag = readFlag("VITE_SHARED_VISION_ENABLED");
-  const { data: liveSessions = [] } = useActiveSharedVisionSessions(
-    hiveFlag && selectedOrgId ? selectedOrgId : null,
-  );
-  const handleJoinLive = (sessionId: string) => {
-    try {
-      sessionStorage.setItem(PENDING_SV_JOIN_KEY, sessionId);
-    } catch {
-      /* ignore storage errors — Live still shows the join banner */
-    }
-    navigate({ to: "/" });
-  };
 
   const handleCreate = async () => {
     if (!newOrgName.trim()) return;
@@ -135,46 +110,26 @@ export function OrganizationsCard() {
         </div>
       ) : null}
 
-      {/* Live Hive sessions in this org — join to merge feeds (opens Live). */}
+      {/* Hive is an org-wide room — open Live to merge with live teammates. */}
       {hiveFlag && selectedOrg && (
         <div>
           <p className="mb-1 flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
-            <Radio className="h-3 w-3 text-red-400" /> Live now in {selectedOrg.name}
+            <Radio className="h-3 w-3 text-red-400" /> Hive · {selectedOrg.name}
           </p>
-          {liveSessions.length === 0 ? (
-            <p className="rounded border border-dashed border-border px-3 py-2 text-[11px] text-muted-foreground">
-              No teammate is live right now. When someone starts a session it appears here to join.
-            </p>
-          ) : (
-            <div className="space-y-1">
-              {liveSessions.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between gap-2 rounded border border-red-500/30 bg-red-950/20 px-3 py-2"
-                >
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-red-500" />
-                    <span className="min-w-0">
-                      <span className="block truncate text-[12px] font-medium text-red-100">
-                        {s.hostLabel ?? s.label ?? "A teammate"} is live
-                      </span>
-                      <span className="block text-[9px] text-muted-foreground">
-                        {s.onlineCount} online
-                      </span>
-                    </span>
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 shrink-0 border-red-500/40 px-2 text-[11px] text-red-200"
-                    onClick={() => handleJoinLive(s.id)}
-                  >
-                    <LogIn className="mr-1 h-3 w-3" /> Join
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="flex items-center justify-between gap-2 rounded border border-purple-500/30 bg-purple-950/20 px-3 py-2">
+            <span className="min-w-0 text-[11px] text-muted-foreground">
+              Open Live (HSE mode) to join your org's hive — teammates' detections merge
+              automatically.
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 shrink-0 border-purple-500/40 px-2 text-[11px] text-purple-200"
+              onClick={() => navigate({ to: "/" })}
+            >
+              Open Live
+            </Button>
+          </div>
         </div>
       )}
 
