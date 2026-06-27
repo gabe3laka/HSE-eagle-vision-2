@@ -93,6 +93,9 @@ export function useSharedVision({
   const sessionEpoch = useRef(crypto.randomUUID());
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const sharedSessionIdRef = useRef<string | null>(null);
+  // True when THIS device created the session (host). Only the host ends the
+  // session row on leave so the active-session list never shows dead sessions.
+  const isHostRef = useRef(false);
   const lastFrameSentAt = useRef(0);
   const lastRiskSent = useRef<Map<string, number>>(new Map());
   const riskSeq = useRef(0);
@@ -233,6 +236,7 @@ export function useSharedVision({
         .single();
       if (error || !data) return;
       const ssId = data.id as string;
+      isHostRef.current = true;
       getOrSetSharedSessionId(ssId);
       await db.from("shared_vision_peers").upsert(
         {
@@ -257,6 +261,7 @@ export function useSharedVision({
   const joinSession = useCallback(
     async (ssId: string) => {
       if (!orgId || !userId) return;
+      isHostRef.current = false;
       await db.from("shared_vision_peers").upsert(
         {
           shared_session_id: ssId,
@@ -284,7 +289,18 @@ export function useSharedVision({
         .update({ status: "offline" })
         .eq("shared_session_id", ssId)
         .eq("device_id", deviceId.current);
+      // Host leaving ends the session so it drops off the active-session list
+      // and peers don't join a dead session. RLS sv_sessions_update restricts
+      // this to the owner, so a guard on owner_id keeps it self-only.
+      if (isHostRef.current) {
+        await db
+          .from("shared_vision_sessions")
+          .update({ status: "ended", ended_at: new Date().toISOString() })
+          .eq("id", ssId)
+          .eq("owner_id", userId);
+      }
     }
+    isHostRef.current = false;
     unsubscribeChannel();
     setSharedSessionId(null);
     sharedSessionIdRef.current = null;
