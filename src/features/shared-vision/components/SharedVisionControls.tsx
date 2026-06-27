@@ -76,6 +76,25 @@ export function SharedVisionControls({
 
       {!sharedSessionId ? (
         <div className="mt-2 space-y-2">
+          {/* Prominent affordance — the first live teammate, one tap to merge. */}
+          {activeSessions.length > 0 && (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md border border-red-500/40 bg-red-950/30 px-3 py-2 text-left transition-colors hover:bg-red-900/30 disabled:opacity-60"
+              onClick={() => handleJoin(activeSessions[0].id)}
+              disabled={joiningId === activeSessions[0].id}
+            >
+              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-red-500" />
+              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-red-100">
+                {activeSessions[0].hostLabel ?? activeSessions[0].label ?? "A teammate"} is live
+              </span>
+              <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-red-200">
+                <LogIn className="h-3 w-3" />
+                {joiningId === activeSessions[0].id ? "Joining…" : "Join"}
+              </span>
+            </button>
+          )}
+
           <Button
             size="sm"
             variant="outline"
@@ -86,18 +105,31 @@ export function SharedVisionControls({
             {starting ? "Starting…" : "Start new session"}
           </Button>
 
-          {activeSessions.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Active sessions
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Live now in your org
+            </p>
+            {activeSessions.length === 0 ? (
+              <p className="rounded border border-dashed border-border px-2 py-2 text-[11px] text-muted-foreground">
+                No one is live yet. Start a session, or wait for a teammate to go live — they'll
+                appear here to join.
               </p>
-              {activeSessions.map((s) => (
+            ) : (
+              activeSessions.map((s) => (
                 <div
                   key={s.id}
                   className="flex items-center justify-between gap-2 rounded border border-purple-500/20 px-2 py-1.5"
                 >
-                  <span className="truncate text-[11px] text-purple-200">
-                    {s.label ?? `Session ${s.id.slice(0, 6)}`}
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-green-400" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[11px] text-purple-200">
+                        {s.hostLabel ?? s.label ?? `Session ${s.id.slice(0, 6)}`}
+                      </span>
+                      <span className="block text-[9px] text-muted-foreground">
+                        {s.onlineCount} online
+                      </span>
+                    </span>
                   </span>
                   <Button
                     size="sm"
@@ -110,9 +142,9 @@ export function SharedVisionControls({
                     {joiningId === s.id ? "Joining…" : "Join"}
                   </Button>
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </div>
       ) : (
         <Button
