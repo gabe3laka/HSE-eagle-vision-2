@@ -121,6 +121,8 @@ import { SharedVisionControls } from "@/features/shared-vision/components/Shared
 import { RemoteAwarenessPanel } from "@/features/shared-vision/components/RemoteAwarenessPanel";
 import { RemoteRiskFeed } from "@/features/shared-vision/components/RemoteRiskFeed";
 import { ManualMapCalibrationPanel } from "@/features/shared-vision/components/ManualMapCalibrationPanel";
+import { HiveProjectionReadinessPanel } from "@/features/shared-vision/components/HiveProjectionReadinessPanel";
+import { buildProjectionReadiness } from "@/features/shared-vision/hooks/useProjectionReadiness";
 import type {
   BlueprintWorkflowMode,
   BuildGesture,
@@ -368,6 +370,10 @@ export default function Live() {
     hiveDeviceId,
     undefined,
     cameraStability.isMoving,
+    // Phase 2: current heading feeds the receiver pose-lock gate so a rotated
+    // handheld camera drops the exact homography path (→ anchored) rather than
+    // keeping a stale "homography · Xm" label.
+    { currentHeadingDeg: heading.headingDeg },
   );
 
   const onIncidentSaved = useCallback(() => {
@@ -439,7 +445,14 @@ export default function Live() {
     backendEntities: backendEntities as BackendEntity[],
     backendPoses: backendPoses as BackendPose[],
     backendRisk: liveBackendRisk,
-    capture: { w: null, h: null, mirrored: facing === "user", facing },
+    capture: {
+      // Phase 2: surface the detector's real capture dimensions (replacing the
+      // Phase-1 null placeholder) so receivers know the sender's capture frame.
+      w: (backendStatus as BackendStatus | null)?.lastCaptureW ?? null,
+      h: (backendStatus as BackendStatus | null)?.lastCaptureH ?? null,
+      mirrored: facing === "user",
+      facing,
+    },
     session,
   });
 
@@ -458,6 +471,34 @@ export default function Live() {
   const projectedPeerList = useMemo(
     () => [...projectedRemotePeers.values()],
     [projectedRemotePeers],
+  );
+
+  // Dev-only Hive projection diagnostics (Step 4). Gated behind VITE_HIVE_DEBUG
+  // so it never ships to operators. Pure snapshot — no effect on projection.
+  const hiveDebug = hiveEnabled && readFlag("VITE_HIVE_DEBUG");
+  const projectionReadiness = useMemo(
+    () =>
+      hiveDebug
+        ? buildProjectionReadiness({
+            hiveEnabled,
+            orgId: selectedOrgId,
+            sharedSessionId,
+            deviceId: hiveDeviceId,
+            receiverStable: !cameraStability.isMoving,
+            peers: projectedPeerList,
+            localCalibration,
+          })
+        : null,
+    [
+      hiveDebug,
+      hiveEnabled,
+      selectedOrgId,
+      sharedSessionId,
+      hiveDeviceId,
+      cameraStability.isMoving,
+      projectedPeerList,
+      localCalibration,
+    ],
   );
 
   // Reasoner scene-reasoning heartbeat (HSE only). Runs at a low frequency,
@@ -1506,10 +1547,18 @@ export default function Live() {
                     userId={user.id}
                     deviceId={hiveDeviceId}
                     cameraLabel={authProfile?.full_name ?? authProfile?.email ?? "This camera"}
+                    videoRef={videoRef}
+                    captureW={(backendStatus as BackendStatus | null)?.lastCaptureW ?? null}
+                    captureH={(backendStatus as BackendStatus | null)?.lastCaptureH ?? null}
+                    facing={facing}
+                    currentHeadingDeg={heading.headingDeg}
                   />
                 )}
                 <RemoteAwarenessPanel peers={projectedPeerList} />
                 <RemoteRiskFeed risks={remoteRisks} />
+                {projectionReadiness && (
+                  <HiveProjectionReadinessPanel readiness={projectionReadiness} />
+                )}
               </>
             )}
 

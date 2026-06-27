@@ -26,7 +26,10 @@ export type RiskFeatureFlag =
   | "VITE_HSE_LOCAL_ALERTS_ENABLED"
   | "VITE_HSE_QWEN_HEARTBEAT_ENABLED"
   | "VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON"
-  | "VITE_SHARED_VISION_ENABLED";
+  | "VITE_SHARED_VISION_ENABLED"
+  // Dev-only Hive diagnostics (projection readiness panel + FOV cones). OFF by
+  // default — never shown to operators unless explicitly enabled for a build.
+  | "VITE_HIVE_DEBUG";
 
 /** PURE: read a single boolean flag from an env bag. Returns `true` for the
  *  string "true", `false` for the string "false", and `defaultValue` otherwise

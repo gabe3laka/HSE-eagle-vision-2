@@ -155,3 +155,35 @@ export interface OrgCameraDeviceRow {
   created_at: string;
   updated_at: string;
 }
+
+export interface CameraCalibrationRow {
+  id: string;
+  org_id: string;
+  device_id: string;
+  user_id: string;
+  calibration_status:
+    | "uncalibrated"
+    | "manual_map"
+    | "homography"
+    | "calibrated"
+    | "stale"
+    | "failed";
+  method: "none" | "manual_map" | "homography_4pt" | "marker";
+  transform_id: string | null;
+  /** Phase 2 ground-plane data lives here: imageToMapH, mapToImageH,
+   *  referencePoints, captureTransform, reprojectionErrorNorm,
+   *  calibrationHeadingDeg. See useCameraCalibrations. */
+  transform: Record<string, unknown> | null;
+  camera_matrix: Record<string, unknown> | null;
+  distortion_coefficients: Record<string, unknown> | null;
+  camera_pose_world: Record<string, unknown> | null;
+  reprojection_error: number | null;
+  confidence: number | null;
+  visible_anchor_ids: unknown | null;
+  expires_at: string | null;
+  /** Phase 2 columns (20260627000001). */
+  site_map_id: string | null;
+  surface_type: string | null;
+  created_at: string;
+  updated_at: string;
+}

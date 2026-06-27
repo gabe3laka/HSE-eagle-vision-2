@@ -5,14 +5,20 @@ import type {
   ProjectedLocalBox,
   ProjectedRemoteEntity,
   ProjectionMethod,
+  ProjectionReason,
   MapCameraPlacement,
 } from "../types";
+import { applyHomographyPoint } from "./homography";
+import { worldDistanceM, distanceLabel, type WorldPt } from "./distance";
 
 const MIN_PROJECTION_CONFIDENCE = 0.65;
 const MIN_CALIBRATION_CONFIDENCE = 0.7;
 const CALIBRATION_TTL_MS = 30_000;
 const PEER_STALE_TTL_MS = 5_000;
 const REMOTE_FRAME_MAX_AGE_MS = 6_000;
+/** manual_map_anchored uses a real world point but an approximate heading/FOV
+ *  receiver model, so it is never allowed to read as a solid/accurate ghost. */
+const MAX_ANCHORED_CONFIDENCE = 0.78;
 
 /** Derive the best ground contact point for an entity in sender image space.
  *  Uses worker_pose_ankles when the worker returned pose data with confident
@@ -31,13 +37,6 @@ export function getEntityFootPoint(entity: RemoteHiveEntity): {
   }
   const b = entity.bboxRemote;
   return { x: b.x + b.w / 2, y: b.y + b.h, method: "bbox_bottom_center" };
-}
-
-/** Apply a 3x3 homography (row-major, 9 elements) to a 2D point. Returns null on degenerate w. */
-function applyHomography(H: number[], px: number, py: number): { x: number; y: number } | null {
-  const w = H[6] * px + H[7] * py + H[8];
-  if (Math.abs(w) < 1e-10) return null;
-  return { x: (H[0] * px + H[1] * py + H[2]) / w, y: (H[3] * px + H[4] * py + H[5]) / w };
 }
 
 /** Estimate a projected bbox from a foot point and entity dimensions. */
@@ -60,31 +59,21 @@ export function estimateProjectedBox(
 }
 
 /**
- * Phase 1B manual map projection: given both cameras' map placements,
- * estimate where Camera B's entity would appear in Camera A's view.
+ * Project a KNOWN entity world position (site-map meters) into the local
+ * camera's normalized image via its heading/FOV placement. Shared by both the
+ * pure Tier-1 manual map (assumed distance) and the Tier-2 manual_map_anchored
+ * path (real world point from peer homography).
  *
- * This is an approximate angular projection — not geometrically precise.
- * Labels show "Remote · Camera B · manual map" to communicate the approximation.
- * Confidence is set to 0.70 (visible as dashed ghost, below solid threshold 0.85).
+ * This is an approximate angular projection — accurate in bearing, approximate
+ * in vertical placement. It is never labelled as exact.
  */
-function projectManualMap(
-  entity: RemoteHiveEntity,
+function projectWorldToLocalView(
+  entityX: number,
+  entityY: number,
   local: MapCameraPlacement,
-  peer: MapCameraPlacement,
-  assumedDistanceM: number,
+  entity: RemoteHiveEntity,
+  method: ProjectionMethod,
 ): ProjectedLocalBox | null {
-  const foot = getEntityFootPoint(entity);
-
-  // Convert entity's x in peer image space to an absolute bearing from the peer camera
-  const fxCenter = foot.x - 0.5;
-  const bearingFromPeerDeg = peer.heading_deg + fxCenter * peer.fov_deg;
-  const bearingFromPeerRad = (bearingFromPeerDeg * Math.PI) / 180;
-
-  // Estimate entity world position (assuming a fixed distance from the peer camera)
-  const entityX = peer.x_m + assumedDistanceM * Math.sin(bearingFromPeerRad);
-  const entityY = peer.y_m + assumedDistanceM * Math.cos(bearingFromPeerRad);
-
-  // Compute bearing from local camera to the estimated entity position
   const dx = entityX - local.x_m;
   const dy = entityY - local.y_m;
   const distToLocal = Math.sqrt(dx * dx + dy * dy);
@@ -103,33 +92,190 @@ function projectManualMap(
   // Map relative angle to normalized x in Camera A's image
   const projectedX = Math.max(0, Math.min(1, 0.5 + relativeAngle / local.fov_deg));
   // Keep approximate y from the entity's bbox (vertical position in view)
+  const foot = getEntityFootPoint(entity);
   const projectedFoot = { x: projectedX, y: Math.max(0.3, Math.min(0.9, foot.y)) };
 
-  const box = estimateProjectedBox(entity, projectedFoot, "manual_map");
+  return estimateProjectedBox(entity, projectedFoot, method);
+}
+
+/**
+ * Phase 1B PURE Tier-1 manual map projection: no homography anywhere. Estimates
+ * the entity's world position from a FIXED assumed distance off the peer camera,
+ * then projects into the local view. Approximate by construction — labelled
+ * "manual map (approximate)". Confidence fixed at 0.70 (dashed, below solid).
+ */
+function projectManualMap(
+  entity: RemoteHiveEntity,
+  local: MapCameraPlacement,
+  peer: MapCameraPlacement,
+  assumedDistanceM: number,
+): ProjectedLocalBox | null {
+  const foot = getEntityFootPoint(entity);
+
+  // Convert entity's x in peer image space to an absolute bearing from the peer camera
+  const fxCenter = foot.x - 0.5;
+  const bearingFromPeerDeg = peer.heading_deg + fxCenter * peer.fov_deg;
+  const bearingFromPeerRad = (bearingFromPeerDeg * Math.PI) / 180;
+
+  // Estimate entity world position (assuming a fixed distance from the peer camera)
+  const entityX = peer.x_m + assumedDistanceM * Math.sin(bearingFromPeerRad);
+  const entityY = peer.y_m + assumedDistanceM * Math.cos(bearingFromPeerRad);
+
+  const box = projectWorldToLocalView(entityX, entityY, local, entity, "manual_map");
+  if (!box) return null;
   return { ...box, confidence: 0.7 };
 }
 
-/** Project a remote entity into the local view using a calibration transform.
- *  Supports both Tier 1 (manual_map) and Tier 2 (homography_4pt) projection. */
-export function projectRemoteEntityToLocal(
+/** Full projection result carrying the recovered world point + real distances. */
+export interface ProjectionDetail {
+  box: ProjectedLocalBox;
+  worldPoint: WorldPt | null;
+  distanceFromPeerM: number | null;
+  distanceFromLocalM: number | null;
+  reason: ProjectionReason;
+}
+
+/**
+ * Tier-2 ground-plane path. Recovers a REAL world point from the peer's
+ * image→map homography, then projects into the local view by the best available
+ * receiver method (graceful degradation):
+ *
+ *   1. local map→image homography present AND receiver pose usable
+ *        → "homography_4pt"  (exact in-view foot point)
+ *   2. else local manual-map placement present
+ *        → "manual_map_anchored"  (heading/FOV model fed the REAL world point)
+ *   3. else
+ *        → null  (no in-scene overlay; portal/awareness fallback)
+ *
+ * The world point + distanceFromPeerM are computed BEFORE the receiver branch,
+ * so a mounted peer + handheld receiver still yields real distances even when
+ * the in-view homography is unusable (acceptance #18, #20).
+ */
+function projectViaPeerHomography(
   entity: RemoteHiveEntity,
   cal: LocalPeerCalibration,
-): ProjectedLocalBox | null {
+): ProjectionDetail | null {
+  if (!cal.peerImageToMapH || cal.peerImageToMapH.length !== 9) return null;
+  const foot = getEntityFootPoint(entity);
+  const world = applyHomographyPoint(cal.peerImageToMapH, foot.x, foot.y);
+  if (!world) return null;
+  const worldPoint: WorldPt = { x_m: world.x, y_m: world.y };
+
+  const distanceFromPeerM = cal.peerCameraWorld
+    ? worldDistanceM(worldPoint, cal.peerCameraWorld)
+    : null;
+  const distanceFromLocalM = cal.localCameraWorld
+    ? worldDistanceM(worldPoint, cal.localCameraWorld)
+    : null;
+  // Label distance: prefer the viewer's own distance, fall back to the peer's.
+  const labelDistM = distanceFromLocalM ?? distanceFromPeerM;
+  const distLabel = distanceLabel(labelDistM);
+
+  // 1. Exact in-view homography (mounted receiver holding its calibration pose).
+  if (cal.receiverHomographyUsable && cal.localMapToImageH?.length === 9) {
+    const img = applyHomographyPoint(cal.localMapToImageH, worldPoint.x_m, worldPoint.y_m);
+    if (img && img.x > 0 && img.x < 1 && img.y > 0 && img.y < 1) {
+      const box = estimateProjectedBox(entity, { x: img.x, y: img.y }, "homography_4pt");
+      return {
+        box: { ...box, confidence: cal.confidence, distanceLabel: distLabel },
+        worldPoint,
+        distanceFromPeerM,
+        distanceFromLocalM,
+        reason: "homography_4pt",
+      };
+    }
+    // Degenerate / out-of-view → fall through to anchored.
+  }
+
+  // 2. World-anchored manual map: real world point through heading/FOV model.
+  if (cal.mapTransform) {
+    const box = projectWorldToLocalView(
+      worldPoint.x_m,
+      worldPoint.y_m,
+      cal.mapTransform.localCamera,
+      entity,
+      "manual_map",
+    );
+    if (box) {
+      return {
+        box: {
+          ...box,
+          confidence: Math.min(cal.confidence, MAX_ANCHORED_CONFIDENCE),
+          distanceLabel: distLabel,
+        },
+        worldPoint,
+        distanceFromPeerM,
+        distanceFromLocalM,
+        reason: "manual_map_anchored",
+      };
+    }
+  }
+
+  // 3. No usable receiver transform → fallback (portal/awareness still has the
+  //    raw entity; the distance is surfaced via worldPoint elsewhere).
+  return null;
+}
+
+/**
+ * Compute the full projection detail for one entity given a calibration.
+ * Dispatch order: peer ground-plane homography → legacy direct homography →
+ * pure Tier-1 manual map.
+ */
+export function computeProjectionDetail(
+  entity: RemoteHiveEntity,
+  cal: LocalPeerCalibration,
+): ProjectionDetail | null {
+  // Tier 2 — peer image→map homography composed with the best receiver method.
+  if (cal.peerImageToMapH && cal.peerImageToMapH.length === 9) {
+    return projectViaPeerHomography(entity, cal);
+  }
+
+  // Legacy/direct image→image homography (back-compat + identity tests). Not
+  // used for manual_map calibrations.
+  if (cal.method !== "manual_map" && cal.homography && cal.homography.length === 9) {
+    const foot = getEntityFootPoint(entity);
+    const projected = applyHomographyPoint(cal.homography, foot.x, foot.y);
+    if (!projected) return null;
+    const box = estimateProjectedBox(entity, projected, cal.method);
+    return {
+      box: { ...box, confidence: cal.confidence },
+      worldPoint: null,
+      distanceFromPeerM: null,
+      distanceFromLocalM: null,
+      reason: cal.method === "homography_4pt" ? "homography_4pt" : "marker",
+    };
+  }
+
+  // Tier 1 — pure manual map (fixed assumed distance).
   if (cal.method === "manual_map" && cal.mapTransform) {
-    return projectManualMap(
+    const box = projectManualMap(
       entity,
       cal.mapTransform.localCamera,
       cal.mapTransform.peerCamera,
       cal.mapTransform.assumedDistanceM,
     );
+    if (!box) return null;
+    return {
+      box,
+      worldPoint: null,
+      distanceFromPeerM: null,
+      distanceFromLocalM: null,
+      reason: "manual_map",
+    };
   }
-  if (!cal.homography || cal.homography.length !== 9) return null;
-  const foot = getEntityFootPoint(entity);
-  const projected = applyHomography(cal.homography, foot.x, foot.y);
-  if (!projected) return null;
-  const box = estimateProjectedBox(entity, projected, cal.method);
-  // Use calibration confidence as the projection quality signal for homography/marker
-  return { ...box, confidence: cal.confidence };
+
+  return null;
+}
+
+/** Project a remote entity into the local view using a calibration transform.
+ *  Returns the projected box only; use computeProjectionDetail for world point
+ *  and distances. Supports Tier 1 (manual_map), Tier 2 (homography), and the
+ *  world-anchored degradation path. */
+export function projectRemoteEntityToLocal(
+  entity: RemoteHiveEntity,
+  cal: LocalPeerCalibration,
+): ProjectedLocalBox | null {
+  return computeProjectionDetail(entity, cal)?.box ?? null;
 }
 
 export function isProjectionFresh(expiresAt: number | null): boolean {
@@ -177,28 +323,43 @@ export function canRenderProjectedRemoteEntity(
 }
 
 /** Build a ProjectedRemoteEntity from a sender entity + receiver calibration.
- *  Returns null when the calibration cannot project the entity (Phase 1: always null). */
+ *  Returns null when the calibration cannot project the entity (Phase 1: always null).
+ *  The projectionReason is the HONEST method actually used — a peer-homography
+ *  calibration whose receiver pose is unusable degrades to manual_map_anchored,
+ *  never a stale homography_4pt label (acceptance #20). */
 export function buildProjectedRemoteEntity(
   entity: RemoteHiveEntity,
   cal: LocalPeerCalibration,
   sourceDeviceId: string,
 ): ProjectedRemoteEntity | null {
-  const box = projectRemoteEntityToLocal(entity, cal);
-  if (!box) return null;
+  const detail = computeProjectionDetail(entity, cal);
+  if (!detail) return null;
+  const { box } = detail;
   if (!isProjectionConfidenceHighEnough(box.confidence)) return null;
   if (!isInsideViewport(box)) return null;
-  const reason =
-    cal.method === "manual_map"
-      ? "manual_map"
-      : cal.method === "homography_4pt"
-        ? "homography_4pt"
-        : "marker";
+
+  const worldPoint = detail.worldPoint
+    ? {
+        x_m: detail.worldPoint.x_m,
+        y_m: detail.worldPoint.y_m,
+        z_m: 0,
+        confidence: box.confidence,
+        method:
+          detail.reason === "homography_4pt"
+            ? ("homography_4pt" as const)
+            : ("manual_map" as const),
+      }
+    : entity.worldPoint;
+
   return {
     ...entity,
+    worldPoint,
     projectedLocal: box,
     projectedAt: Date.now(),
     sourceDeviceId,
-    projectionReason: reason,
+    projectionReason: detail.reason,
+    distanceFromPeerM: detail.distanceFromPeerM,
+    distanceFromLocalM: detail.distanceFromLocalM,
   };
 }
 
