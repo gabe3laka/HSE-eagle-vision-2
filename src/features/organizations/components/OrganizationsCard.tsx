@@ -56,7 +56,7 @@ export function OrganizationsCard() {
   // Hive is an org-wide room: opening Live (in HSE mode) auto-joins your org's
   // hive — no per-session join. So Settings just links to Live.
   const navigate = useNavigate();
-  const hiveFlag = readFlag("VITE_SHARED_VISION_ENABLED");
+  const hiveFlag = readFlag("VITE_SHARED_VISION_ENABLED", safeEnv(), true);
 
   const handleCreate = async () => {
     if (!newOrgName.trim()) return;
