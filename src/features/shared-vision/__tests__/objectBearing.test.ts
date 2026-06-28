@@ -92,6 +92,17 @@ describe("projectByBearing", () => {
     const entity = makeEntity(0.25);
     expect(projectByBearing(entity, 90, 65, 0, 65)).toBeNull();
   });
+
+  it("un-flips foot.x for a front-camera (mirrored) sender", () => {
+    // foot.x 0.25 on a mirrored frame → real footX 0.75 → bearing ≈ 106.25°.
+    // A heading 90 → rel ≈ +16.25° → right of center (opposite the un-mirrored case).
+    const entity = makeEntity(0.25);
+    const box = projectByBearing(entity, 90, 65, 90, 65, true);
+    expect(box).not.toBeNull();
+    expect(box!.footPoint.x).toBeCloseTo(0.75, 2);
+    const unmirrored = projectByBearing(entity, 90, 65, 90, 65, false);
+    expect(unmirrored!.footPoint.x).toBeCloseTo(0.25, 2);
+  });
 });
 
 describe("continuity — sweeping the receiver heading moves the box across and out of view", () => {
@@ -208,6 +219,30 @@ describe("computeProjectedPeers — compass hive-mind fallback tier", () => {
       entities: [makeEntity(0.25)],
       capture: makeCapture({ headingDeg: null, headingSource: null, hfovDeg: null }),
     });
+    const out = computeProjectedPeers({
+      remotePeers: new Map([[peer.deviceId, peer]]),
+      localCalibration: new Map(),
+      hseActive: true,
+      hiveMind,
+    });
+    expect(out.get(peer.deviceId)!.projectedEntities).toHaveLength(0);
+  });
+
+  it("is inert for a peer whose frames went stale (lastSeenAt past the TTL)", () => {
+    // isStale flag still false (between TTL ticks) but lastSeenAt is 30s old — the
+    // explicit TTL guard must prevent drawing a box off a dead peer's last heading.
+    const peer = makePeer({ entities: [makeEntity(0.25)], lastSeenAt: Date.now() - 30_000 });
+    const out = computeProjectedPeers({
+      remotePeers: new Map([[peer.deviceId, peer]]),
+      localCalibration: new Map(),
+      hseActive: true,
+      hiveMind,
+    });
+    expect(out.get(peer.deviceId)!.projectedEntities).toHaveLength(0);
+  });
+
+  it("is inert for a peer marked stale", () => {
+    const peer = makePeer({ entities: [makeEntity(0.25)], isStale: true });
     const out = computeProjectedPeers({
       remotePeers: new Map([[peer.deviceId, peer]]),
       localCalibration: new Map(),

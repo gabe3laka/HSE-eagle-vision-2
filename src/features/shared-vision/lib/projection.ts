@@ -428,6 +428,7 @@ export function buildHiveMindRemoteEntity(
     senderHfovDeg,
     localHeadingDeg,
     localFovDeg,
+    peer.capture?.mirrored ?? false,
   );
   if (!box) return null;
   if (!isInsideViewport(box)) return null;
@@ -489,11 +490,17 @@ export function computeProjectedPeers(params: {
     let projectedEntities = buildProjectedRemoteEntities({ peer, calibration, hseActive });
 
     // Compass hive-mind fallback — ONLY when no calibrated projection exists for
-    // this peer, the receiver is actively monitoring, and headings are eligible.
+    // this peer, the receiver is actively monitoring, the peer's frames are fresh,
+    // and headings are eligible. This path bypasses canRenderProjectedRemoteEntity,
+    // so it must re-assert that function's freshness guard itself (both the
+    // isStale flag, updated ~1×/s, AND the instantaneous lastSeenAt TTL) — without
+    // it a peer whose frames stopped 30s ago could still get its last stale
+    // compass reading drawn as a confident box.
     if (
       projectedEntities.length === 0 &&
       hseActive &&
       !peer.isStale &&
+      Date.now() - peer.lastSeenAt <= PEER_STALE_TTL_MS &&
       hiveMind &&
       hiveMind.localHeadingDeg != null &&
       isHiveMindEligible({

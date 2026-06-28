@@ -35,6 +35,11 @@ export function entityWorldBearingDeg(
  *
  * Returns null when the object's world bearing falls outside the local camera's
  * FOV (it is simply off-screen; turning the local camera toward it brings it in).
+ *
+ * `senderMirrored` un-flips foot.x for a front-camera (mirrored) sender so the
+ * horizontal direction is not inverted. HSE cameras use the back/environment
+ * camera, so this is normally false; it's here so a front-camera peer still
+ * places objects on the correct side.
  */
 export function projectByBearing(
   entity: RemoteHiveEntity,
@@ -42,9 +47,11 @@ export function projectByBearing(
   senderHfovDeg: number,
   localHeadingDeg: number,
   localFovDeg: number,
+  senderMirrored = false,
 ): ProjectedLocalBox | null {
   const foot = getEntityFootPoint(entity);
-  const worldBearing = entityWorldBearingDeg(foot.x, senderHeadingDeg, senderHfovDeg);
+  const footX = senderMirrored ? 1 - foot.x : foot.x;
+  const worldBearing = entityWorldBearingDeg(footX, senderHeadingDeg, senderHfovDeg);
   const rel = normalize180(worldBearing - localHeadingDeg);
 
   // Outside the local FOV → not on screen.
