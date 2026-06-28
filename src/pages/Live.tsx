@@ -477,7 +477,7 @@ export default function Live() {
 
   // Dev-only Hive projection diagnostics (Step 4). Gated behind VITE_HIVE_DEBUG
   // so it never ships to operators. Pure snapshot — no effect on projection.
-  const hiveDebug = hiveEnabled && readFlag("VITE_HIVE_DEBUG");
+  const hiveDebug = hiveEnabled && readFlag("VITE_HIVE_DEBUG", safeEnv(), true);
   // Org camera placements (only fetched in debug, to back the same-map /
   // placement-complete rows). The query is also used inside
   // useLocalPeerCalibrations; React Query dedupes the request.
