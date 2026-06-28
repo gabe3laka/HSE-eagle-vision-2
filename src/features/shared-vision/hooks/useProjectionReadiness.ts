@@ -1,5 +1,7 @@
 import { useMemo } from "react";
 import type { LocalPeerCalibration, RemotePeerState } from "../types";
+import type { HiveDiagnostics } from "./useSharedVision";
+import type { CameraPlacement } from "./useSiteMaps";
 
 export interface ReadinessRow {
   label: string;
@@ -20,62 +22,200 @@ export interface ProjectionReadiness {
 }
 
 export interface ProjectionReadinessInput {
+  // Feature flag / mode
   hiveEnabled: boolean;
+  appMode: string;
+  hseActive: boolean;
+  // Identity / org
+  authUserId: string | null;
   orgId: string | null;
-  sharedSessionId: string | null;
+  /** Membership role for the selected org, or null when not a member. */
+  membershipStatus: string | null;
   deviceId: string | null;
+  // Connection / send / receive observability (from useSharedVision).
+  diagnostics: HiveDiagnostics;
+  // Receiver state
   receiverStable: boolean;
+  /** True when the local detector exposed a CaptureTransform this frame. */
+  captureTransformPresent: boolean;
+  // Local placement row (org_camera_devices for THIS device), if any.
+  localDevice: CameraPlacement | null;
+  // Peers (receiver-projected peer states) + supporting data.
   peers: RemotePeerState[];
+  remoteRiskCount: number;
   localCalibration: Map<string, LocalPeerCalibration>;
+  /** org_camera_devices rows keyed by device_id, for peer placement/map checks. */
+  peerDevices: Map<string, CameraPlacement>;
 }
 
 function bool(v: boolean): string {
   return v ? "yes" : "no";
 }
 
+function ago(ts: number | null): string {
+  if (!ts) return "—";
+  const dt = Date.now() - ts;
+  if (dt < 0) return "now";
+  if (dt < 1000) return `${dt}ms ago`;
+  return `${(dt / 1000).toFixed(1)}s ago`;
+}
+
+/** A placement is "complete" only with a map + full pose (x/y/heading/FOV). */
+function placementComplete(d: CameraPlacement | null | undefined): boolean {
+  return (
+    !!d &&
+    d.site_map_id != null &&
+    d.map_x_m != null &&
+    d.map_y_m != null &&
+    d.heading_deg != null &&
+    d.fov_deg != null
+  );
+}
+
 /**
- * PURE: build the "why is there (no) ghost?" diagnostic readout. This is the
- * explainer panel's data source — it never changes projection behaviour. Lists
- * the exact gate inputs the projection pipeline consumes so an operator/dev can
- * see which condition is blocking an in-scene overlay.
+ * PURE: build the full Hive "why is there (no) connection / ghost?" diagnostic
+ * readout (gated behind VITE_HIVE_DEBUG at the call site). It is the single panel
+ * that lets a tester distinguish, with zero guessing, between: feature flag /
+ * auth / org selection / Realtime RLS / broadcast send / remote receive / device
+ * self-filter / missing placement / different site map / stale peer / hseActive /
+ * calibration missing / receiver moving / capture-space mismatch / confidence gate.
+ *
+ * It never changes projection behaviour — it only reports the gate inputs the
+ * connection + projection pipelines already consume.
  */
 export function buildProjectionReadiness(input: ProjectionReadinessInput): ProjectionReadiness {
-  const { hiveEnabled, orgId, sharedSessionId, deviceId, receiverStable, peers, localCalibration } =
-    input;
+  const {
+    hiveEnabled,
+    appMode,
+    hseActive,
+    authUserId,
+    orgId,
+    membershipStatus,
+    deviceId,
+    diagnostics,
+    receiverStable,
+    captureTransformPresent,
+    localDevice,
+    peers,
+    remoteRiskCount,
+    localCalibration,
+    peerDevices,
+  } = input;
+
+  const localMapId = localDevice?.site_map_id ?? null;
+  const localComplete = placementComplete(localDevice);
+  const localMapToImagePresent = [...localCalibration.values()].some((c) => !!c.localMapToImageH);
 
   const global: ReadinessRow[] = [
-    { label: "hive enabled", value: bool(hiveEnabled), ok: hiveEnabled },
-    { label: "org id", value: orgId ?? "—", ok: orgId ? true : false },
-    { label: "session id", value: sharedSessionId ? sharedSessionId.slice(0, 8) : "—", ok: null },
+    // --- Feature flag / mode ---
+    { label: "feature flag enabled", value: bool(hiveEnabled), ok: hiveEnabled },
+    { label: "appMode", value: appMode, ok: appMode === "hse" },
+    { label: "hseActive", value: bool(hseActive), ok: null },
+    // --- Identity / org ---
+    { label: "auth user id", value: authUserId ? authUserId.slice(0, 8) : "—", ok: !!authUserId },
+    { label: "selected org id", value: orgId ? orgId.slice(0, 8) : "—", ok: !!orgId },
     {
-      label: "device id",
-      value: deviceId ? deviceId.slice(0, 8) : "—",
-      ok: deviceId ? true : false,
+      label: "org membership",
+      value: membershipStatus ?? "none",
+      ok: membershipStatus ? membershipStatus !== "none" : false,
     },
-    { label: "peer count", value: String(peers.length), ok: peers.length > 0 },
+    { label: "local device id", value: deviceId ? deviceId.slice(0, 8) : "—", ok: !!deviceId },
+    // --- Connection / presence / send / receive ---
+    { label: "topic string", value: diagnostics.topic ?? "—", ok: !!diagnostics.topic },
+    {
+      label: "connection status",
+      value: diagnostics.connectionStatus,
+      ok: diagnostics.connectionStatus === "SUBSCRIBED",
+    },
+    {
+      label: "presence status",
+      value: diagnostics.presenceStatus,
+      ok:
+        diagnostics.presenceStatus === "tracked"
+          ? true
+          : diagnostics.presenceStatus === "error"
+            ? false
+            : null,
+    },
+    {
+      label: "last ch.track result",
+      value: diagnostics.lastTrackResult ?? "—",
+      ok: diagnostics.lastTrackResult ? diagnostics.lastTrackResult === "ok" : null,
+    },
+    {
+      label: "last ch.send result",
+      value: diagnostics.lastSendResult ?? "—",
+      ok: diagnostics.lastSendResult ? diagnostics.lastSendResult === "ok" : null,
+    },
+    { label: "last sent frame", value: ago(diagnostics.lastSentAt), ok: null },
+    {
+      label: "last received frame",
+      value: ago(diagnostics.lastReceivedAt),
+      ok: diagnostics.lastReceivedAt ? true : null,
+    },
+    // --- Remote summary ---
+    { label: "remote peer count", value: String(peers.length), ok: peers.length > 0 },
+    { label: "remote risk count", value: String(remoteRiskCount), ok: null },
+    // --- Local placement / calibration ---
+    { label: "local site_map_id", value: localMapId ? localMapId.slice(0, 8) : "—", ok: null },
+    { label: "local placement complete", value: bool(localComplete), ok: localComplete },
+    { label: "local mapToImageH exists", value: bool(localMapToImagePresent), ok: null },
     { label: "receiver stable", value: bool(receiverStable), ok: receiverStable },
+    { label: "capture transform present", value: bool(captureTransformPresent), ok: null },
   ];
 
   const peerRows: PeerReadiness[] = peers.map((peer) => {
     const cal = localCalibration.get(peer.deviceId) ?? null;
+    const peerDevice = peerDevices.get(peer.deviceId) ?? null;
+    const peerMapId = peerDevice?.site_map_id ?? null;
+    const peerComplete = placementComplete(peerDevice);
+    const sameMap = !!localMapId && !!peerMapId && localMapId === peerMapId;
     const projectedCount = peer.projectedEntities.length;
     const topReason = peer.projectedEntities[0]?.projectionReason ?? null;
+    // Peer broadcast its own capture transform when present on the frame.
+    const peerCaptureTransform = !!peer.capture?.transform;
+    // Approximate mismatch signal: the peer has a homography path but the
+    // receiver pose-lock disabled it (drift / unsteady / capture-transform
+    // mismatch all collapse receiverHomographyUsable to false).
+    const captureMismatch = !!cal?.peerImageToMapH && cal?.receiverHomographyUsable === false;
+
+    // Single honest block-reason ladder using only locally available data.
+    let blockReason = "none (projecting)";
+    if (peer.isStale) blockReason = "peer_stale";
+    else if (peer.entities.length === 0) blockReason = "no_remote_entities";
+    else if (!localComplete) blockReason = "missing_local_placement";
+    else if (!peerComplete) blockReason = "missing_peer_placement";
+    else if (!sameMap) blockReason = "different_site_map";
+    else if (!cal) blockReason = "no_calibration";
+    else if (cal.status === "stale" || cal.status === "failed")
+      blockReason = `calibration_${cal.status}`;
+    else if (!receiverStable) blockReason = "receiver_moving";
+    else if (cal.confidence < 0.65) blockReason = "low_confidence";
+    else if (projectedCount === 0) blockReason = "projection_failed";
 
     const rows: ReadinessRow[] = [
+      { label: "peer device id", value: peer.deviceId.slice(0, 8), ok: null },
       { label: "peer stale", value: bool(peer.isStale), ok: !peer.isStale },
       {
         label: "remote entities",
         value: String(peer.entities.length),
         ok: peer.entities.length > 0,
       },
-      { label: "calibration", value: cal ? cal.method : "none", ok: cal ? true : false },
+      { label: "peer site_map_id", value: peerMapId ? peerMapId.slice(0, 8) : "—", ok: null },
+      { label: "same map", value: bool(sameMap), ok: sameMap ? true : null },
       {
-        label: "peer imageToMap",
+        label: "peer placement complete",
+        value: bool(peerComplete),
+        ok: peerComplete ? true : null,
+      },
+      { label: "calibration", value: cal ? cal.method : "none", ok: cal ? true : null },
+      {
+        label: "peer imageToMapH",
         value: bool(!!cal?.peerImageToMapH),
         ok: cal?.peerImageToMapH ? true : null,
       },
       {
-        label: "local mapToImage",
+        label: "local mapToImageH",
         value: bool(!!cal?.localMapToImageH),
         ok: cal?.localMapToImageH ? true : null,
       },
@@ -84,17 +224,20 @@ export function buildProjectionReadiness(input: ProjectionReadinessInput): Proje
         value: bool(!!cal?.receiverHomographyUsable),
         ok: cal?.receiverHomographyUsable ? true : null,
       },
+      { label: "peer capture transform", value: bool(peerCaptureTransform), ok: null },
+      { label: "capture transform mismatch", value: bool(captureMismatch), ok: !captureMismatch },
       {
-        label: "confidence",
+        label: "projection confidence",
         value: cal ? `${Math.round(cal.confidence * 100)}%` : "—",
         ok: cal ? cal.confidence >= 0.65 : null,
       },
       { label: "projected entities", value: String(projectedCount), ok: projectedCount > 0 },
       {
-        label: "method (rendered)",
-        value: topReason ?? (projectedCount === 0 ? "fallback" : "—"),
+        label: "projection method",
+        value: topReason ?? (cal ? cal.method : "none"),
         ok: null,
       },
+      { label: "last block reason", value: blockReason, ok: blockReason.startsWith("none") },
     ];
     return { deviceId: peer.deviceId, deviceLabel: peer.deviceLabel, rows };
   });
@@ -109,12 +252,20 @@ export function useProjectionReadiness(input: ProjectionReadinessInput): Project
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       input.hiveEnabled,
+      input.appMode,
+      input.hseActive,
+      input.authUserId,
       input.orgId,
-      input.sharedSessionId,
+      input.membershipStatus,
       input.deviceId,
+      input.diagnostics,
       input.receiverStable,
+      input.captureTransformPresent,
+      input.localDevice,
       input.peers,
+      input.remoteRiskCount,
       input.localCalibration,
+      input.peerDevices,
     ],
   );
 }
