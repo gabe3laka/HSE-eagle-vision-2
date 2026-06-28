@@ -360,6 +360,9 @@ export default function Live() {
   const { selectedOrgId, myMembership } = useOrg();
   const { user, session, profile: authProfile } = useAuth();
   const heading = useDeviceOrientation({ enabled: hiveEnabled });
+  // Assumed phone horizontal FOV for the compass hive-mind tier (per-device
+  // override can come later). Matches DEFAULT_FOV_DEG in useLocalPeerCalibrations.
+  const LOCAL_HFOV_DEG = 65;
   const { bearings, pairPeer, clearPeer } = usePeerBearings();
   // Stable per-tab deviceId read early (same value useSharedVision uses internally).
   const hiveDeviceId = useMemo(() => (hiveEnabled ? getOrCreateDeviceId() : null), [hiveEnabled]);
@@ -454,6 +457,12 @@ export default function Live() {
       h: (backendStatus as BackendStatus | null)?.lastCaptureH ?? null,
       mirrored: facing === "user",
       facing,
+      // Compass hive-mind: broadcast our live heading + horizontal FOV so peers
+      // can place our detections by world bearing (scalars only — no raw video).
+      headingDeg: heading.headingDeg,
+      headingSource: heading.source,
+      headingAccuracyDeg: heading.accuracyDeg,
+      hfovDeg: LOCAL_HFOV_DEG,
     },
     session,
   });
@@ -469,6 +478,15 @@ export default function Live() {
     // Suppress in-scene projection for peers whose calibration went stale/failed,
     // even if a localCalibration still exists — prevents recompute from undoing it.
     blockedPeerIds: invalidProjectionPeerIds,
+    // Compass hive-mind fallback: when no map/homography calibration exists for a
+    // peer but both headings are absolute, place its detections by world bearing
+    // using this device's live heading + FOV. Tier order (homography > manual-map
+    // > hive-mind > portal) is enforced inside computeProjectedPeers.
+    hiveMind: {
+      localHeadingDeg: heading.headingDeg,
+      localHeadingSource: heading.source,
+      localFovDeg: LOCAL_HFOV_DEG,
+    },
   });
   const projectedPeerList = useMemo(
     () => [...projectedRemotePeers.values()],
@@ -507,6 +525,9 @@ export default function Live() {
             remoteRiskCount: remoteRisks.length,
             localCalibration,
             peerDevices,
+            localHeadingDeg: heading.headingDeg,
+            localHeadingSource: heading.source,
+            localFovDeg: LOCAL_HFOV_DEG,
           })
         : null,
     [
@@ -526,6 +547,8 @@ export default function Live() {
       remoteRisks.length,
       localCalibration,
       peerDevices,
+      heading.headingDeg,
+      heading.source,
     ],
   );
 

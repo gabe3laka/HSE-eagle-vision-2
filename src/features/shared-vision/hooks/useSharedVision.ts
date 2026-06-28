@@ -58,6 +58,13 @@ export interface UseSharedVisionOptions {
     h: number | null;
     mirrored: boolean;
     facing: "user" | "environment";
+    // Compass hive-mind (optional). Sender's live heading + horizontal FOV, sent
+    // every frame so receivers can place detections by world bearing. Scalars
+    // only. The existing `capture` spread at frame-build carries these through.
+    headingDeg?: number | null;
+    headingSource?: "absolute" | "webkit" | "relative" | null;
+    headingAccuracyDeg?: number | null;
+    hfovDeg?: number | null;
   };
   session?: { access_token: string } | null;
 }

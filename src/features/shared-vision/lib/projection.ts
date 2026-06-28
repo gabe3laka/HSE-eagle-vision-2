@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import { applyHomographyPoint } from "./homography";
 import { worldDistanceM, distanceLabel, type WorldPt } from "./distance";
+import { entityWorldBearingDeg, projectByBearing, isHiveMindEligible } from "./objectBearing";
 
 const MIN_PROJECTION_CONFIDENCE = 0.65;
 const MIN_CALIBRATION_CONFIDENCE = 0.7;
@@ -112,9 +113,9 @@ function projectManualMap(
 ): ProjectedLocalBox | null {
   const foot = getEntityFootPoint(entity);
 
-  // Convert entity's x in peer image space to an absolute bearing from the peer camera
-  const fxCenter = foot.x - 0.5;
-  const bearingFromPeerDeg = peer.heading_deg + fxCenter * peer.fov_deg;
+  // Convert entity's x in peer image space to an absolute bearing from the peer
+  // camera (single source of the heading + (foot.x − 0.5)·fov convention).
+  const bearingFromPeerDeg = entityWorldBearingDeg(foot.x, peer.heading_deg, peer.fov_deg);
   const bearingFromPeerRad = (bearingFromPeerDeg * Math.PI) / 180;
 
   // Estimate entity world position (assuming a fixed distance from the peer camera)
@@ -400,6 +401,57 @@ export function buildProjectedRemoteEntities(params: {
 }
 
 /**
+ * Compass hive-mind tier (no map, no calibration). Build a ProjectedRemoteEntity
+ * placed purely by the object's world bearing from the SENDER's live heading +
+ * FOV, drawn into the LOCAL view via the receiver's own live heading + FOV.
+ *
+ * Direction is the deliverable: there is no parallax correction, no distance, and
+ * the vertical placement is approximate. Returns null when the object is outside
+ * the local FOV (off-screen) or the peer frame lacks heading/FOV. The honest
+ * projectionReason is "compass_bearing"; distances and worldPoint stay null so no
+ * metric label can ever appear.
+ */
+export function buildHiveMindRemoteEntity(
+  entity: RemoteHiveEntity,
+  peer: RemotePeerState,
+  localHeadingDeg: number,
+  localFovDeg: number,
+  sourceDeviceId: string,
+): ProjectedRemoteEntity | null {
+  const senderHeadingDeg = peer.capture?.headingDeg;
+  if (senderHeadingDeg == null) return null;
+  const senderHfovDeg = peer.capture?.hfovDeg ?? localFovDeg;
+
+  const box = projectByBearing(
+    entity,
+    senderHeadingDeg,
+    senderHfovDeg,
+    localHeadingDeg,
+    localFovDeg,
+  );
+  if (!box) return null;
+  if (!isInsideViewport(box)) return null;
+
+  return {
+    ...entity,
+    worldPoint: null,
+    projectedLocal: box,
+    projectedAt: Date.now(),
+    sourceDeviceId,
+    projectionReason: "compass_bearing",
+    distanceFromPeerM: null,
+    distanceFromLocalM: null,
+  };
+}
+
+/** Receiver heading inputs for the compass hive-mind fallback tier. */
+export interface HiveMindReceiver {
+  localHeadingDeg: number | null;
+  localHeadingSource: "absolute" | "webkit" | "relative" | null;
+  localFovDeg: number;
+}
+
+/**
  * Pure receiver-side projection selector. For each remote peer, computes its
  * `projectedEntities` from THIS receiver's LocalPeerCalibration, EXCEPT peers
  * in `blockedPeerIds` (those that broadcast a stale/failed calibration status)
@@ -418,8 +470,13 @@ export function computeProjectedPeers(params: {
   localCalibration: Map<string, LocalPeerCalibration>;
   hseActive: boolean;
   blockedPeerIds?: Set<string>;
+  /** Optional compass hive-mind fallback inputs. When the calibrated tiers
+   *  produce no boxes for a peer but both headings are absolute + fresh, place
+   *  the peer's detections by world bearing instead. Tier order is enforced here:
+   *  homography/manual-map win; hive-mind only fills the gap. */
+  hiveMind?: HiveMindReceiver;
 }): Map<string, RemotePeerState> {
-  const { remotePeers, localCalibration, hseActive, blockedPeerIds } = params;
+  const { remotePeers, localCalibration, hseActive, blockedPeerIds, hiveMind } = params;
   const out = new Map<string, RemotePeerState>();
   for (const [deviceId, peer] of remotePeers) {
     if (blockedPeerIds?.has(deviceId)) {
@@ -429,7 +486,36 @@ export function computeProjectedPeers(params: {
       continue;
     }
     const calibration = localCalibration.get(deviceId) ?? null;
-    const projectedEntities = buildProjectedRemoteEntities({ peer, calibration, hseActive });
+    let projectedEntities = buildProjectedRemoteEntities({ peer, calibration, hseActive });
+
+    // Compass hive-mind fallback — ONLY when no calibrated projection exists for
+    // this peer, the receiver is actively monitoring, and headings are eligible.
+    if (
+      projectedEntities.length === 0 &&
+      hseActive &&
+      !peer.isStale &&
+      hiveMind &&
+      hiveMind.localHeadingDeg != null &&
+      isHiveMindEligible({
+        peerCapture: peer.capture,
+        localHeadingDeg: hiveMind.localHeadingDeg,
+        localHeadingSource: hiveMind.localHeadingSource,
+      })
+    ) {
+      const bearingProjected: ProjectedRemoteEntity[] = [];
+      for (const entity of peer.entities) {
+        const projected = buildHiveMindRemoteEntity(
+          entity,
+          peer,
+          hiveMind.localHeadingDeg,
+          hiveMind.localFovDeg,
+          peer.deviceId,
+        );
+        if (projected) bearingProjected.push(projected);
+      }
+      projectedEntities = bearingProjected;
+    }
+
     out.set(deviceId, { ...peer, projectedEntities });
   }
   return out;

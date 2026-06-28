@@ -2,6 +2,9 @@ import { useMemo } from "react";
 import type { LocalPeerCalibration, RemotePeerState } from "../types";
 import type { HiveDiagnostics } from "./useSharedVision";
 import type { CameraPlacement } from "./useSiteMaps";
+import { getEntityFootPoint } from "../lib/projection";
+import { entityWorldBearingDeg, isHiveMindEligible } from "../lib/objectBearing";
+import { normalize180 } from "../lib/bearing";
 
 export interface ReadinessRow {
   label: string;
@@ -38,6 +41,10 @@ export interface ProjectionReadinessInput {
   receiverStable: boolean;
   /** True when the local detector exposed a CaptureTransform this frame. */
   captureTransformPresent: boolean;
+  // Compass hive-mind (receiver's live heading + FOV).
+  localHeadingDeg: number | null;
+  localHeadingSource: "absolute" | "webkit" | "relative" | null;
+  localFovDeg: number;
   // Local placement row (org_camera_devices for THIS device), if any.
   localDevice: CameraPlacement | null;
   // Peers (receiver-projected peer states) + supporting data.
@@ -100,7 +107,12 @@ export function buildProjectionReadiness(input: ProjectionReadinessInput): Proje
     remoteRiskCount,
     localCalibration,
     peerDevices,
+    localHeadingDeg,
+    localHeadingSource,
+    localFovDeg,
   } = input;
+
+  const localHeadingAbsolute = localHeadingSource === "absolute" || localHeadingSource === "webkit";
 
   const localMapId = localDevice?.site_map_id ?? null;
   const localComplete = placementComplete(localDevice);
@@ -162,6 +174,17 @@ export function buildProjectionReadiness(input: ProjectionReadinessInput): Proje
     { label: "local mapToImageH exists", value: bool(localMapToImagePresent), ok: null },
     { label: "receiver stable", value: bool(receiverStable), ok: receiverStable },
     { label: "capture transform present", value: bool(captureTransformPresent), ok: null },
+    // --- Compass hive-mind (local) ---
+    {
+      label: "local heading",
+      value: localHeadingDeg != null ? `${Math.round(localHeadingDeg)}°` : "—",
+      ok: localHeadingDeg != null ? true : null,
+    },
+    {
+      label: "local heading source",
+      value: localHeadingSource ?? "none",
+      ok: localHeadingAbsolute ? true : false,
+    },
   ];
 
   const peerRows: PeerReadiness[] = peers.map((peer) => {
@@ -179,19 +202,52 @@ export function buildProjectionReadiness(input: ProjectionReadinessInput): Proje
     // mismatch all collapse receiverHomographyUsable to false).
     const captureMismatch = !!cal?.peerImageToMapH && cal?.receiverHomographyUsable === false;
 
-    // Single honest block-reason ladder using only locally available data.
+    // --- Compass hive-mind diagnostics ---
+    const peerHeadingDeg = peer.capture?.headingDeg ?? null;
+    const peerHeadingSource = peer.capture?.headingSource ?? null;
+    const peerHfovDeg = peer.capture?.hfovDeg ?? null;
+    const peerHeadingAbsolute = peerHeadingSource === "absolute" || peerHeadingSource === "webkit";
+    const hiveMindEligible = isHiveMindEligible({
+      peerCapture: peer.capture,
+      localHeadingDeg,
+      localHeadingSource,
+    });
+    // World bearing + on-screen state for the top entity (explains the box).
+    const topEntity = peer.entities[0] ?? null;
+    const objectWorldBearing =
+      topEntity && peerHeadingDeg != null
+        ? entityWorldBearingDeg(
+            getEntityFootPoint(topEntity).x,
+            peerHeadingDeg,
+            peerHfovDeg ?? localFovDeg,
+          )
+        : null;
+    const topOnScreen =
+      objectWorldBearing != null && localHeadingDeg != null
+        ? Math.abs(normalize180(objectWorldBearing - localHeadingDeg)) <= localFovDeg / 2
+        : null;
+    const hasPlacementData = localComplete || peerComplete || !!localMapId || !!peerMapId;
+
+    // Single honest block-reason ladder. When projection is happening (any tier,
+    // including compass) it's "none". Otherwise diagnose: calibrated/manual-map
+    // path when placement data exists, else the compass hive-mind path.
     let blockReason = "none (projecting)";
-    if (peer.isStale) blockReason = "peer_stale";
+    if (projectedCount > 0) blockReason = "none (projecting)";
+    else if (peer.isStale) blockReason = "peer_stale";
     else if (peer.entities.length === 0) blockReason = "no_remote_entities";
-    else if (!localComplete) blockReason = "missing_local_placement";
-    else if (!peerComplete) blockReason = "missing_peer_placement";
-    else if (!sameMap) blockReason = "different_site_map";
-    else if (!cal) blockReason = "no_calibration";
-    else if (cal.status === "stale" || cal.status === "failed")
-      blockReason = `calibration_${cal.status}`;
-    else if (!receiverStable) blockReason = "receiver_moving";
-    else if (cal.confidence < 0.65) blockReason = "low_confidence";
-    else if (projectedCount === 0) blockReason = "projection_failed";
+    else if (hasPlacementData) {
+      if (!localComplete) blockReason = "missing_local_placement";
+      else if (!peerComplete) blockReason = "missing_peer_placement";
+      else if (!sameMap) blockReason = "different_site_map";
+      else if (cal && (cal.status === "stale" || cal.status === "failed"))
+        blockReason = `calibration_${cal.status}`;
+      else if (cal && !receiverStable) blockReason = "receiver_moving";
+      else if (cal && cal.confidence < 0.65) blockReason = "low_confidence";
+      else blockReason = "projection_failed";
+    } else if (!localHeadingAbsolute) blockReason = "local_heading_not_absolute";
+    else if (peerHeadingDeg == null) blockReason = "peer_heading_missing";
+    else if (!peerHeadingAbsolute) blockReason = "peer_heading_not_absolute";
+    else blockReason = "compass_off_screen";
 
     const rows: ReadinessRow[] = [
       { label: "peer device id", value: peer.deviceId.slice(0, 8), ok: null },
@@ -231,6 +287,33 @@ export function buildProjectionReadiness(input: ProjectionReadinessInput): Proje
         value: cal ? `${Math.round(cal.confidence * 100)}%` : "—",
         ok: cal ? cal.confidence >= 0.65 : null,
       },
+      // --- Compass hive-mind ---
+      {
+        label: "peer headingDeg",
+        value: peerHeadingDeg != null ? `${Math.round(peerHeadingDeg)}°` : "—",
+        ok: peerHeadingDeg != null ? true : null,
+      },
+      {
+        label: "peer heading source",
+        value: peerHeadingSource ?? "none",
+        ok: peerHeadingAbsolute ? true : false,
+      },
+      {
+        label: "peer hfovDeg",
+        value: peerHfovDeg != null ? `${Math.round(peerHfovDeg)}°` : "—",
+        ok: null,
+      },
+      { label: "hive-mind eligible", value: bool(hiveMindEligible), ok: hiveMindEligible },
+      {
+        label: "object world bearing",
+        value: objectWorldBearing != null ? `${Math.round(objectWorldBearing)}°` : "—",
+        ok: null,
+      },
+      {
+        label: "top entity on-screen",
+        value: topOnScreen == null ? "—" : bool(topOnScreen),
+        ok: topOnScreen,
+      },
       { label: "projected entities", value: String(projectedCount), ok: projectedCount > 0 },
       {
         label: "projection method",
@@ -266,6 +349,9 @@ export function useProjectionReadiness(input: ProjectionReadinessInput): Project
       input.remoteRiskCount,
       input.localCalibration,
       input.peerDevices,
+      input.localHeadingDeg,
+      input.localHeadingSource,
+      input.localFovDeg,
     ],
   );
 }
