@@ -111,6 +111,7 @@ import {
   getOrCreateDeviceId,
 } from "@/features/shared-vision/hooks/useSharedVision";
 import { useLocalPeerCalibrations } from "@/features/shared-vision/hooks/useLocalPeerCalibrations";
+import { useOrgCameraDevices } from "@/features/shared-vision/hooks/useSiteMaps";
 import { useProjectedRemotePeers } from "@/features/shared-vision/hooks/useProjectedRemotePeers";
 import { useCameraStability } from "@/features/shared-vision/hooks/useCameraStability";
 import { useDeviceOrientation } from "@/features/shared-vision/hooks/useDeviceOrientation";
@@ -356,7 +357,7 @@ export default function Live() {
   const hseFlags = useMemo(() => readHseFeatureFlags(), []);
   // Hive / Shared Vision (feature-flagged; off by default — single-user path untouched)
   const hiveEnabled = readFlag("VITE_SHARED_VISION_ENABLED") && appMode === "hse";
-  const { selectedOrgId } = useOrg();
+  const { selectedOrgId, myMembership } = useOrg();
   const { user, session, profile: authProfile } = useAuth();
   const heading = useDeviceOrientation({ enabled: hiveEnabled });
   const { bearings, pairPeer, clearPeer } = usePeerBearings();
@@ -432,10 +433,10 @@ export default function Live() {
     remotePeers,
     remoteRisks,
     isConnected: hiveConnected,
-    sharedSessionId,
     invalidProjectionPeerIds,
     livePeers: hiveLivePeers,
     hivePaused,
+    diagnostics: hiveDiagnostics,
     leaveHive: hiveLeaveHive,
     rejoinHive: hiveRejoinHive,
   } = useSharedVision({
@@ -477,28 +478,54 @@ export default function Live() {
   // Dev-only Hive projection diagnostics (Step 4). Gated behind VITE_HIVE_DEBUG
   // so it never ships to operators. Pure snapshot — no effect on projection.
   const hiveDebug = hiveEnabled && readFlag("VITE_HIVE_DEBUG");
+  // Org camera placements (only fetched in debug, to back the same-map /
+  // placement-complete rows). The query is also used inside
+  // useLocalPeerCalibrations; React Query dedupes the request.
+  const { data: orgDevices = [] } = useOrgCameraDevices(hiveDebug ? selectedOrgId : null);
+  const localDevice = useMemo(
+    () => orgDevices.find((d) => d.device_id === hiveDeviceId) ?? null,
+    [orgDevices, hiveDeviceId],
+  );
+  const peerDevices = useMemo(() => new Map(orgDevices.map((d) => [d.device_id, d])), [orgDevices]);
+  const captureTransformPresent = (backendStatus as BackendStatus | null)?.lastCaptureW != null;
   const projectionReadiness = useMemo(
     () =>
       hiveDebug
         ? buildProjectionReadiness({
             hiveEnabled,
+            appMode,
+            hseActive,
+            authUserId: user?.id ?? null,
             orgId: selectedOrgId,
-            sharedSessionId,
+            membershipStatus: myMembership?.role ?? null,
             deviceId: hiveDeviceId,
+            diagnostics: hiveDiagnostics,
             receiverStable: !cameraStability.isMoving,
+            captureTransformPresent,
+            localDevice,
             peers: projectedPeerList,
+            remoteRiskCount: remoteRisks.length,
             localCalibration,
+            peerDevices,
           })
         : null,
     [
       hiveDebug,
       hiveEnabled,
+      appMode,
+      hseActive,
+      user?.id,
       selectedOrgId,
-      sharedSessionId,
+      myMembership?.role,
       hiveDeviceId,
+      hiveDiagnostics,
       cameraStability.isMoving,
+      captureTransformPresent,
+      localDevice,
       projectedPeerList,
+      remoteRisks.length,
       localCalibration,
+      peerDevices,
     ],
   );
 

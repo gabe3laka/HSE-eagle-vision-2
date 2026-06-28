@@ -69,6 +69,31 @@ export interface LivePeer {
   deviceLabel: string | null;
 }
 
+/**
+ * Observability snapshot for the org-wide hive connection (dev panel only —
+ * gated behind VITE_HIVE_DEBUG at the call site). Lets a tester tell apart
+ * "channel connected but no data" from auth/RLS/self-filter/missing-data
+ * failures. High-frequency fields (lastSentAt/lastReceivedAt) are tracked in
+ * refs and snapshotted ~1×/s by the TTL timer, so this never adds a per-frame
+ * re-render.
+ */
+export interface HiveDiagnostics {
+  /** The exact Realtime topic this device subscribes to (org:{orgId}:sv:hive). */
+  topic: string | null;
+  /** Last channel.subscribe() status: idle | connecting | SUBSCRIBED | CHANNEL_ERROR | TIMED_OUT | CLOSED. */
+  connectionStatus: string;
+  /** Presence track lifecycle: idle | tracking | tracked | error. */
+  presenceStatus: string;
+  /** Result string of the last channel.track() ("ok" | "error" | "timed out"). */
+  lastTrackResult: string | null;
+  /** Result string of the last channel.send() ("ok" | "error" | "timed out"). */
+  lastSendResult: string | null;
+  /** epoch ms of the last sv_frame we broadcast. */
+  lastSentAt: number | null;
+  /** epoch ms of the last sv_frame we received from a peer. */
+  lastReceivedAt: number | null;
+}
+
 export interface UseSharedVisionResult {
   remotePeers: Map<string, RemotePeerState>;
   remoteRisks: Array<SvRemoteRiskMessage & { expiresAt: number }>;
@@ -83,9 +108,21 @@ export interface UseSharedVisionResult {
   // Peers whose calibration is stale/failed — in-scene projection must be
   // suppressed for these (passed to useProjectedRemotePeers as blockedPeerIds).
   invalidProjectionPeerIds: Set<string>;
+  /** Connection/send/receive observability for the dev readiness panel. */
+  diagnostics: HiveDiagnostics;
   leaveHive: () => void;
   rejoinHive: () => void;
 }
+
+const IDLE_DIAGNOSTICS: HiveDiagnostics = {
+  topic: null,
+  connectionStatus: "idle",
+  presenceStatus: "idle",
+  lastTrackResult: null,
+  lastSendResult: null,
+  lastSentAt: null,
+  lastReceivedAt: null,
+};
 
 export function useSharedVision({
   enabled,
@@ -108,6 +145,11 @@ export function useSharedVision({
   const riskSeq = useRef(0);
   const lastSeenSeq = useRef<Map<string, number>>(new Map());
   const ttlTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // High-frequency diagnostics live in refs and are snapshotted into state by
+  // the 1s TTL timer, so per-frame send/receive never triggers a re-render.
+  const lastSentAtRef = useRef<number | null>(null);
+  const lastReceivedAtRef = useRef<number | null>(null);
+  const lastSendResultRef = useRef<string | null>(null);
 
   const [remotePeers, setRemotePeers] = useState<Map<string, RemotePeerState>>(new Map());
   const [remoteRisks, setRemoteRisks] = useState<
@@ -122,6 +164,8 @@ export function useSharedVision({
   const [livePeers, setLivePeers] = useState<LivePeer[]>([]);
   // True when the user explicitly left the hive — pauses auto-join until rejoin.
   const [hivePaused, setHivePaused] = useState(false);
+  // Connection/send/receive observability for the dev readiness panel.
+  const [diagnostics, setDiagnostics] = useState<HiveDiagnostics>(IDLE_DIAGNOSTICS);
 
   // Subscribe to the ORG-WIDE hive room. One room per org: every live member of
   // the org shares this single channel and auto-merges — there is no per-session
@@ -131,6 +175,7 @@ export function useSharedVision({
     if (!orgId || !userId) return;
     if (channelRef.current) return; // already subscribed
     const topic = `org:${orgId}:sv:hive`;
+    setDiagnostics((d) => ({ ...d, topic, connectionStatus: "connecting" }));
 
     // Set realtime auth token
     if (session?.access_token) {
@@ -143,6 +188,7 @@ export function useSharedVision({
 
     ch.on("broadcast", { event: "sv_frame" }, ({ payload }: { payload: SvFrameMessage }) => {
       if (!payload || payload.deviceId === deviceId.current) return;
+      lastReceivedAtRef.current = Date.now();
       setRemotePeers((prev) => {
         const next = new Map(prev);
         next.set(payload.deviceId, {
@@ -243,11 +289,29 @@ export function useSharedVision({
     ch.subscribe((status: string) => {
       const connected = status === "SUBSCRIBED";
       setIsConnected(connected);
+      setDiagnostics((d) => ({ ...d, connectionStatus: status }));
       if (connected) {
         setSharedSessionId(topic);
         sharedSessionIdRef.current = topic;
         // Announce presence so org-mates see us even before we broadcast a frame.
-        void ch.track({ deviceId: deviceId.current, userId, deviceLabel });
+        // Capture the track result so the dev panel can prove presence succeeded
+        // (vs. an RLS reject on the presence extension).
+        setDiagnostics((d) => ({ ...d, presenceStatus: "tracking" }));
+        Promise.resolve(ch.track({ deviceId: deviceId.current, userId, deviceLabel }))
+          .then((res) =>
+            setDiagnostics((d) => ({
+              ...d,
+              presenceStatus: res === "ok" ? "tracked" : "error",
+              lastTrackResult: String(res),
+            })),
+          )
+          .catch((err) =>
+            setDiagnostics((d) => ({
+              ...d,
+              presenceStatus: "error",
+              lastTrackResult: String(err),
+            })),
+          );
       }
     });
 
@@ -261,6 +325,11 @@ export function useSharedVision({
     }
     setIsConnected(false);
     setLivePeers([]);
+    setDiagnostics((d) => ({
+      ...d,
+      connectionStatus: "CLOSED",
+      presenceStatus: "idle",
+    }));
   }, []);
 
   // Leave the hive: pause auto-join and unsubscribe. There is no session row to
@@ -362,7 +431,24 @@ export function useSharedVision({
       riskSummary: backendRisk?.riskSummary ?? null,
     };
 
-    channelRef.current.send({ type: "broadcast", event: "sv_frame", payload: msg });
+    lastSentAtRef.current = now;
+    // Capture the send result so the dev panel can show broadcast health. Only
+    // setState when the result string changes (normally stays "ok"), so the
+    // 300ms heartbeat does not cause a re-render per frame.
+    Promise.resolve(channelRef.current.send({ type: "broadcast", event: "sv_frame", payload: msg }))
+      .then((res) => {
+        if (lastSendResultRef.current !== res) {
+          lastSendResultRef.current = String(res);
+          setDiagnostics((d) => ({ ...d, lastSendResult: String(res) }));
+        }
+      })
+      .catch((err) => {
+        const e = String(err);
+        if (lastSendResultRef.current !== e) {
+          lastSendResultRef.current = e;
+          setDiagnostics((d) => ({ ...d, lastSendResult: e }));
+        }
+      });
   });
 
   // TTL cleanup: mark peers stale after PEER_TTL_MS
@@ -385,6 +471,20 @@ export function useSharedVision({
         const now = Date.now();
         const filtered = prev.filter((r) => r.expiresAt > now);
         return filtered.length === prev.length ? prev : filtered;
+      });
+      // Snapshot the high-frequency send/receive timestamps into state ~1×/s.
+      setDiagnostics((d) => {
+        if (
+          d.lastSentAt === lastSentAtRef.current &&
+          d.lastReceivedAt === lastReceivedAtRef.current
+        ) {
+          return d;
+        }
+        return {
+          ...d,
+          lastSentAt: lastSentAtRef.current,
+          lastReceivedAt: lastReceivedAtRef.current,
+        };
       });
     }, 1000);
     return () => {
@@ -416,6 +516,7 @@ export function useSharedVision({
     livePeers,
     hivePaused,
     invalidProjectionPeerIds,
+    diagnostics,
     leaveHive,
     rejoinHive,
   };
