@@ -257,7 +257,7 @@ export function readHseReasonerHeartbeatFlags(
  */
 export const readHseQwenHeartbeatFlags = readHseReasonerHeartbeatFlags;
 
-function safeEnv(): Record<string, unknown> {
+export function safeEnv(): Record<string, unknown> {
   try {
     return import.meta.env as unknown as Record<string, unknown>;
   } catch {

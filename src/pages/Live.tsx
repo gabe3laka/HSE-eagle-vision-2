@@ -103,7 +103,7 @@ import {
   pointerInBounds,
 } from "@/features/build-mode/lib/handTracking";
 import { isRecordTargetPhase, isStopTargetPhase } from "@/features/build-mode/lib/holdToTrigger";
-import { readFlag } from "@/lib/featureFlags";
+import { readFlag, safeEnv } from "@/lib/featureFlags";
 import { useOrg } from "@/features/organizations/context/OrgContext";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -356,7 +356,7 @@ export default function Live() {
   const riskFlags = useMemo(() => readRiskFeatureFlags(), []);
   const hseFlags = useMemo(() => readHseFeatureFlags(), []);
   // Hive / Shared Vision (feature-flagged; off by default — single-user path untouched)
-  const hiveEnabled = readFlag("VITE_SHARED_VISION_ENABLED") && appMode === "hse";
+  const hiveEnabled = readFlag("VITE_SHARED_VISION_ENABLED", safeEnv(), true) && appMode === "hse";
   const { selectedOrgId, myMembership } = useOrg();
   const { user, session, profile: authProfile } = useAuth();
   const heading = useDeviceOrientation({ enabled: hiveEnabled });
@@ -477,7 +477,7 @@ export default function Live() {
 
   // Dev-only Hive projection diagnostics (Step 4). Gated behind VITE_HIVE_DEBUG
   // so it never ships to operators. Pure snapshot — no effect on projection.
-  const hiveDebug = hiveEnabled && readFlag("VITE_HIVE_DEBUG");
+  const hiveDebug = hiveEnabled && readFlag("VITE_HIVE_DEBUG", safeEnv(), true);
   // Org camera placements (only fetched in debug, to back the same-map /
   // placement-complete rows). The query is also used inside
   // useLocalPeerCalibrations; React Query dedupes the request.
