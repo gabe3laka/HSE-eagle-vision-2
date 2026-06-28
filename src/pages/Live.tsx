@@ -356,7 +356,7 @@ export default function Live() {
   const riskFlags = useMemo(() => readRiskFeatureFlags(), []);
   const hseFlags = useMemo(() => readHseFeatureFlags(), []);
   // Hive / Shared Vision (feature-flagged; off by default — single-user path untouched)
-  const hiveEnabled = readFlag("VITE_SHARED_VISION_ENABLED", undefined, true) && appMode === "hse";
+  const hiveEnabled = readFlag("VITE_SHARED_VISION_ENABLED", safeEnv(), true) && appMode === "hse";
   const { selectedOrgId, myMembership } = useOrg();
   const { user, session, profile: authProfile } = useAuth();
   const heading = useDeviceOrientation({ enabled: hiveEnabled });
