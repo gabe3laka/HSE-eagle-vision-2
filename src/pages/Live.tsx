@@ -103,7 +103,7 @@ import {
   pointerInBounds,
 } from "@/features/build-mode/lib/handTracking";
 import { isRecordTargetPhase, isStopTargetPhase } from "@/features/build-mode/lib/holdToTrigger";
-import { readFlag } from "@/lib/featureFlags";
+import { readFlag, safeEnv } from "@/lib/featureFlags";
 import { useOrg } from "@/features/organizations/context/OrgContext";
 import { useAuth } from "@/contexts/AuthContext";
 import {

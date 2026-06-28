@@ -16,7 +16,7 @@ import {
   useRejectRequest,
   useLeaveOrg,
 } from "../hooks/useOrganizations";
-import { readFlag } from "@/lib/featureFlags";
+import { readFlag, safeEnv } from "@/lib/featureFlags";
 import { useAuth } from "@/contexts/AuthContext";
 
 export function OrganizationsCard() {
