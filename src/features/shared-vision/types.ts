@@ -69,7 +69,15 @@ export interface RemoteHiveEntity {
  *  - homography_4pt:      exact in-view foot point via the local camera's
  *                         ground-plane homography (mounted + steady pose).
  *  - marker:              Phase 3 marker pose (not used yet). */
-export type ProjectionReason = "manual_map" | "manual_map_anchored" | "homography_4pt" | "marker";
+export type ProjectionReason =
+  | "manual_map"
+  | "manual_map_anchored"
+  | "homography_4pt"
+  | "marker"
+  /** Compass hive-mind: placed purely by world bearing from the sender's live
+   *  heading + FOV (no map, no calibration, no parallax). Direction is solid,
+   *  position approximate — never carries a distance label. */
+  | "compass_bearing";
 
 /** Receiver-side projected entity. Never broadcast by default.
  *  Computed locally by each receiver from RemoteHiveEntity + LocalPeerCalibration. */
@@ -123,6 +131,14 @@ export interface SvFrameMessage {
     mirrored: boolean;
     facing: "user" | "environment";
     transform?: CaptureTransform | null;
+    /** Compass hive-mind (optional, back-compatible). The sender's live device
+     *  heading + horizontal FOV so a receiver can place each detection by its
+     *  real-world bearing. Old senders omit these → receiver falls back to the
+     *  point-&-pair portal. Scalars only — never raw video. */
+    headingDeg?: number | null;
+    headingSource?: "absolute" | "webkit" | "relative" | null;
+    headingAccuracyDeg?: number | null;
+    hfovDeg?: number | null;
   };
   backend: {
     state: string;

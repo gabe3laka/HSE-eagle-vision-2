@@ -71,7 +71,9 @@ export function ProjectedRemoteOverlay({
               ? "homography"
               : entity.projectionReason === "marker"
                 ? "marker calibrated"
-                : projectedLocal.method;
+                : entity.projectionReason === "compass_bearing"
+                  ? "compass"
+                  : projectedLocal.method;
       // Append the metric distance when we have a real world point.
       const methodLabel = projectedLocal.distanceLabel
         ? `${baseMethodLabel} · ${projectedLocal.distanceLabel}`
