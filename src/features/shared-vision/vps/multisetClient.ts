@@ -7,9 +7,12 @@
  *   getToken()  → short-lived JWT via the `multiset-token` Supabase Edge
  *                 Function (the CLIENT SECRET stays server-side; the browser
  *                 only ever receives the short-lived token).
- *   queryPose() → direct multipart POST to MultiSet `/vps/map/query` with the
- *                 Bearer token (queryImage file + intrinsics + mapCode). The
- *                 image goes browser → MultiSet only, never over Supabase Hive.
+ *   queryPose() → direct multipart POST to MultiSet `/vps/map/query-form` with
+ *                 the Bearer token (binary queryImage + intrinsics + mapCode).
+ *                 `/vps/map/query-form` is the multipart/form-data endpoint;
+ *                 `/vps/map/query` is the application/json + base64 variant — the
+ *                 endpoint MUST match the body content type. The image goes
+ *                 browser → MultiSet only, never over Supabase Hive.
  *
  * Response shape is normalized defensively: `poseFound === false` → pose null;
  * quaternion accepted as {x,y,z,w} or {qx,qy,qz,qw}; low confidence surfaced for
@@ -26,7 +29,9 @@ const MULTISET_API_BASE = (
   "https://api.multiset.ai/v1"
 ).replace(/\/+$/, "");
 
-const MAP_QUERY_URL = `${MULTISET_API_BASE}/vps/map/query`;
+// Multipart/form-data endpoint (binary queryImage). The JSON+base64 variant is
+// `/vps/map/query` — do not use it with a FormData body.
+const MAP_QUERY_URL = `${MULTISET_API_BASE}/vps/map/query-form`;
 
 export interface MultisetToken {
   token: string;
