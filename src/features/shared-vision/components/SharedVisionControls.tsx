@@ -88,88 +88,94 @@ export function SharedVisionControls({
         </div>
       )}
 
-      {/* Compass heading + pairing for the directional fallback portal. */}
+      {/* Compass + point-and-pair are FALLBACKS — collapsed by default so they
+          don't read as the main setup once automatic localization exists. */}
       {isConnected && !hivePaused && (
-        <div className="mt-3 space-y-2">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-muted-foreground">Compass</span>
-            <span className={heading.headingDeg === null ? "text-yellow-400" : "text-green-300"}>
-              {heading.headingDeg !== null
-                ? `${Math.round(heading.headingDeg)}° (${heading.source ?? "?"})`
-                : "No heading"}
-              {heading.source === "relative" && " ⚠ not absolute"}
-            </span>
-          </div>
-          {heading.permission === "unknown" && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full border-yellow-500/50 text-[11px] text-yellow-300"
-              onClick={async () => {
-                const { requestPermission } = heading as unknown as {
-                  requestPermission?: () => Promise<void>;
-                };
-                if (requestPermission) await requestPermission();
-              }}
-            >
-              Enable compass
-            </Button>
-          )}
-
-          {onlinePeers.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                <Users className="mr-1 inline h-3 w-3" />
-                Peers
-              </p>
-              {onlinePeers.map((peer) => {
-                const label = peer.deviceLabel ?? peer.deviceId.slice(0, 8);
-                const bearing = bearings.get(peer.deviceId);
-                return (
-                  <div
-                    key={peer.deviceId}
-                    className="flex items-center justify-between gap-1 text-[11px]"
-                  >
-                    <span className="truncate text-purple-200">{label}</span>
-                    {bearing ? (
-                      <div className="flex shrink-0 items-center gap-1">
-                        <span className="text-muted-foreground">
-                          {Math.round(bearing.bearingDeg)}°
-                        </span>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-5 px-1 text-[9px] text-muted-foreground"
-                          onClick={() => onPair(peer.deviceId)}
-                        >
-                          Re-pair
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-5 px-1 text-[9px] text-red-400"
-                          onClick={() => onUnpair(peer.deviceId)}
-                        >
-                          ✕
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-5 shrink-0 border-purple-500/40 px-1.5 text-[9px] text-purple-300"
-                        onClick={() => onPair(peer.deviceId)}
-                        disabled={heading.headingDeg === null}
-                      >
-                        Point & pair
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
+        <details className="mt-3">
+          <summary className="cursor-pointer list-none text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Advanced fallback · compass / point-and-pair
+          </summary>
+          <div className="mt-2 space-y-2">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-muted-foreground">Compass</span>
+              <span className={heading.headingDeg === null ? "text-yellow-400" : "text-green-300"}>
+                {heading.headingDeg !== null
+                  ? `${Math.round(heading.headingDeg)}° (${heading.source ?? "?"})`
+                  : "No heading"}
+                {heading.source === "relative" && " ⚠ not absolute"}
+              </span>
             </div>
-          )}
-        </div>
+            {heading.permission === "unknown" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full border-yellow-500/50 text-[11px] text-yellow-300"
+                onClick={async () => {
+                  const { requestPermission } = heading as unknown as {
+                    requestPermission?: () => Promise<void>;
+                  };
+                  if (requestPermission) await requestPermission();
+                }}
+              >
+                Enable compass
+              </Button>
+            )}
+
+            {onlinePeers.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <Users className="mr-1 inline h-3 w-3" />
+                  Peers
+                </p>
+                {onlinePeers.map((peer) => {
+                  const label = peer.deviceLabel ?? peer.deviceId.slice(0, 8);
+                  const bearing = bearings.get(peer.deviceId);
+                  return (
+                    <div
+                      key={peer.deviceId}
+                      className="flex items-center justify-between gap-1 text-[11px]"
+                    >
+                      <span className="truncate text-purple-200">{label}</span>
+                      {bearing ? (
+                        <div className="flex shrink-0 items-center gap-1">
+                          <span className="text-muted-foreground">
+                            {Math.round(bearing.bearingDeg)}°
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-5 px-1 text-[9px] text-muted-foreground"
+                            onClick={() => onPair(peer.deviceId)}
+                          >
+                            Re-pair
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-5 px-1 text-[9px] text-red-400"
+                            onClick={() => onUnpair(peer.deviceId)}
+                          >
+                            ✕
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-5 shrink-0 border-purple-500/40 px-1.5 text-[9px] text-purple-300"
+                          onClick={() => onPair(peer.deviceId)}
+                          disabled={heading.headingDeg === null}
+                        >
+                          Point & pair
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </details>
       )}
     </div>
   );
