@@ -124,6 +124,7 @@ import { RemoteRiskFeed } from "@/features/shared-vision/components/RemoteRiskFe
 import { ManualMapCalibrationPanel } from "@/features/shared-vision/components/ManualMapCalibrationPanel";
 import { HiveProjectionReadinessPanel } from "@/features/shared-vision/components/HiveProjectionReadinessPanel";
 import { buildProjectionReadiness } from "@/features/shared-vision/hooks/useProjectionReadiness";
+import { MultisetVpsProofPanel } from "@/features/shared-vision/vps/MultisetVpsProofPanel";
 import type {
   BlueprintWorkflowMode,
   BuildGesture,
@@ -363,6 +364,10 @@ export default function Live() {
   // Assumed phone horizontal FOV for the compass hive-mind tier (per-device
   // override can come later). Matches DEFAULT_FOV_DEG in useLocalPeerCalibrations.
   const LOCAL_HFOV_DEG = 65;
+  // MultiSet VPS (Stage 0 REST proof). Additive, HSE-only, OFF by default. The
+  // map code is a plain string env (not a boolean flag).
+  const multisetVpsEnabled = readFlag("VITE_MULTISET_VPS_ENABLED", safeEnv(), false);
+  const multisetMapCode = (safeEnv().VITE_MULTISET_MAP_CODE as string | undefined) ?? "";
   const { bearings, pairPeer, clearPeer } = usePeerBearings();
   // Stable per-tab deviceId read early (same value useSharedVision uses internally).
   const hiveDeviceId = useMemo(() => (hiveEnabled ? getOrCreateDeviceId() : null), [hiveEnabled]);
@@ -1610,6 +1615,12 @@ export default function Live() {
                   <HiveProjectionReadinessPanel readiness={projectionReadiness} />
                 )}
               </>
+            )}
+
+            {/* MultiSet VPS Stage-0 REST proof (dev-only). Additive, HSE-only,
+                behind VITE_MULTISET_VPS_ENABLED. No Hive/projection/HSE changes. */}
+            {multisetVpsEnabled && appMode === "hse" && (
+              <MultisetVpsProofPanel videoRef={videoRef} mapCode={multisetMapCode} />
             )}
 
             {/* Risk-aware UI (feature-flagged). When the flags are off these are

@@ -29,7 +29,11 @@ export type RiskFeatureFlag =
   | "VITE_SHARED_VISION_ENABLED"
   // Dev-only Hive diagnostics (projection readiness panel + FOV cones). OFF by
   // default — never shown to operators unless explicitly enabled for a build.
-  | "VITE_HIVE_DEBUG";
+  | "VITE_HIVE_DEBUG"
+  // MultiSet VPS shared-pose provider (Hive, HSE-only). OFF by default. Gates the
+  // Stage-0 REST proof panel and (later) sv_pose broadcast + VPS floor-ray tier.
+  // NOTE: VITE_MULTISET_MAP_CODE is a string, read from env directly (not here).
+  | "VITE_MULTISET_VPS_ENABLED";
 
 /** PURE: read a single boolean flag from an env bag. Returns `true` for the
  *  string "true", `false` for the string "false", and `defaultValue` otherwise
