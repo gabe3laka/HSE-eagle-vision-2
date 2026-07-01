@@ -30,6 +30,11 @@ export type RiskFeatureFlag =
   // Dev-only Hive diagnostics (projection readiness panel + FOV cones). OFF by
   // default — never shown to operators unless explicitly enabled for a build.
   | "VITE_HIVE_DEBUG"
+  // Advanced Hive calibration (owner/admin fallback path): manual camera
+  // placement, site-map editor, and the homography wizard. OFF by default —
+  // normal operators never see these once automatic localization (MultiSet VPS)
+  // is the product path; they remain as an admin/advanced fallback.
+  | "VITE_HIVE_ADVANCED_CALIBRATION"
   // MultiSet VPS shared-pose provider (Hive, HSE-only). OFF by default. Gates the
   // Stage-0 REST proof panel and (later) sv_pose broadcast + VPS floor-ray tier.
   // NOTE: VITE_MULTISET_MAP_CODE is a string, read from env directly (not here).
