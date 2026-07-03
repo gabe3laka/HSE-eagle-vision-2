@@ -359,7 +359,8 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
   const riskFlags = useMemo(() => readRiskFeatureFlags(), []);
   const hseFlags = useMemo(() => readHseFeatureFlags(), []);
   // Hive / Shared Vision (feature-flagged; off by default — single-user path untouched)
-  const hiveEnabled = readFlag("VITE_SHARED_VISION_ENABLED", safeEnv(), true) && appMode === "hse";
+  // Hive is always on for the HSE mode (no env override).
+  const hiveEnabled = appMode === "hse";
   const { selectedOrgId, myMembership } = useOrg();
   const { user, session, profile: authProfile } = useAuth();
   const heading = useDeviceOrientation({ enabled: hiveEnabled });
@@ -503,7 +504,8 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
   // Dev-only Hive projection diagnostics (Step 4). Gated behind VITE_HIVE_DEBUG
   // (OFF by default) so it never ships to normal operators. Pure snapshot — no
   // effect on projection.
-  const hiveDebug = hiveEnabled && readFlag("VITE_HIVE_DEBUG", safeEnv(), false);
+  // Hive debug diagnostics are always on when Hive is active (no env override).
+  const hiveDebug = hiveEnabled;
   const isOrgAdmin = myMembership?.role === "owner" || myMembership?.role === "admin";
   // Advanced (fallback) calibration — manual camera placement, site-map editor,
   // and the homography wizard. OFF by default and owner/admin-only. Normal
