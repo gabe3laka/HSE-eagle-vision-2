@@ -69,6 +69,10 @@ export default function ReportDraftReview({ id }: { id: string }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<ReportDraftPayload | null>(null);
   const [saving, setSaving] = useState<"approve" | "discard" | null>(null);
+  // If the agent never lands its suggestion (edge function down mid-write), stop
+  // waiting after a bounded time and let the human author the report manually —
+  // the raw input row already exists, so nothing is lost.
+  const [draftingTimedOut, setDraftingTimedOut] = useState(false);
 
   const { data: row, isLoading } = useQuery({
     queryKey: ["report_draft", id],
@@ -81,14 +85,24 @@ export default function ReportDraftReview({ id }: { id: string }) {
     // The draft is written asynchronously right after insert; poll briefly until
     // the agent's suggestion lands (status flips drafting → draft).
     refetchInterval: (q) =>
-      (q.state.data as ReportDraftRow | null)?.status === "drafting" ? 900 : false,
+      (q.state.data as ReportDraftRow | null)?.status === "drafting" && !draftingTimedOut
+        ? 900
+        : false,
   });
 
+  const drafting = row?.status === "drafting" && !draftingTimedOut;
+
   useEffect(() => {
-    if (row && !form && row.status !== "drafting") {
+    if (row?.status !== "drafting") return;
+    const t = setTimeout(() => setDraftingTimedOut(true), 20_000);
+    return () => clearTimeout(t);
+  }, [row?.status]);
+
+  useEffect(() => {
+    if (row && !form && !drafting) {
       setForm(row.draft ?? { ...fallbackDraft(), summary: row.input_text });
     }
-  }, [row, form]);
+  }, [row, form, drafting]);
 
   const media = row?.media ?? [];
   const set = <K extends keyof ReportDraftPayload>(k: K, v: ReportDraftPayload[K]) =>
@@ -148,22 +162,22 @@ export default function ReportDraftReview({ id }: { id: string }) {
     }
   };
 
-  if (isLoading || (row && row.status === "drafting") || !form) {
-    return (
-      <div className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center gap-3 text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin" />
-        <p className="text-sm">Drafting your report…</p>
-      </div>
-    );
-  }
-
-  if (!row) {
+  if (!row && !isLoading) {
     return (
       <div className="mx-auto max-w-xl py-10 text-center text-muted-foreground">
         <p>This draft could not be found.</p>
         <Button variant="outline" className="mt-4" onClick={() => navigate("/")}>
           Back to Home
         </Button>
+      </div>
+    );
+  }
+
+  if (isLoading || drafting || !form) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center gap-3 text-muted-foreground">
+        <Loader2 className="h-6 w-6 animate-spin" />
+        <p className="text-sm">Drafting your report…</p>
       </div>
     );
   }

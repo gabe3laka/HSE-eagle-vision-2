@@ -1,6 +1,7 @@
 import { ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { HomeComposer } from "@/features/report-composer/HomeComposer";
+import { RecentDrafts } from "@/features/report-composer/RecentDrafts";
 
 /**
  * The Home front door (behind VITE_HOME_COMPOSER). A calm, single input surface
@@ -32,6 +33,8 @@ export default function Home() {
       <p className="mt-4 text-center text-[11px] text-muted-foreground">
         Nothing is filed automatically — every report is yours to review, edit, and approve.
       </p>
+
+      <RecentDrafts />
     </div>
   );
 }

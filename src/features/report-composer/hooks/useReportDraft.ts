@@ -40,7 +40,10 @@ export function useReportDraft() {
           })
           .select("id")
           .single();
-        if (insErr || !created?.id) throw insErr ?? new Error("draft_insert_failed");
+        // Persisting the raw input is the one step that must succeed — without a
+        // row there is nothing to review. Signal failure with null (the composer
+        // toasts) instead of throwing into the click handler.
+        if (insErr || !created?.id) return null;
         const id = created.id as string;
 
         let draft: ReportDraftPayload | null = null;
@@ -55,10 +58,15 @@ export function useReportDraft() {
           // human author it manually. Row already saved.
         }
 
-        await db
-          .from("report_drafts")
-          .update({ draft, status: "draft", updated_at: new Date().toISOString() })
-          .eq("id", id);
+        try {
+          await db
+            .from("report_drafts")
+            .update({ draft, status: "draft", updated_at: new Date().toISOString() })
+            .eq("id", id);
+        } catch {
+          // Row exists with status "drafting"; the review screen polls and the
+          // human can still author manually. Don't lose the id over this.
+        }
 
         return id;
       } finally {
