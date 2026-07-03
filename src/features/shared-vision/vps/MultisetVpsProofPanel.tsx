@@ -5,13 +5,13 @@ import { queryPose } from "./multisetClient";
 import type { VpsIntrinsics, VpsQueryResult } from "./types";
 
 /**
- * Stage-0 MultiSet REST proof panel (dev-only). The caller gates it behind
- * VITE_MULTISET_VPS_ENABLED && appMode === "hse" (it does NOT require
- * VITE_HIVE_DEBUG). It captures ONE frame from the existing HSE <video>,
- * downscales it, estimates intrinsics, and runs a single MultiSet map-query via
- * the server-brokered token. Nothing here touches Hive, projection, or the HSE
- * detection path — it only proves localization works on iPhone Safari + Android
- * Chrome before any sv_pose / projection work begins.
+ * Stage-0 MultiSet REST proof panel (admin/dev only). The caller gates it behind
+ * VITE_MULTISET_VPS_ENABLED && VITE_HIVE_DEBUG && appMode === "hse" && owner/admin
+ * role — normal operators never see it. It captures ONE frame from the existing
+ * HSE <video>, downscales it, estimates intrinsics, and runs a single MultiSet
+ * map-query via the server-brokered token. Nothing here touches Hive, projection,
+ * or the HSE detection path — it only proves localization works on iPhone Safari
+ * + Android Chrome before any sv_pose / projection work begins.
  */
 
 const MAX_DIM = 1280;
@@ -82,6 +82,11 @@ export function MultisetVpsProofPanel({
           dev
         </span>
       </div>
+
+      <p className="text-[10px] leading-snug text-muted-foreground">
+        Admin/dev test only. This panel will be replaced by automatic VPS status (ready / localizing
+        / lost) once sv_pose is implemented.
+      </p>
 
       <Button
         size="sm"

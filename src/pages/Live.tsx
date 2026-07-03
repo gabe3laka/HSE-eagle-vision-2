@@ -499,12 +499,25 @@ export default function Live() {
   );
 
   // Dev-only Hive projection diagnostics (Step 4). Gated behind VITE_HIVE_DEBUG
-  // so it never ships to operators. Pure snapshot — no effect on projection.
-  const hiveDebug = hiveEnabled && readFlag("VITE_HIVE_DEBUG", safeEnv(), true);
-  // Org camera placements (only fetched in debug, to back the same-map /
-  // placement-complete rows). The query is also used inside
-  // useLocalPeerCalibrations; React Query dedupes the request.
-  const { data: orgDevices = [] } = useOrgCameraDevices(hiveDebug ? selectedOrgId : null);
+  // (OFF by default) so it never ships to normal operators. Pure snapshot — no
+  // effect on projection.
+  const hiveDebug = hiveEnabled && readFlag("VITE_HIVE_DEBUG", safeEnv(), false);
+  const isOrgAdmin = myMembership?.role === "owner" || myMembership?.role === "admin";
+  // Advanced (fallback) calibration — manual camera placement, site-map editor,
+  // and the homography wizard. OFF by default and owner/admin-only. Normal
+  // operators never see these; they remain as an admin/advanced fallback while
+  // automatic localization (MultiSet VPS) is the product path.
+  const advancedCalibrationEnabled =
+    hiveEnabled && readFlag("VITE_HIVE_ADVANCED_CALIBRATION", safeEnv(), false) && isOrgAdmin;
+  // MultiSet Stage-0 proof panel is admin/dev-only (debug + owner/admin), not a
+  // normal-operator surface.
+  const showMultisetProofPanel = multisetVpsEnabled && hiveDebug && appMode === "hse" && isOrgAdmin;
+  // Org camera placements — fetched for the debug readiness rows OR the advanced
+  // calibration panel. The query is also used inside useLocalPeerCalibrations;
+  // React Query dedupes the request.
+  const { data: orgDevices = [] } = useOrgCameraDevices(
+    hiveDebug || advancedCalibrationEnabled ? selectedOrgId : null,
+  );
   const localDevice = useMemo(
     () => orgDevices.find((d) => d.device_id === hiveDeviceId) ?? null,
     [orgDevices, hiveDeviceId],
@@ -1596,7 +1609,13 @@ export default function Live() {
                   onPair={(id) => pairPeer(id, heading.headingDeg)}
                   onUnpair={clearPeer}
                 />
-                {selectedOrgId && hiveDeviceId && user?.id && (
+                <RemoteAwarenessPanel peers={projectedPeerList} />
+                <RemoteRiskFeed risks={remoteRisks} />
+
+                {/* --- Admin / advanced only (hidden from normal operators) --- */}
+                {/* Advanced fallback calibration: manual placement + homography.
+                    Owner/admin + VITE_HIVE_ADVANCED_CALIBRATION only. */}
+                {advancedCalibrationEnabled && selectedOrgId && hiveDeviceId && user?.id && (
                   <ManualMapCalibrationPanel
                     orgId={selectedOrgId}
                     userId={user.id}
@@ -1609,18 +1628,15 @@ export default function Live() {
                     currentHeadingDeg={heading.headingDeg}
                   />
                 )}
-                <RemoteAwarenessPanel peers={projectedPeerList} />
-                <RemoteRiskFeed risks={remoteRisks} />
+                {/* MultiSet Stage-0 REST proof: admin/dev test only (debug + admin). */}
+                {showMultisetProofPanel && (
+                  <MultisetVpsProofPanel videoRef={videoRef} mapCode={multisetMapCode} />
+                )}
+                {/* Raw Hive projection diagnostics: VITE_HIVE_DEBUG only. */}
                 {projectionReadiness && (
                   <HiveProjectionReadinessPanel readiness={projectionReadiness} />
                 )}
               </>
-            )}
-
-            {/* MultiSet VPS Stage-0 REST proof (dev-only). Additive, HSE-only,
-                behind VITE_MULTISET_VPS_ENABLED. No Hive/projection/HSE changes. */}
-            {multisetVpsEnabled && appMode === "hse" && (
-              <MultisetVpsProofPanel videoRef={videoRef} mapCode={multisetMapCode} />
             )}
 
             {/* Risk-aware UI (feature-flagged). When the flags are off these are

@@ -75,11 +75,17 @@ export function ManualMapCalibrationPanel({
     <div className="space-y-4 rounded-lg border border-border bg-card p-4">
       <div className="flex items-center gap-2">
         <span className="h-2 w-2 rounded-full bg-purple-500" />
-        <span className="text-sm font-semibold">Manual Map Calibration</span>
+        <span className="text-sm font-semibold">Advanced Calibration</span>
         <span className="ml-auto rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wider">
-          Phase 1B
+          Fallback
         </span>
       </div>
+
+      <p className="rounded border border-border/60 bg-muted/20 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+        Advanced fallback — normal operators don't need this when MultiSet VPS is configured. Use it
+        only to set up fallback camera placement / homography when automatic localization isn't
+        available.
+      </p>
 
       {step === "map" && (
         <SiteMapEditor orgId={orgId} existingMaps={maps} onSelect={handleMapSelected} />
@@ -141,7 +147,7 @@ export function ManualMapCalibrationPanel({
               distance. Only offered when the live camera context is wired. */}
           {homographyAvailable && selectedMap && !calibrating && (
             <Button size="sm" className="w-full text-xs" onClick={() => setCalibrating(true)}>
-              Calibrate camera (homography)
+              Advanced homography calibration
             </Button>
           )}
 
