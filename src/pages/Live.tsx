@@ -134,7 +134,7 @@ import type {
 } from "@/features/build-mode/types";
 
 /** Top-level app workflow: HSE monitoring | Build (document) | Plan (guide). */
-type AppMode = "hse" | "build" | "plan";
+export type AppMode = "hse" | "build" | "plan";
 
 /** Readout of the vision backend (YOLO26 default, EdgeCrafter fallback) — fast Cloudflare HTTP, legacy HTTP dry-run, or WebSocket stream. */
 function BackendDebugPanel({
@@ -315,7 +315,9 @@ function BackendDebugPanel({
   );
 }
 
-export default function Live() {
+/** `initialMode` seeds the workflow (from /live?mode=…). Defaults to "hse",
+ *  so existing entry points behave exactly as before. */
+export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } = {}) {
   const { videoRef, active, starting, error, facing, start: startCamera, flip } = useCamera();
   const { config } = useAlertSettings();
   const queryClient = useQueryClient();
@@ -344,7 +346,7 @@ export default function Live() {
   // (guide me through work). Build and Plan share the SAME blueprint engine —
   // one flag distinguishes them. Both keep the live camera + HSE loop running
   // but suppress incident persistence — additive workflows, not detector changes.
-  const [appMode, setAppMode] = useState<AppMode>("hse");
+  const [appMode, setAppMode] = useState<AppMode>(initialMode);
   const buildModeOn = ENABLE_BUILD_MODE && (appMode === "build" || appMode === "plan");
   const workflowMode: BlueprintWorkflowMode = appMode === "plan" ? "plan" : "build";
   // Selfie mirror: the front camera mirrors the VIDEO (CameraView); overlays

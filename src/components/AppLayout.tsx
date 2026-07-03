@@ -2,6 +2,7 @@ import { Link, useLocation } from "@/lib/router-shim";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Camera,
+  Home,
   ShieldAlert,
   ShieldCheck,
   Settings,
@@ -14,12 +15,24 @@ import {
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useOrg } from "@/features/organizations/context/OrgContext";
+import { readFlag } from "@/lib/featureFlags";
 
-const mainNav = [
-  { path: "/", label: "Live", icon: Camera },
-  { path: "/overview", label: "Safety", icon: ShieldCheck },
-  { path: "/incidents", label: "Incidents", icon: ShieldAlert },
-];
+// Build-time flag: when the Home composer is the front door, "/" is Home and
+// the camera moves to /live. Flag off (default) keeps today's nav exactly.
+const composerHome = readFlag("VITE_HOME_COMPOSER");
+
+const mainNav = composerHome
+  ? [
+      { path: "/", label: "Home", icon: Home },
+      { path: "/live", label: "Live", icon: Camera },
+      { path: "/overview", label: "Safety", icon: ShieldCheck },
+      { path: "/incidents", label: "Incidents", icon: ShieldAlert },
+    ]
+  : [
+      { path: "/", label: "Live", icon: Camera },
+      { path: "/overview", label: "Safety", icon: ShieldCheck },
+      { path: "/incidents", label: "Incidents", icon: ShieldAlert },
+    ];
 
 const bottomNav = [{ path: "/settings", label: "Settings", icon: Settings }];
 
@@ -194,7 +207,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         className="mobile-tabbar fixed inset-x-0 bottom-0 z-40 lg:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="grid grid-cols-4">
+        <div className={composerHome ? "grid grid-cols-5" : "grid grid-cols-4"}>
           {mobileNav.map((item) => {
             const isActive = location.pathname === item.path;
             return (
