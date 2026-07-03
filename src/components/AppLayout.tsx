@@ -15,11 +15,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useOrg } from "@/features/organizations/context/OrgContext";
-import { readFlag } from "@/lib/featureFlags";
 
-// Build-time flag: when the Home composer is the front door, "/" is Home and
-// the camera moves to /live. Flag off (default) keeps today's nav exactly.
-const composerHome = readFlag("VITE_HOME_COMPOSER");
+// Home composer is always on: "/" is Home and the camera lives at /live.
+const composerHome = true;
 
 const mainNav = composerHome
   ? [
