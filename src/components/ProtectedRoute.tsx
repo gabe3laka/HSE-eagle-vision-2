@@ -14,7 +14,9 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   }
 
   if (!user) {
-    return <Navigate to="/landing" replace />;
+    // Home IS the public landing now — send signed-out visitors to the front
+    // door (hero + gated composer + sign-in), not a separate marketing page.
+    return <Navigate to="/" replace />;
   }
 
   return <>{children}</>;

@@ -1,8 +1,5 @@
 import { useMemo } from "react";
-import { Link } from "@/lib/router-shim";
-import { Camera } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
 import { useIncidents, useSessions, useDetections } from "@/hooks/useIncidents";
 import { deriveRisksFromIncidents } from "@/features/safety/lib/riskModel";
 import { useRisks, useRiskActions } from "@/features/safety/hooks/useSafety";
@@ -36,29 +33,29 @@ export default function Safety() {
   const { data: registerRisks } = useRisks();
   const { data: actions } = useRiskActions();
 
-  const inc = incidents ?? [];
-  const derivedRisks = useMemo(() => deriveRisksFromIncidents(incidents ?? []), [incidents]);
+  // Safety aggregates CONFIRMED records only — items still in the Incidents
+  // tab's pending-approval queue (or dismissed as false positives) never feed
+  // risk scores, compliance or reports.
+  const inc = useMemo(
+    () => (incidents ?? []).filter((i) => i.review_status === "approved"),
+    [incidents],
+  );
+  const derivedRisks = useMemo(() => deriveRisksFromIncidents(inc), [inc]);
   const risks = registerRisks ?? [];
   const acts = actions ?? [];
 
   return (
     <div className="space-y-6">
-      <header className="page-hero flex flex-wrap items-end justify-between gap-5">
-        <div>
-          <p className="console-eyebrow text-cyan-300/80">Safety management</p>
-          <h1 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">
-            Risk &amp; controls
-          </h1>
-          <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-            Turn detections into assessed risks, controls and corrective actions — an ISO 45001 /
-            HSE-aligned management layer above the incident log.
-          </p>
-        </div>
-        <Button asChild size="lg" className="min-h-11 rounded-xl">
-          <Link to="/">
-            <Camera className="mr-2 h-4 w-4" /> Start monitoring
-          </Link>
-        </Button>
+      <header className="page-hero">
+        <p className="console-eyebrow text-cyan-300/80">Safety management</p>
+        <h1 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">
+          Risk &amp; controls
+        </h1>
+        <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+          The aggregated management view of what actually happened — approved incidents become
+          assessed risks, controls and corrective actions (ISO 45001 / HSE-aligned). Monitoring
+          itself lives in the Live tab.
+        </p>
       </header>
 
       <Tabs defaultValue="dashboard">

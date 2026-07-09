@@ -50,6 +50,11 @@ export interface DetectionRow {
   acknowledged: boolean;
   detected_at: string;
 }
+/** Human approval gate: auto-detected items land 'pending'; only a human makes
+ *  them 'approved' (the incident log + Safety aggregation) or 'dismissed'
+ *  (kept as a false-positive record, never filed). */
+export type IncidentReviewStatus = "pending" | "approved" | "dismissed";
+
 export interface IncidentRow {
   id: string;
   owner_id: string;
@@ -62,6 +67,7 @@ export interface IncidentRow {
   zone_label: string | null;
   resolved: boolean;
   resolution_notes: string | null;
+  review_status: IncidentReviewStatus;
   occurred_at: string;
   created_at: string;
 }

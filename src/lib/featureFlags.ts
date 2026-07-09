@@ -38,11 +38,7 @@ export type RiskFeatureFlag =
   // MultiSet VPS shared-pose provider (Hive, HSE-only). OFF by default. Gates the
   // Stage-0 REST proof panel and (later) sv_pose broadcast + VPS floor-ray tier.
   // NOTE: VITE_MULTISET_MAP_CODE is a string, read from env directly (not here).
-  | "VITE_MULTISET_VPS_ENABLED"
-  // Lovable-style Home composer front door. OFF by default: "/" renders the Live
-  // camera exactly as today. ON: "/" becomes the multimodal report composer and
-  // the camera moves to "/live?mode=hse|build|plan" (behavior unchanged).
-  | "VITE_HOME_COMPOSER";
+  | "VITE_MULTISET_VPS_ENABLED";
 
 /** PURE: read a single boolean flag from an env bag. Returns `true` for the
  *  string "true", `false` for the string "false", and `defaultValue` otherwise
@@ -93,7 +89,9 @@ export function readRiskFeatureFlags(env: Record<string, unknown> = safeEnv()): 
   return {
     riskAwareOverlay: readFlag("VITE_RISK_AWARE_OVERLAY", env, true),
     workerSceneRisks: readFlag("VITE_WORKER_SCENE_RISKS", env, true),
-    riskDebugPanel: readFlag("VITE_RISK_DEBUG_PANEL", env, true),
+    // Debug/diagnostics default OFF for operators (workflow redesign, Step 2) —
+    // set VITE_RISK_DEBUG_PANEL=true explicitly for a debugging build.
+    riskDebugPanel: readFlag("VITE_RISK_DEBUG_PANEL", env, false),
     showControlHierarchy: readFlag("VITE_SHOW_CONTROL_HIERARCHY", env, true),
     showProvenance: readFlag("VITE_SHOW_PROVENANCE", env, true),
     cameraPrivacyNotice: readFlag("VITE_CAMERA_PRIVACY_NOTICE", env, true),

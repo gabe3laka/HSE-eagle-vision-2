@@ -123,6 +123,9 @@ export default function ReportDraftReview({ id }: { id: string }) {
           severity: form.severity,
           confidence: form.confidence,
           message: form.title ? `${form.title} — ${form.summary}` : form.summary,
+          // This screen IS the human approval — the filed record goes straight
+          // to the confirmed incident log, not the pending queue.
+          review_status: "approved",
         })
         .select("id")
         .single();

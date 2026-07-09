@@ -48,9 +48,13 @@ const PLACEHOLDERS = [
  * The Lovable-style single input surface: multiline text, a photo attach, a
  * (disabled) voice button, a mode selector, and send. Report mode runs the
  * agent and lands on the review screen; the other modes deep-link into the Live
- * camera (behavior unchanged) via /live?mode=…. Feature-flagged upstream.
+ * camera (behavior unchanged) via /live?mode=….
+ *
+ * `onRequireAuth` makes the composer visible-but-gated for signed-out visitors
+ * (the public landing): they can type and explore, but any action that would
+ * persist or enter the app routes through sign-in first.
  */
-export function HomeComposer() {
+export function HomeComposer({ onRequireAuth }: { onRequireAuth?: () => void }) {
   const navigate = useNavigate();
   const { media, processing, addFiles, removeAt, atLimit } = useMediaAttach();
   const { submit, submitting } = useReportDraft();
@@ -70,6 +74,10 @@ export function HomeComposer() {
 
   const handleSend = async () => {
     if (busy || !canSend) return;
+    if (onRequireAuth) {
+      onRequireAuth();
+      return;
+    }
     if (mode !== "report") {
       navigate({ to: "/live", search: { mode } });
       return;
@@ -147,7 +155,7 @@ export function HomeComposer() {
             className="h-9 w-9 rounded-full text-muted-foreground"
             aria-label="Attach photo"
             disabled={atLimit || busy}
-            onClick={() => fileRef.current?.click()}
+            onClick={() => (onRequireAuth ? onRequireAuth() : fileRef.current?.click())}
           >
             <Plus className="h-5 w-5" />
           </Button>

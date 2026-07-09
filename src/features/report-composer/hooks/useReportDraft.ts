@@ -1,17 +1,16 @@
 import { useCallback, useState } from "react";
 import { db } from "@/integrations/supabase/db";
-import { supabase } from "@/integrations/supabase/own-client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/features/organizations/context/OrgContext";
+import { draftReport } from "../lib/reasoningClient";
 import type { AttachedMedia } from "./useMediaAttach";
-import type { ReportDraftPayload } from "../types";
 
 /**
  * Owns the "send → draft" step of the Home composer.
  *
  * 1. Persist the raw inputs into report_drafts (status "drafting").
- * 2. Ask the report-draft edge function for a structured suggestion (it always
- *    returns one — DeepSeek, else a deterministic rules draft).
+ * 2. Ask the reasoning seam (lib/reasoningClient — today the report-draft edge
+ *    function; later the worker's agentic endpoint) for a structured suggestion.
  * 3. Save the suggestion onto the row (status "draft") and return the id so the
  *    caller can navigate to /report/:id for human review.
  *
@@ -46,17 +45,9 @@ export function useReportDraft() {
         if (insErr || !created?.id) return null;
         const id = created.id as string;
 
-        let draft: ReportDraftPayload | null = null;
-        try {
-          const { data } = await supabase.functions.invoke("report-draft", {
-            body: { text: input.text, media: input.media },
-          });
-          const d = (data as { draft?: ReportDraftPayload } | null)?.draft;
-          if (d) draft = d;
-        } catch {
-          // Edge function unreachable — leave draft null; review screen lets the
-          // human author it manually. Row already saved.
-        }
+        // The reasoning seam returns null on any failure — the review screen
+        // then lets the human author the report manually. Row already saved.
+        const draft = await draftReport({ text: input.text, media: input.media });
 
         try {
           await db
