@@ -172,14 +172,22 @@ describe("(7) feature flags", () => {
     );
   });
 
-  it("readRiskFeatureFlags defaults all flags ON for an empty env", () => {
+  it("readRiskFeatureFlags defaults product flags ON and debug OFF for an empty env", () => {
     const f = readRiskFeatureFlags({});
-    expect(Object.values(f).every((v) => v === true)).toBe(true);
+    // Workflow redesign Step 2: diagnostics never ship on by default — the
+    // debug panel is the one deliberate OFF among the risk-aware flags.
+    expect(f.riskDebugPanel).toBe(false);
+    const { riskDebugPanel: _debug, ...product } = f;
+    expect(Object.values(product).every((v) => v === true)).toBe(true);
   });
 
-  it("readRiskFeatureFlags honours an explicit 'false' opt-out", () => {
-    const f = readRiskFeatureFlags({ VITE_RISK_AWARE_OVERLAY: "false" });
+  it("readRiskFeatureFlags honours explicit overrides in both directions", () => {
+    const f = readRiskFeatureFlags({
+      VITE_RISK_AWARE_OVERLAY: "false",
+      VITE_RISK_DEBUG_PANEL: "true",
+    });
     expect(f.riskAwareOverlay).toBe(false);
+    expect(f.riskDebugPanel).toBe(true);
     expect(f.workerSceneRisks).toBe(true);
   });
 });
