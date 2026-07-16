@@ -141,7 +141,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="border-t border-border p-3">
-          {!collapsed && profile && (
+          {!collapsed && user && profile && (
             <div className="mb-2 flex items-center gap-3 rounded-md border border-border bg-secondary/40 p-2.5">
               <span className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground">
                 <Sparkles className="h-3.5 w-3.5" />
@@ -154,16 +154,28 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           )}
-          {!collapsed && <OrgChip />}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="min-h-10 w-full justify-start rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            onClick={signOut}
-          >
-            <LogOut className="h-4 w-4" />
-            {!collapsed && <span className="ml-2">Sign Out</span>}
-          </Button>
+          {!collapsed && user && <OrgChip />}
+          {user ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="min-h-10 w-full justify-start rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              onClick={signOut}
+            >
+              <LogOut className="h-4 w-4" />
+              {!collapsed && <span className="ml-2">Sign Out</span>}
+            </Button>
+          ) : (
+            <Link
+              to="/auth"
+              className="flex min-h-10 items-center justify-start gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground"
+              title={collapsed ? "Sign in" : undefined}
+            >
+              <LogOut className="h-4 w-4 rotate-180" />
+              {!collapsed && <span>Sign In</span>}
+            </Link>
+          )}
+
         </div>
       </aside>
 
