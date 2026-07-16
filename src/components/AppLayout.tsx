@@ -175,7 +175,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               {!collapsed && <span>Sign In</span>}
             </Link>
           )}
-
         </div>
       </aside>
 
@@ -212,7 +211,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             Sign in
           </Link>
         )}
-
       </header>
 
       {/* Main content */}

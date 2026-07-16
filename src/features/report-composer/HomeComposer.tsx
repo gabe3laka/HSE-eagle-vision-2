@@ -24,7 +24,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useMediaAttach } from "./hooks/useMediaAttach";
 import { useReportDraft } from "./hooks/useReportDraft";
 
-
 type ComposerMode = "report" | "hse" | "plan" | "build";
 
 const MODES: { key: ComposerMode; label: string; hint: string; icon: typeof ClipboardList }[] = [
