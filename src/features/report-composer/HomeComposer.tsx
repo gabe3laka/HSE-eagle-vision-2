@@ -95,7 +95,7 @@ export function HomeComposer({ onRequireAuth }: { onRequireAuth?: () => void }) 
   };
 
   return (
-    <div className="rounded-2xl border border-border bg-card/80 p-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/60">
+    <div className="rounded-2xl border border-border bg-card/80 p-3 shadow-[var(--shadow-overlay)] backdrop-blur transition-colors focus-within:border-ring/50 focus-within:ring-2 focus-within:ring-ring/20 supports-[backdrop-filter]:bg-card/60">
       {/* Attached photo thumbnails */}
       {media.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">

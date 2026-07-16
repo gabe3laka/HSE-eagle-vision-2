@@ -4,8 +4,9 @@ import { Camera, ClipboardCheck, EyeOff, ShieldCheck, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIncidents } from "@/hooks/useIncidents";
-import { HAZARDS, SEVERITY_META } from "@/lib/detection/hazardCatalog";
+import { HAZARDS } from "@/lib/detection/hazardCatalog";
 import { HAZARD_ICONS } from "@/components/live/hazardIcons";
+import { SeverityBadge, severityStripeClass } from "@/components/ui/severity";
 import { HomeComposer } from "@/features/report-composer/HomeComposer";
 import { RecentDrafts } from "@/features/report-composer/RecentDrafts";
 
@@ -34,18 +35,18 @@ function WhatHappened() {
       {pending.length > 0 && (
         <Link
           to="/incidents"
-          className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-950/20 px-4 py-3 transition-colors hover:bg-amber-950/35"
+          className="flex items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 transition-colors hover:bg-warning/15"
         >
           <span className="flex items-center gap-2.5 text-sm">
-            <ClipboardCheck className="h-4 w-4 text-amber-300" />
+            <ClipboardCheck className="h-4 w-4 text-warning" aria-hidden />
             <span>
-              <b className="font-semibold text-amber-200">
+              <b className="font-semibold text-warning">
                 {pending.length} detection{pending.length === 1 ? "" : "s"}
               </b>{" "}
               waiting for your approval
             </span>
           </span>
-          <span className="text-xs font-medium text-amber-300">Review →</span>
+          <span className="text-xs font-medium text-warning">Review →</span>
         </Link>
       )}
 
@@ -59,19 +60,18 @@ function WhatHappened() {
           </p>
           <div className="space-y-1.5">
             {recent.map((inc) => {
-              const sev = SEVERITY_META[inc.severity];
               const Icon = HAZARD_ICONS[inc.hazard_type];
               return (
                 <div
                   key={inc.id}
-                  className="flex items-center gap-3 rounded-lg border border-border bg-card/60 px-3 py-2.5 text-sm"
+                  className={`flex items-center gap-3 rounded-lg border border-border bg-card/60 px-3 py-2.5 text-sm ${severityStripeClass(inc.severity)}`}
                 >
-                  <span className={`rounded-md p-1.5 ${sev.bg} ${sev.text}`}>
-                    <Icon className="h-3.5 w-3.5" />
+                  <span className="rounded-md border border-border bg-secondary/60 p-1.5 text-muted-foreground">
+                    <Icon className="h-3.5 w-3.5" aria-hidden />
                   </span>
                   <span className="min-w-0 flex-1 truncate">{HAZARDS[inc.hazard_type].label}</span>
-                  <span className={`text-xs font-medium ${sev.text}`}>{sev.label}</span>
-                  <span className="text-xs text-muted-foreground">
+                  <SeverityBadge level={inc.severity} size="sm" />
+                  <span className="hidden text-xs tabular text-muted-foreground sm:inline">
                     {new Date(inc.occurred_at).toLocaleDateString()}
                   </span>
                 </div>
@@ -170,7 +170,7 @@ function PublicHome() {
       {/* Hero + gated composer */}
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-4 py-10">
         <div className="mb-7 text-center">
-          <p className="console-eyebrow mb-3 text-cyan-300/80">Safety intelligence for any site</p>
+          <p className="console-eyebrow mb-3 text-primary">Safety intelligence for any site</p>
           <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
             What happened on site?
           </h1>
