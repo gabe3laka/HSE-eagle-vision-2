@@ -8,9 +8,16 @@ const alertVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-background text-foreground",
+        default: "bg-card text-foreground [&>svg]:text-muted-foreground",
+        // Critical always ranks highest: heavier border + tinted fill + accent bar.
+        critical:
+          "border-critical/50 bg-critical/10 text-foreground shadow-[inset_3px_0_0_0_hsl(var(--critical))] [&>svg]:text-critical",
+        high: "border-high/40 bg-high/10 text-foreground [&>svg]:text-high",
+        warning: "border-warning/40 bg-warning/10 text-foreground [&>svg]:text-warning",
+        success: "border-ok/40 bg-ok/10 text-foreground [&>svg]:text-ok",
+        info: "border-low/40 bg-low/10 text-foreground [&>svg]:text-low",
         destructive:
-          "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
+          "border-destructive/50 bg-destructive/10 text-foreground [&>svg]:text-destructive",
       },
     },
     defaultVariants: {
