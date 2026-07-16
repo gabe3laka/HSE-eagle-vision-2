@@ -53,7 +53,7 @@ function OrgChip() {
 }
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const { profile, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
 
