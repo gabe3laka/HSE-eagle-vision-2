@@ -194,15 +194,25 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </span>
           <span>SafeLens</span>
         </Link>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 text-muted-foreground hover:text-destructive"
-          onClick={signOut}
-          aria-label="Sign out"
-        >
-          <LogOut className="h-4 w-4" />
-        </Button>
+        {user ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 text-muted-foreground hover:text-destructive"
+            onClick={signOut}
+            aria-label="Sign out"
+          >
+            <LogOut className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Link
+            to="/auth"
+            className="flex h-9 items-center rounded-md px-3 text-sm text-muted-foreground hover:text-foreground"
+          >
+            Sign in
+          </Link>
+        )}
+
       </header>
 
       {/* Main content */}
