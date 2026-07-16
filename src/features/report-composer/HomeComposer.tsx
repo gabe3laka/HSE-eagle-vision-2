@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { useMediaAttach } from "./hooks/useMediaAttach";
 import { useReportDraft } from "./hooks/useReportDraft";
 
@@ -52,8 +53,10 @@ const PLACEHOLDERS = [
  */
 export function HomeComposer() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { media, processing, addFiles, removeAt, atLimit } = useMediaAttach();
   const { submit, submitting } = useReportDraft();
+
   const [text, setText] = useState("");
   const [mode, setMode] = useState<ComposerMode>("report");
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
@@ -70,10 +73,19 @@ export function HomeComposer() {
 
   const handleSend = async () => {
     if (busy || !canSend) return;
+    if (!user) {
+      toast({
+        title: "Sign in to continue",
+        description: "Create a free account to save and submit your report.",
+      });
+      navigate({ to: "/auth" });
+      return;
+    }
     if (mode !== "report") {
       navigate({ to: "/live", search: { mode } });
       return;
     }
+
     const id = await submit({ text: text.trim(), media });
     if (!id) {
       toast({
