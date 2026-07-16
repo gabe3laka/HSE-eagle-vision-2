@@ -4,12 +4,11 @@ import { HomeComposer } from "@/features/report-composer/HomeComposer";
 import { RecentDrafts } from "@/features/report-composer/RecentDrafts";
 
 /**
- * The SafeLens front door. A calm, single input surface that matches the
- * product's identity — a vision that reasons AND an agent you talk to. Typing
- * or attaching a photo drafts a safety report; the mode selector jumps into
- * the live camera at /live. Mobile-first, centered, matching the app theme.
+ * The Home front door (behind VITE_HOME_COMPOSER). A calm, single input surface
+ * that matches the product's identity — a vision that reasons AND an agent you
+ * talk to. Typing/attaching a photo drafts a safety report; the mode selector
+ * jumps into the live camera. Mobile-first, centered, matching the app theme.
  */
-
 export default function Home() {
   const { profile } = useAuth();
   const name = profile?.full_name?.split(" ")[0] || null;
