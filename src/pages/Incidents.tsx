@@ -2,10 +2,12 @@ import { useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ClipboardCheck, ShieldCheck, XCircle } from "lucide-react";
 import { useIncidents, type Incident } from "@/hooks/useIncidents";
-import { HAZARDS, SEVERITY_META } from "@/lib/detection/hazardCatalog";
+import { HAZARDS } from "@/lib/detection/hazardCatalog";
 import { HAZARD_ICONS } from "@/components/live/hazardIcons";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SeverityBadge, severityStripeClass } from "@/components/ui/severity";
 import { supabase } from "@/integrations/supabase/own-client";
 import { toast } from "@/hooks/use-toast";
 import type { IncidentReviewStatus } from "@/integrations/supabase/db";
@@ -31,7 +33,6 @@ function IncidentDate({ at }: { at: string }) {
 /** Shared row body: hazard, severity, message, time/confidence/zone. */
 function IncidentBody({ inc }: { inc: Incident }) {
   const meta = HAZARDS[inc.hazard_type];
-  const sev = SEVERITY_META[inc.severity];
   const Icon = HAZARD_ICONS[inc.hazard_type];
   const time = new Date(inc.occurred_at).toLocaleTimeString(undefined, {
     hour: "numeric",
@@ -40,13 +41,13 @@ function IncidentBody({ inc }: { inc: Incident }) {
   return (
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-2">
-        <span className={`flex items-center gap-1 text-xs font-semibold uppercase ${sev.text}`}>
-          <Icon className="h-3.5 w-3.5" /> {sev.label}
+        <SeverityBadge level={inc.severity} size="sm" />
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden /> {meta.label}
         </span>
-        <span className="text-sm font-medium">{meta.label}</span>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{inc.message}</p>
-      <p className="mt-1 text-xs text-muted-foreground">
+      <p className="mt-1 text-xs tabular text-muted-foreground">
         {time} · {Math.round(Number(inc.confidence) * 100)}%
         {inc.zone_label ? ` · ${inc.zone_label}` : ""}
       </p>
@@ -103,20 +104,20 @@ export default function Incidents() {
   return (
     <div className="space-y-6">
       <header className="page-hero">
-        <p className="console-eyebrow text-amber-300/80">Safety log</p>
+        <p className="console-eyebrow">Safety log</p>
         <h1 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">Incident review</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Detections wait here for your judgement — nothing becomes an incident without a human
           approving it.
         </p>
-        <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          <span className="rounded-full bg-amber-400/[0.08] px-3 py-1.5 text-amber-200">
+        <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-wider">
+          <span className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-warning tabular">
             {pending.length} pending approval
           </span>
-          <span className="rounded-full bg-white/[0.04] px-3 py-1.5">
+          <span className="rounded-full border border-border bg-secondary/50 px-3 py-1.5 text-muted-foreground tabular">
             {approved.length} confirmed
           </span>
-          <span className="rounded-full bg-white/[0.04] px-3 py-1.5">
+          <span className="rounded-full border border-border bg-secondary/50 px-3 py-1.5 text-muted-foreground tabular">
             {approved.filter((i) => !i.resolved).length} open
           </span>
         </div>
@@ -125,7 +126,7 @@ export default function Incidents() {
       {isLoading ? (
         <div className="space-y-3">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="console-panel h-28 animate-pulse" />
+            <Skeleton key={i} className="h-28 rounded-lg" />
           ))}
         </div>
       ) : (
@@ -133,7 +134,7 @@ export default function Incidents() {
           {/* ---- Lane 1: pending approval ---- */}
           <section>
             <h2 className="mb-2 flex items-center gap-2 font-display text-sm font-semibold">
-              <ClipboardCheck className="h-4 w-4 text-amber-300" /> Pending approval
+              <ClipboardCheck className="h-4 w-4 text-warning" aria-hidden /> Pending approval
             </h2>
             {pending.length === 0 ? (
               <p className="rounded-lg border border-dashed border-border px-4 py-5 text-center text-xs text-muted-foreground">
@@ -144,7 +145,7 @@ export default function Incidents() {
                 {pending.map((inc) => (
                   <div
                     key={inc.id}
-                    className="console-panel flex flex-col items-stretch gap-4 border border-amber-500/30 p-4 sm:flex-row sm:items-center"
+                    className={`console-panel flex flex-col items-stretch gap-4 p-4 sm:flex-row sm:items-center ${severityStripeClass(inc.severity)}`}
                   >
                     <IncidentDate at={inc.occurred_at} />
                     <IncidentBody inc={inc} />
@@ -187,11 +188,10 @@ export default function Incidents() {
             ) : (
               <div className="space-y-3">
                 {approved.map((inc) => {
-                  const sev = SEVERITY_META[inc.severity];
                   return (
                     <div
                       key={inc.id}
-                      className={`console-panel flex flex-col items-stretch gap-4 border ${sev.border} p-4 sm:flex-row sm:items-center ${
+                      className={`console-panel flex flex-col items-stretch gap-4 p-4 sm:flex-row sm:items-center ${severityStripeClass(inc.severity)} ${
                         inc.resolved ? "opacity-60" : ""
                       }`}
                     >

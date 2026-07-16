@@ -47,7 +47,7 @@ export default function Safety() {
   return (
     <div className="space-y-6">
       <header className="page-hero">
-        <p className="console-eyebrow text-cyan-300/80">Safety management</p>
+        <p className="console-eyebrow">Safety management</p>
         <h1 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">
           Risk &amp; controls
         </h1>
@@ -64,7 +64,7 @@ export default function Safety() {
             <TabsTrigger
               key={t.value}
               value={t.value}
-              className="min-h-9 rounded-lg border border-border/60 bg-secondary/40 px-3.5 data-[state=active]:border-cyan-300/40 data-[state=active]:bg-cyan-500/15 data-[state=active]:text-cyan-100"
+              className="min-h-9 rounded-lg border border-border/60 bg-secondary/40 px-3.5 text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary/40 data-[state=active]:bg-primary/15 data-[state=active]:text-primary"
             >
               {t.label}
             </TabsTrigger>
