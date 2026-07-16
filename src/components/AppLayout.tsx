@@ -16,21 +16,15 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useOrg } from "@/features/organizations/context/OrgContext";
 
-// Home composer is always on: "/" is Home and the camera lives at /live.
-const composerHome = true;
+// Home composer is the standard front door: "/" is Home and the live camera
+// lives at "/live".
+const mainNav = [
+  { path: "/", label: "Home", icon: Home },
+  { path: "/live", label: "Live", icon: Camera },
+  { path: "/overview", label: "Safety", icon: ShieldCheck },
+  { path: "/incidents", label: "Incidents", icon: ShieldAlert },
+];
 
-const mainNav = composerHome
-  ? [
-      { path: "/", label: "Home", icon: Home },
-      { path: "/live", label: "Live", icon: Camera },
-      { path: "/overview", label: "Safety", icon: ShieldCheck },
-      { path: "/incidents", label: "Incidents", icon: ShieldAlert },
-    ]
-  : [
-      { path: "/", label: "Live", icon: Camera },
-      { path: "/overview", label: "Safety", icon: ShieldCheck },
-      { path: "/incidents", label: "Incidents", icon: ShieldAlert },
-    ];
 
 const bottomNav = [{ path: "/settings", label: "Settings", icon: Settings }];
 
@@ -205,7 +199,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         className="mobile-tabbar fixed inset-x-0 bottom-0 z-40 lg:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className={composerHome ? "grid grid-cols-5" : "grid grid-cols-4"}>
+        <div className="grid grid-cols-5">
           {mobileNav.map((item) => {
             const isActive = location.pathname === item.path;
             return (
