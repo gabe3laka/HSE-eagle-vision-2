@@ -74,10 +74,19 @@ export function HomeComposer() {
 
   const handleSend = async () => {
     if (busy || !canSend) return;
+    if (!user) {
+      toast({
+        title: "Sign in to continue",
+        description: "Create a free account to save and submit your report.",
+      });
+      navigate({ to: "/auth" });
+      return;
+    }
     if (mode !== "report") {
       navigate({ to: "/live", search: { mode } });
       return;
     }
+
     const id = await submit({ text: text.trim(), media });
     if (!id) {
       toast({
