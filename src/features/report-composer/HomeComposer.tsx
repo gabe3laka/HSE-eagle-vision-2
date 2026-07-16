@@ -20,8 +20,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { useMediaAttach } from "./hooks/useMediaAttach";
 import { useReportDraft } from "./hooks/useReportDraft";
+
 
 type ComposerMode = "report" | "hse" | "plan" | "build";
 
