@@ -25,7 +25,6 @@ const mainNav = [
   { path: "/incidents", label: "Incidents", icon: ShieldAlert },
 ];
 
-
 const bottomNav = [{ path: "/settings", label: "Settings", icon: Settings }];
 
 const mobileNav = [...mainNav, ...bottomNav];

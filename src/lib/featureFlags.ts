@@ -40,7 +40,6 @@ export type RiskFeatureFlag =
   // NOTE: VITE_MULTISET_MAP_CODE is a string, read from env directly (not here).
   | "VITE_MULTISET_VPS_ENABLED";
 
-
 /** PURE: read a single boolean flag from an env bag. Returns `true` for the
  *  string "true", `false` for the string "false", and `defaultValue` otherwise
  *  (default `false`). This lets a flag default ON while still allowing an
