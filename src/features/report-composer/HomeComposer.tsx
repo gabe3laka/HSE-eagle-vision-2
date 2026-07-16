@@ -54,8 +54,10 @@ const PLACEHOLDERS = [
  */
 export function HomeComposer() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { media, processing, addFiles, removeAt, atLimit } = useMediaAttach();
   const { submit, submitting } = useReportDraft();
+
   const [text, setText] = useState("");
   const [mode, setMode] = useState<ComposerMode>("report");
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
