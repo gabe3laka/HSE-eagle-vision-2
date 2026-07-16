@@ -33,11 +33,11 @@ function OrgChip() {
   const { selectedOrg, myMembership } = useOrg();
   if (!selectedOrg) return null;
   return (
-    <div className="mb-1 flex items-center gap-1.5 rounded-md border border-purple-500/30 bg-purple-950/30 px-2 py-1">
-      <Radio className="h-3 w-3 shrink-0 text-purple-400" />
+    <div className="mb-1 flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-2 py-1">
+      <Radio className="h-3 w-3 shrink-0 text-primary" />
       <div className="min-w-0">
-        <p className="truncate text-[11px] font-medium text-purple-200">{selectedOrg.name}</p>
-        <p className="text-[9px] uppercase tracking-wider text-purple-400">
+        <p className="truncate text-[11px] font-medium text-foreground">{selectedOrg.name}</p>
+        <p className="text-[9px] uppercase tracking-wider text-muted-foreground">
           {myMembership?.role ?? "member"}
         </p>
       </div>
