@@ -52,14 +52,14 @@ export default function AuthPage() {
 
   return (
     <div className="console-canvas flex min-h-screen items-center justify-center px-4 py-8">
-      <div className="grid w-full max-w-5xl overflow-hidden rounded-[28px] border border-cyan-200/10 bg-[#07101d]/95 shadow-[0_40px_120px_-40px_rgba(0,0,0,0.9)] lg:grid-cols-[1.05fr_0.95fr]">
-        <aside className="relative hidden overflow-hidden border-r border-white/5 p-10 lg:flex lg:flex-col lg:justify-between">
-          <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-cyan-400/15 blur-3xl" />
-          <div className="absolute -bottom-24 right-0 h-72 w-72 rounded-full bg-violet-500/15 blur-3xl" />
+      <div className="grid w-full max-w-5xl overflow-hidden rounded-[28px] border border-border bg-card shadow-[var(--shadow-overlay)] lg:grid-cols-[1.05fr_0.95fr]">
+        <aside className="relative hidden overflow-hidden border-r border-border p-10 lg:flex lg:flex-col lg:justify-between">
+          <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
+          <div className="absolute -bottom-24 right-0 h-72 w-72 rounded-full bg-primary/5 blur-3xl" />
           <div className="relative">
             <div className="flex items-center gap-3">
               <span className="brand-mark">
-                <ShieldCheck className="h-5 w-5 text-slate-950" />
+                <ShieldCheck className="h-5 w-5 text-primary-foreground" />
               </span>
               <div>
                 <p className="font-display text-xl font-semibold">SafeLens</p>
@@ -80,8 +80,8 @@ export default function AuthPage() {
               { icon: Hammer, label: "Build" },
               { icon: Route, label: "Plan" },
             ].map(({ icon: Icon, label }) => (
-              <div key={label} className="rounded-xl border border-white/5 bg-white/[0.03] p-3">
-                <Icon className="h-4 w-4 text-cyan-200" />
+              <div key={label} className="rounded-xl border border-border bg-secondary/40 p-3">
+                <Icon className="h-4 w-4 text-primary" />
                 <p className="mt-2 text-xs font-medium">{label}</p>
               </div>
             ))}
@@ -89,11 +89,10 @@ export default function AuthPage() {
         </aside>
 
         <div className="relative w-full animate-fade-in p-6 sm:p-10">
-          <div className="pointer-events-none absolute -inset-px rounded-xl bg-[radial-gradient(ellipse,rgba(16,185,129,0.08),transparent_60%)]" />
           <div className="mb-8 text-center">
             <div className="mb-3 flex items-center justify-center gap-2">
               <span className="brand-mark lg:hidden">
-                <ShieldCheck className="h-5 w-5 text-slate-950" />
+                <ShieldCheck className="h-5 w-5 text-primary-foreground" />
               </span>
               <h1 className="font-display text-3xl font-semibold text-foreground">
                 {isLogin ? "Welcome back" : "Create your account"}
