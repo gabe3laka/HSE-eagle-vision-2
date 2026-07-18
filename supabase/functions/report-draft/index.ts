@@ -18,6 +18,7 @@
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -189,6 +190,28 @@ serve(async (req: Request) => {
   }
   const text = [str(payload.text), str(payload.transcript)].filter(Boolean).join("\n\n").trim();
   const mediaCount = Array.isArray(payload.media) ? payload.media.length : 0;
+
+  // Authoritative AI-credit metering (fail-open). Signed-in accounts are
+  // unlimited; an anonymous guest with no free credits is turned away with
+  // { status: "limit" }. Any infra hiccup falls through to drafting — metering
+  // must NEVER break the report loop. Only a real draft request (has text) is
+  // charged.
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (authHeader && text) {
+    try {
+      const sb = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+        { global: { headers: { Authorization: authHeader } }, auth: { persistSession: false } },
+      );
+      const { data: remaining, error } = await sb.rpc("consume_credit");
+      if (!error && typeof remaining === "number" && remaining < 0) {
+        return json({ status: "limit", draft: null }, 200);
+      }
+    } catch {
+      // fail-open — proceed to draft
+    }
+  }
 
   const apiKey = Deno.env.get("DEEPSEEK_API_KEY");
   const backend = Deno.env.get("REPORT_DRAFT_BACKEND") ?? "deepseek";

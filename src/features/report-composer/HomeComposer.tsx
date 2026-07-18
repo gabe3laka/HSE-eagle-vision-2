@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Mic,
@@ -23,6 +24,7 @@ import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMediaAttach } from "./hooks/useMediaAttach";
 import { useReportDraft } from "./hooks/useReportDraft";
+import { createConversation, addMessage, touchConversation } from "./hooks/useConversations";
 
 type ComposerMode = "report" | "hse" | "plan" | "build";
 
@@ -49,14 +51,27 @@ const PLACEHOLDERS = [
  * The Lovable-style single input surface: multiline text, a photo attach, a
  * (disabled) voice button, a mode selector, and send. Report mode runs the
  * agent and lands on the review screen; the other modes deep-link into the Live
- * camera (behavior unchanged) via /live?mode=…. Feature-flagged upstream.
+ * camera (behavior unchanged) via /live?mode=….
+ *
+ * Report mode works for guests: on first send it starts an anonymous session
+ * (metered to 8 free drafts) and threads the turn into a conversation. Live
+ * camera modes stay protected — real accounts only. `onRequireAuth` is the
+ * fallback for sign-up prompts (credits exhausted, or anonymous auth disabled).
  */
-export function HomeComposer() {
+export function HomeComposer({
+  onRequireAuth,
+  activeConversationId = null,
+  onConversationChange,
+}: {
+  onRequireAuth?: () => void;
+  activeConversationId?: string | null;
+  onConversationChange?: (id: string) => void;
+}) {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const { user, isAuthed, isAnonymous, credits, signInAnonymously, refreshProfile } = useAuth();
   const { media, processing, addFiles, removeAt, atLimit } = useMediaAttach();
   const { submit, submitting } = useReportDraft();
-
   const [text, setText] = useState("");
   const [mode, setMode] = useState<ComposerMode>("report");
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
@@ -73,20 +88,56 @@ export function HomeComposer() {
 
   const handleSend = async () => {
     if (busy || !canSend) return;
-    if (!user) {
-      toast({
-        title: "Sign in to continue",
-        description: "Create a free account to save and submit your report.",
-      });
-      navigate({ to: "/auth" });
-      return;
-    }
+
+    // Live camera modes are protected — real (non-anonymous) accounts only.
     if (mode !== "report") {
+      if (!isAuthed) {
+        onRequireAuth?.();
+        return;
+      }
       navigate({ to: "/live", search: { mode } });
       return;
     }
 
-    const id = await submit({ text: text.trim(), media });
+    // Report mode works for guests. Ensure a session — start an anonymous one on
+    // demand; if anonymous sign-in is disabled in the project, fall back to the
+    // normal sign-in prompt (today's behaviour).
+    if (!user) {
+      const ok = await signInAnonymously();
+      if (!ok) {
+        onRequireAuth?.();
+        return;
+      }
+    }
+
+    // Guests get 8 free drafts (server-enforced; this is the friendly UI gate).
+    if (isAnonymous && credits <= 0) {
+      toast({
+        title: "You've used your free drafts",
+        description: "Create an account to keep going — your conversations are saved.",
+      });
+      onRequireAuth?.();
+      return;
+    }
+
+    const trimmed = text.trim();
+
+    // Ensure a conversation thread (create on the first turn).
+    let convId = activeConversationId;
+    if (!convId) {
+      convId = await createConversation(trimmed.slice(0, 60) || "New report");
+      if (convId) onConversationChange?.(convId);
+    }
+    // Record the user turn — best-effort; history must never block the draft.
+    if (convId) {
+      try {
+        await addMessage({ conversationId: convId, role: "user", content: trimmed, media });
+      } catch {
+        /* history is non-critical */
+      }
+    }
+
+    const id = await submit({ text: trimmed, media, conversationId: convId });
     if (!id) {
       toast({
         title: "Couldn't start the draft",
@@ -95,11 +146,30 @@ export function HomeComposer() {
       });
       return;
     }
+
+    // Link the assistant turn to the draft and bump the thread's recency/title.
+    if (convId) {
+      try {
+        await addMessage({
+          conversationId: convId,
+          role: "assistant",
+          content: "Drafted a safety report for review.",
+          reportDraftId: id,
+        });
+        await touchConversation(convId, trimmed.slice(0, 60) || undefined);
+      } catch {
+        /* non-critical */
+      }
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    }
+
+    void refreshProfile(); // server decremented credits — refresh the counter
+    setText("");
     navigate({ to: "/report/$id", params: { id } });
   };
 
   return (
-    <div className="rounded-2xl border border-border bg-card/80 p-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/60">
+    <div className="rounded-2xl border border-border bg-card/80 p-3 shadow-[var(--shadow-overlay)] backdrop-blur transition-colors focus-within:border-ring/50 focus-within:ring-2 focus-within:ring-ring/20 supports-[backdrop-filter]:bg-card/60">
       {/* Attached photo thumbnails */}
       {media.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { SeverityBadge } from "@/components/ui/severity";
 import {
   Select,
   SelectContent,
@@ -38,13 +39,6 @@ const REPORT_TYPE_OPTIONS: { value: ReportType; label: string }[] = [
   { value: "hazard", label: "Hazard" },
   { value: "incident", label: "Incident" },
 ];
-
-const SEVERITY_TONE: Record<Severity, string> = {
-  low: "border-emerald-500/40 text-emerald-300",
-  medium: "border-amber-500/40 text-amber-300",
-  high: "border-orange-500/40 text-orange-300",
-  critical: "border-red-500/40 text-red-300",
-};
 
 function fallbackDraft(): ReportDraftPayload {
   return {
@@ -123,6 +117,9 @@ export default function ReportDraftReview({ id }: { id: string }) {
           severity: form.severity,
           confidence: form.confidence,
           message: form.title ? `${form.title} — ${form.summary}` : form.summary,
+          // This screen IS the human approval — the filed record goes straight
+          // to the confirmed incident log, not the pending queue.
+          review_status: "approved",
         })
         .select("id")
         .single();
@@ -286,9 +283,7 @@ export default function ReportDraftReview({ id }: { id: string }) {
 
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Filing as</span>
-          <Badge variant="outline" className={`capitalize ${SEVERITY_TONE[form.severity]}`}>
-            {form.severity}
-          </Badge>
+          <SeverityBadge level={form.severity} />
         </div>
 
         <label className="block space-y-1">

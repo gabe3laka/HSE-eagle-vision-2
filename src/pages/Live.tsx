@@ -180,7 +180,7 @@ function BackendDebugPanel({
         <span className="font-semibold">
           backend · {isStream ? (status.streamState ?? status.state) : status.state}
         </span>
-        <span className={status.inFlight ? "text-amber-500" : "text-muted-foreground"}>
+        <span className={status.inFlight ? "text-warning" : "text-muted-foreground"}>
           {status.inFlight ? "in-flight" : "idle"} · {status.entityCount} ent · {status.poseCount}{" "}
           pose
         </span>
@@ -191,16 +191,14 @@ function BackendDebugPanel({
         </div>
         <div>
           backend:{" "}
-          <span className={isYolo ? "text-emerald-500" : "text-foreground"}>
-            {status.backend ?? "—"}
-          </span>{" "}
-          · tasks: {status.tasks?.join(",") ?? "—"}
+          <span className={isYolo ? "text-ok" : "text-foreground"}>{status.backend ?? "—"}</span> ·
+          tasks: {status.tasks?.join(",") ?? "—"}
           {status.model ? ` · model ${status.model}` : ""}
         </div>
         {/* Fallback + segmentation metadata — makes a YOLO26→EdgeCrafter
             fallback obvious, and shows the seg count when present. */}
         {(status.fallbackUsed || status.fallbackReason || status.warning) && (
-          <div className="text-amber-500">
+          <div className="text-warning">
             {status.fallbackUsed ? `${status.backend ?? "backend"} fallback` : "warning"}
             {status.fallbackReason ? ` · reason: ${status.fallbackReason}` : ""}
             {status.warning ? ` · ${status.warning}` : ""}
@@ -267,18 +265,18 @@ function BackendDebugPanel({
           {status.lastSuccessAt ? new Date(status.lastSuccessAt).toLocaleTimeString() : "—"}
         </div>
         {firstEntity && (
-          <div className="text-teal-500">
+          <div className="text-primary">
             ent#0 {firstEntity.label} {Math.round(firstEntity.confidence * 100)}% · x
             {firstEntity.bbox.x.toFixed(2)} y{firstEntity.bbox.y.toFixed(2)} w
             {firstEntity.bbox.w.toFixed(2)} h{firstEntity.bbox.h.toFixed(2)}
           </div>
         )}
         {firstPose && (
-          <div className="text-fuchsia-500">
+          <div className="text-accent-foreground">
             pose#0 {Math.round(firstPose.confidence * 100)}% · {firstPose.keypoints.length} kpts
           </div>
         )}
-        {status.error && <div className="text-red-500">error: {status.error}</div>}
+        {status.error && <div className="text-destructive">error: {status.error}</div>}
         {status.lastRawResponse && (
           <div className="truncate" title={status.lastRawResponse}>
             raw: {status.lastRawResponse}
@@ -1852,7 +1850,7 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
                         />
                       )}
                       {import.meta.env.DEV && appMode === "hse" && hbIgnoreReason && (
-                        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-200">
+                        <div className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-[11px] text-warning">
                           {heartbeatIgnoreMessage(hbIgnoreReason)}
                         </div>
                       )}
@@ -1890,7 +1888,7 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
                             <div className="mt-1 text-[10px] text-muted-foreground">
                               session: {testFrameSessionId ?? "—"}
                               {testFramePending && (
-                                <span className="ml-2 text-amber-300">
+                                <span className="ml-2 text-warning">
                                   reasoner_pending — next click will poll cached result
                                 </span>
                               )}

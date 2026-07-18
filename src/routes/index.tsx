@@ -1,16 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AppLayout } from "@/components/AppLayout";
 import Home from "@/pages/Home";
 
-/** The front door. Home composer is always on and PUBLIC — "/" renders the
- *  multimodal report composer for signed-in and signed-out visitors alike.
- *  Signed-out users can compose freely; submitting prompts sign-in via /auth.
- *  The live camera lives at /live (still protected). */
+/** The front door — PUBLIC, the way lovable.dev works. Signed-out visitors land
+ *  directly on the hero + gated composer (Home's public variant, no app chrome);
+ *  signed-in users get the working home inside the app shell. Home owns the
+ *  single auth/loading branch + shell wrapping — the route just renders it.
+ *  Every other tab remains behind ProtectedRoute. */
 export const Route = createFileRoute("/")({
   ssr: false,
-  component: () => (
-    <AppLayout>
-      <Home />
-    </AppLayout>
-  ),
+  component: Home,
 });

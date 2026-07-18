@@ -1,17 +1,16 @@
 import { useCallback, useState } from "react";
 import { db } from "@/integrations/supabase/db";
 import { supabase } from "@/integrations/supabase/own-client";
-import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/features/organizations/context/OrgContext";
+import { draftReport } from "../lib/reasoningClient";
 import type { AttachedMedia } from "./useMediaAttach";
-import type { ReportDraftPayload } from "../types";
 
 /**
  * Owns the "send → draft" step of the Home composer.
  *
  * 1. Persist the raw inputs into report_drafts (status "drafting").
- * 2. Ask the report-draft edge function for a structured suggestion (it always
- *    returns one — DeepSeek, else a deterministic rules draft).
+ * 2. Ask the reasoning seam (lib/reasoningClient — today the report-draft edge
+ *    function; later the worker's agentic endpoint) for a structured suggestion.
  * 3. Save the suggestion onto the row (status "draft") and return the id so the
  *    caller can navigate to /report/:id for human review.
  *
@@ -20,23 +19,35 @@ import type { ReportDraftPayload } from "../types";
  * so the reviewer can fill it in manually (honest degradation, never a dead end).
  */
 export function useReportDraft() {
-  const { user } = useAuth();
   const { selectedOrgId } = useOrg();
   const [submitting, setSubmitting] = useState(false);
 
   const submit = useCallback(
-    async (input: { text: string; media: AttachedMedia[] }): Promise<string | null> => {
-      if (!user) return null;
+    async (input: {
+      text: string;
+      media: AttachedMedia[];
+      /** Optional thread link — the draft belongs to this conversation. */
+      conversationId?: string | null;
+    }): Promise<string | null> => {
+      // Resolve the owner from the LIVE session (not React state) so a draft sent
+      // immediately after an on-demand anonymous sign-in isn't dropped by a stale
+      // `user` closure. Works identically for signed-in and guest sessions.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const uid = session?.user?.id;
+      if (!uid) return null;
       setSubmitting(true);
       try {
         const { data: created, error: insErr } = await db
           .from("report_drafts")
           .insert({
-            owner_id: user.id,
+            owner_id: uid,
             org_id: selectedOrgId ?? null,
             status: "drafting",
             input_text: input.text,
             media: input.media,
+            conversation_id: input.conversationId ?? null,
           })
           .select("id")
           .single();
@@ -46,17 +57,9 @@ export function useReportDraft() {
         if (insErr || !created?.id) return null;
         const id = created.id as string;
 
-        let draft: ReportDraftPayload | null = null;
-        try {
-          const { data } = await supabase.functions.invoke("report-draft", {
-            body: { text: input.text, media: input.media },
-          });
-          const d = (data as { draft?: ReportDraftPayload } | null)?.draft;
-          if (d) draft = d;
-        } catch {
-          // Edge function unreachable — leave draft null; review screen lets the
-          // human author it manually. Row already saved.
-        }
+        // The reasoning seam returns null on any failure — the review screen
+        // then lets the human author the report manually. Row already saved.
+        const draft = await draftReport({ text: input.text, media: input.media });
 
         try {
           await db
@@ -73,7 +76,7 @@ export function useReportDraft() {
         setSubmitting(false);
       }
     },
-    [user, selectedOrgId],
+    [selectedOrgId],
   );
 
   return { submit, submitting };

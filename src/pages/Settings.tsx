@@ -58,7 +58,7 @@ export default function Settings() {
   return (
     <div className="max-w-4xl space-y-6">
       <header className="page-hero">
-        <p className="console-eyebrow text-violet-300/80">Configuration</p>
+        <p className="console-eyebrow">Configuration</p>
         <h1 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">
           Monitoring settings
         </h1>

@@ -20,10 +20,9 @@ export function EmptyState({
   actionHref,
 }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 px-6 text-center animate-fade-in-up glass-subtle rounded-xl">
-      <div className="relative rounded-2xl bg-primary/10 p-5 mb-5">
-        <div className="absolute inset-0 rounded-2xl bg-[radial-gradient(ellipse,rgba(16,185,129,0.15),transparent_70%)]" />
-        <Icon className="h-10 w-10 text-muted-foreground/40 relative z-10" />
+    <div className="console-panel flex flex-col items-center justify-center px-6 py-16 text-center animate-fade-in-up">
+      <div className="mb-5 rounded-2xl border border-border bg-secondary/50 p-5">
+        <Icon className="h-9 w-9 text-muted-foreground" aria-hidden />
       </div>
       <h3 className="font-display text-lg font-semibold mb-1.5">{title}</h3>
       <p className="text-sm text-muted-foreground max-w-sm mb-6">{description}</p>

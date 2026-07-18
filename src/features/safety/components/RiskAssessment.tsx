@@ -9,6 +9,7 @@ import {
 } from "../lib/riskModel";
 import { type RiskRow } from "../lib/safetyTypes";
 import { RiskRegisterPanel } from "./RiskRegisterPanel";
+import { SeverityLegend } from "@/components/ui/severity";
 
 interface PlotItem {
   id: string;
@@ -123,14 +124,7 @@ export function RiskAssessment({ risks, derived }: { risks: RiskRow[]; derived: 
             </tbody>
           </table>
         </div>
-        <div className="mt-3 flex flex-wrap gap-3 text-[11px]">
-          {(["low", "medium", "high", "critical"] as const).map((lvl) => (
-            <span key={lvl} className="flex items-center gap-1.5 text-muted-foreground">
-              <span className={`h-2.5 w-2.5 rounded-sm ${RISK_LEVEL_META[lvl].dot}`} />
-              {RISK_LEVEL_META[lvl].label}
-            </span>
-          ))}
-        </div>
+        <SeverityLegend className="mt-3" />
       </section>
 
       <RiskRegisterPanel risks={risks} derived={derived} />

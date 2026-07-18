@@ -16,21 +16,14 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useOrg } from "@/features/organizations/context/OrgContext";
 
-// Home composer is always on: "/" is Home and the camera lives at /live.
-const composerHome = true;
-
-const mainNav = composerHome
-  ? [
-      { path: "/", label: "Home", icon: Home },
-      { path: "/live", label: "Live", icon: Camera },
-      { path: "/overview", label: "Safety", icon: ShieldCheck },
-      { path: "/incidents", label: "Incidents", icon: ShieldAlert },
-    ]
-  : [
-      { path: "/", label: "Live", icon: Camera },
-      { path: "/overview", label: "Safety", icon: ShieldCheck },
-      { path: "/incidents", label: "Incidents", icon: ShieldAlert },
-    ];
+// The coherent workflow: Home (report + what happened) → Live (detect) →
+// Incidents (approve) → Safety (aggregate). Settings sits below.
+const mainNav = [
+  { path: "/", label: "Home", icon: Home },
+  { path: "/live", label: "Live", icon: Camera },
+  { path: "/incidents", label: "Incidents", icon: ShieldAlert },
+  { path: "/overview", label: "Safety", icon: ShieldCheck },
+];
 
 const bottomNav = [{ path: "/settings", label: "Settings", icon: Settings }];
 
@@ -40,11 +33,11 @@ function OrgChip() {
   const { selectedOrg, myMembership } = useOrg();
   if (!selectedOrg) return null;
   return (
-    <div className="mb-1 flex items-center gap-1.5 rounded-md border border-purple-500/30 bg-purple-950/30 px-2 py-1">
-      <Radio className="h-3 w-3 shrink-0 text-purple-400" />
+    <div className="mb-1 flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-2 py-1">
+      <Radio className="h-3 w-3 shrink-0 text-primary" />
       <div className="min-w-0">
-        <p className="truncate text-[11px] font-medium text-purple-200">{selectedOrg.name}</p>
-        <p className="text-[9px] uppercase tracking-wider text-purple-400">
+        <p className="truncate text-[11px] font-medium text-foreground">{selectedOrg.name}</p>
+        <p className="text-[9px] uppercase tracking-wider text-muted-foreground">
           {myMembership?.role ?? "member"}
         </p>
       </div>
@@ -225,7 +218,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         className="mobile-tabbar fixed inset-x-0 bottom-0 z-40 lg:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className={composerHome ? "grid grid-cols-5" : "grid grid-cols-4"}>
+        <div className="grid grid-cols-5">
           {mobileNav.map((item) => {
             const isActive = location.pathname === item.path;
             return (
