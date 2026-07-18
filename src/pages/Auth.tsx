@@ -2,10 +2,28 @@ import { useState } from "react";
 import { useNavigate } from "@/lib/router-shim";
 import { Camera, Hammer, Route, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/own-client";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
+
+const GUEST_ID_KEY = "safelens.guestId";
+
+function readGuestId(): string | null {
+  try {
+    return localStorage.getItem(GUEST_ID_KEY);
+  } catch {
+    return null;
+  }
+}
+function clearGuestId() {
+  try {
+    localStorage.removeItem(GUEST_ID_KEY);
+  } catch {
+    /* storage unavailable — non-fatal */
+  }
+}
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -14,16 +32,45 @@ export default function AuthPage() {
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { isAnonymous } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
+    const guestId = readGuestId();
+
     try {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        // Signing into an EXISTING account from a guest session: move the guest's
+        // conversations + drafts into this account (best-effort; the RPC only
+        // ever moves rows FROM a still-anonymous guest TO the caller).
+        if (guestId) {
+          try {
+            await supabase.rpc("claim_guest_data", { p_guest: guestId });
+          } catch {
+            /* nothing to claim / already merged — non-fatal */
+          }
+          clearGuestId();
+        }
         navigate("/");
+      } else if (isAnonymous) {
+        // Guest creating an account: CONVERT the anonymous user into a permanent
+        // one. Same user_id → every conversation, draft and attachment is retained
+        // automatically with its original timestamps (no data migration).
+        const { error } = await supabase.auth.updateUser({
+          email,
+          password,
+          data: { full_name: fullName },
+        });
+        if (error) throw error;
+        clearGuestId();
+        toast({
+          title: "Account created",
+          description: "Confirm your email to finish — your conversations are already saved.",
+        });
       } else {
         const { error } = await supabase.auth.signUp({
           email,

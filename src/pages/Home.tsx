@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "@/lib/router-shim";
 import { Camera, ClipboardCheck, EyeOff, ShieldCheck, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { HAZARDS } from "@/lib/detection/hazardCatalog";
 import { hazardIcon } from "@/components/live/hazardIcons";
 import { SeverityBadge, severityStripeClass, SEVERITY_RANK } from "@/components/ui/severity";
 import { HomeComposer } from "@/features/report-composer/HomeComposer";
+import { ConversationHistory } from "@/features/report-composer/ConversationHistory";
 import { RecentDrafts } from "@/features/report-composer/RecentDrafts";
 
 /* ------------------------------------------------------------------ */
@@ -91,6 +92,7 @@ function WhatHappened() {
 function AuthedHome() {
   const { profile } = useAuth();
   const name = profile?.full_name?.split(" ")[0] || null;
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
   return (
     <AppLayout>
@@ -108,11 +110,20 @@ function AuthedHome() {
           </p>
         </div>
 
-        <HomeComposer />
+        <HomeComposer
+          activeConversationId={activeConversationId}
+          onConversationChange={setActiveConversationId}
+        />
 
         <p className="mt-4 text-center text-[11px] text-muted-foreground">
           Nothing is filed automatically — every report is yours to review, edit, and approve.
         </p>
+
+        <ConversationHistory
+          activeConversationId={activeConversationId}
+          onSelect={setActiveConversationId}
+          onNew={() => setActiveConversationId(null)}
+        />
 
         <WhatHappened />
         <RecentDrafts />
@@ -149,6 +160,8 @@ const PUBLIC_POINTS = [
 function PublicHome() {
   const navigate = useNavigate();
   const toAuth = () => navigate("/auth");
+  const { isAnonymous, credits } = useAuth();
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
@@ -186,10 +199,22 @@ function PublicHome() {
           </p>
         </div>
 
-        <HomeComposer onRequireAuth={toAuth} />
+        <HomeComposer
+          onRequireAuth={toAuth}
+          activeConversationId={activeConversationId}
+          onConversationChange={setActiveConversationId}
+        />
         <p className="mt-3 text-center text-[11px] text-muted-foreground">
-          Sign in to send — your report is drafted by the agent and filed only when you approve it.
+          {isAnonymous
+            ? `${credits} free draft${credits === 1 ? "" : "s"} left · your conversations are saved — create an account to keep them and unlock live monitoring.`
+            : "Describe a hazard to draft a report — no sign-in needed to start. Live monitoring needs an account."}
         </p>
+
+        <ConversationHistory
+          activeConversationId={activeConversationId}
+          onSelect={setActiveConversationId}
+          onNew={() => setActiveConversationId(null)}
+        />
 
         {/* Three-point product summary (folded in from the old /landing) */}
         <div className="mt-12 grid gap-4 sm:grid-cols-3">
@@ -216,7 +241,7 @@ function PublicHome() {
  *  (hero + gated composer); signed-in users get the working home. The route
  *  itself is public; every other tab stays behind ProtectedRoute. */
 export default function Home() {
-  const { user, loading } = useAuth();
+  const { isAuthed, loading } = useAuth();
 
   if (loading) {
     return (
@@ -226,5 +251,8 @@ export default function Home() {
     );
   }
 
-  return user ? <AuthedHome /> : <PublicHome />;
+  // Only real (non-anonymous) accounts get the app shell. Signed-out visitors AND
+  // anonymous guests get the public chat surface — guests can draft reports and
+  // keep conversations there, but never reach the protected monitoring tabs.
+  return isAuthed ? <AuthedHome /> : <PublicHome />;
 }

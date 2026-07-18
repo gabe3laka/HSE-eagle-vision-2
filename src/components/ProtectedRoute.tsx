@@ -3,7 +3,7 @@ import { Navigate } from "@/lib/router-shim";
 import { useAuth } from "@/contexts/AuthContext";
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+  const { isAuthed, loading } = useAuth();
 
   if (loading) {
     return (
@@ -13,9 +13,11 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!user) {
-    // Home IS the public landing now — send signed-out visitors to the front
-    // door (hero + gated composer + sign-in), not a separate marketing page.
+  if (!isAuthed) {
+    // Only a real (non-anonymous) account may reach protected monitoring. Both
+    // signed-out visitors AND anonymous guests are sent to the public front door
+    // ("/" — hero + composer + sign-in); guests can chat there but never enter
+    // Live/Incidents/Safety or perform protected actions.
     return <Navigate to="/" replace />;
   }
 

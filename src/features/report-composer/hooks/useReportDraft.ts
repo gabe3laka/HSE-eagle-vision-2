@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { db } from "@/integrations/supabase/db";
-import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/own-client";
 import { useOrg } from "@/features/organizations/context/OrgContext";
 import { draftReport } from "../lib/reasoningClient";
 import type { AttachedMedia } from "./useMediaAttach";
@@ -19,23 +19,35 @@ import type { AttachedMedia } from "./useMediaAttach";
  * so the reviewer can fill it in manually (honest degradation, never a dead end).
  */
 export function useReportDraft() {
-  const { user } = useAuth();
   const { selectedOrgId } = useOrg();
   const [submitting, setSubmitting] = useState(false);
 
   const submit = useCallback(
-    async (input: { text: string; media: AttachedMedia[] }): Promise<string | null> => {
-      if (!user) return null;
+    async (input: {
+      text: string;
+      media: AttachedMedia[];
+      /** Optional thread link — the draft belongs to this conversation. */
+      conversationId?: string | null;
+    }): Promise<string | null> => {
+      // Resolve the owner from the LIVE session (not React state) so a draft sent
+      // immediately after an on-demand anonymous sign-in isn't dropped by a stale
+      // `user` closure. Works identically for signed-in and guest sessions.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const uid = session?.user?.id;
+      if (!uid) return null;
       setSubmitting(true);
       try {
         const { data: created, error: insErr } = await db
           .from("report_drafts")
           .insert({
-            owner_id: user.id,
+            owner_id: uid,
             org_id: selectedOrgId ?? null,
             status: "drafting",
             input_text: input.text,
             media: input.media,
+            conversation_id: input.conversationId ?? null,
           })
           .select("id")
           .single();
@@ -64,7 +76,7 @@ export function useReportDraft() {
         setSubmitting(false);
       }
     },
-    [user, selectedOrgId],
+    [selectedOrgId],
   );
 
   return { submit, submitting };

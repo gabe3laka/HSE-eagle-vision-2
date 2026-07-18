@@ -20,6 +20,32 @@ export interface ProfileRow {
   email: string;
   full_name: string | null;
   preferred_language: string;
+  /** Free guest AI credits (default 8); decremented server-side per draft. */
+  ai_credits: number;
+}
+
+export type MessageRole = "user" | "assistant" | "system";
+
+/** A conversation thread (ChatGPT-like). Owner-scoped; guests own theirs via an
+ *  anonymous session. Heavy structured drafts live in report_drafts, linked from
+ *  the assistant message — see MessageRow.report_draft_id. */
+export interface ConversationRow {
+  id: string;
+  owner_id: string;
+  title: string | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+  last_message_at: string;
+}
+export interface MessageRow {
+  id: string;
+  conversation_id: string;
+  role: MessageRole;
+  content: string | null;
+  media: unknown;
+  report_draft_id: string | null;
+  created_at: string;
 }
 export interface AlertSettingsRow {
   id: string;
