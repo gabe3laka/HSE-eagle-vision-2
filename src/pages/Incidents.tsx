@@ -3,11 +3,18 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ClipboardCheck, ShieldCheck, XCircle } from "lucide-react";
 import { useIncidents, type Incident } from "@/hooks/useIncidents";
 import { HAZARDS } from "@/lib/detection/hazardCatalog";
-import { HAZARD_ICONS } from "@/components/live/hazardIcons";
+import { hazardIcon } from "@/components/live/hazardIcons";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SeverityBadge, severityStripeClass } from "@/components/ui/severity";
+import { ToastAction } from "@/components/ui/toast";
+import { SeverityBadge, severityStripeClass, SEVERITY_RANK } from "@/components/ui/severity";
+
+/** Highest severity first, then most recent — critical always rises to the top. */
+function bySeverityThenRecency(a: Incident, b: Incident): number {
+  const rank = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
+  return rank !== 0 ? rank : b.occurred_at > a.occurred_at ? 1 : -1;
+}
 import { supabase } from "@/integrations/supabase/own-client";
 import { toast } from "@/hooks/use-toast";
 import type { IncidentReviewStatus } from "@/integrations/supabase/db";
@@ -33,7 +40,7 @@ function IncidentDate({ at }: { at: string }) {
 /** Shared row body: hazard, severity, message, time/confidence/zone. */
 function IncidentBody({ inc }: { inc: Incident }) {
   const meta = HAZARDS[inc.hazard_type];
-  const Icon = HAZARD_ICONS[inc.hazard_type];
+  const Icon = hazardIcon(inc.hazard_type);
   const time = new Date(inc.occurred_at).toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
@@ -72,8 +79,8 @@ export default function Incidents() {
   const { pending, approved } = useMemo(() => {
     const list = incidents ?? [];
     return {
-      pending: list.filter((i) => i.review_status === "pending"),
-      approved: list.filter((i) => i.review_status === "approved"),
+      pending: list.filter((i) => i.review_status === "pending").sort(bySeverityThenRecency),
+      approved: list.filter((i) => i.review_status === "approved").sort(bySeverityThenRecency),
     };
   }, [incidents]);
 
@@ -83,10 +90,22 @@ export default function Incidents() {
       toast({ title: "Couldn't update", description: error.message, variant: "destructive" });
       return;
     }
-    toast({
-      title: review_status === "approved" ? "Incident confirmed" : "Dismissed as false positive",
-    });
     queryClient.invalidateQueries({ queryKey: ["incidents"] });
+    if (review_status === "dismissed") {
+      // Dismiss is reversible — offer an immediate undo (restores to pending).
+      toast({
+        title: "Dismissed as false positive",
+        action: (
+          <ToastAction altText="Undo dismiss" onClick={() => void setReviewStatus(inc, "pending")}>
+            Undo
+          </ToastAction>
+        ),
+      });
+    } else if (review_status === "approved") {
+      toast({ title: "Incident confirmed" });
+    } else {
+      toast({ title: "Moved back to pending" });
+    }
   };
 
   const toggleResolved = async (inc: Incident) => {

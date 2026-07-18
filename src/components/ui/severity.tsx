@@ -24,6 +24,16 @@ export type SeverityLevel = "critical" | "high" | "medium" | "low" | "ok";
 
 export const SEVERITY_LEVELS: SeverityLevel[] = ["critical", "high", "medium", "low", "ok"];
 
+/** Ordering weight — highest first. Domain `Severity` (low|medium|high|critical)
+ *  is a subset of these keys, so it can be sorted with this map directly. */
+export const SEVERITY_RANK: Record<SeverityLevel, number> = {
+  critical: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+  ok: 0,
+};
+
 interface SeverityMeta {
   label: string;
   icon: LucideIcon;

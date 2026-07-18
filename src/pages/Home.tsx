@@ -2,11 +2,12 @@ import { useMemo } from "react";
 import { Link, useNavigate } from "@/lib/router-shim";
 import { Camera, ClipboardCheck, EyeOff, ShieldCheck, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AppLayout } from "@/components/AppLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIncidents } from "@/hooks/useIncidents";
 import { HAZARDS } from "@/lib/detection/hazardCatalog";
-import { HAZARD_ICONS } from "@/components/live/hazardIcons";
-import { SeverityBadge, severityStripeClass } from "@/components/ui/severity";
+import { hazardIcon } from "@/components/live/hazardIcons";
+import { SeverityBadge, severityStripeClass, SEVERITY_RANK } from "@/components/ui/severity";
 import { HomeComposer } from "@/features/report-composer/HomeComposer";
 import { RecentDrafts } from "@/features/report-composer/RecentDrafts";
 
@@ -24,7 +25,10 @@ function WhatHappened() {
     const list = incidents ?? [];
     return {
       pending: list.filter((i) => i.review_status === "pending"),
-      recent: list.filter((i) => i.review_status === "approved").slice(0, 3),
+      recent: list
+        .filter((i) => i.review_status === "approved")
+        .sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity])
+        .slice(0, 3),
     };
   }, [incidents]);
 
@@ -60,7 +64,7 @@ function WhatHappened() {
           </p>
           <div className="space-y-1.5">
             {recent.map((inc) => {
-              const Icon = HAZARD_ICONS[inc.hazard_type];
+              const Icon = hazardIcon(inc.hazard_type);
               return (
                 <div
                   key={inc.id}
@@ -89,29 +93,31 @@ function AuthedHome() {
   const name = profile?.full_name?.split(" ")[0] || null;
 
   return (
-    <div className="mx-auto flex min-h-[70vh] w-full max-w-2xl flex-col justify-center px-1 py-6">
-      <div className="mb-6 text-center">
-        <span className="brand-mark mx-auto mb-4 flex h-11 w-11 items-center justify-center">
-          <ShieldCheck className="h-5 w-5" />
-        </span>
-        <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
-          {name ? `What happened, ${name}?` : "What happened on site?"}
-        </h1>
-        <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-          Describe a hazard or near-miss and the agent drafts a safety report for you to review — or
-          pick a mode to open the live camera.
+    <AppLayout>
+      <div className="mx-auto flex min-h-[70vh] w-full max-w-2xl flex-col justify-center px-1 py-6">
+        <div className="mb-6 text-center">
+          <span className="brand-mark mx-auto mb-4 flex h-11 w-11 items-center justify-center">
+            <ShieldCheck className="h-5 w-5" />
+          </span>
+          <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
+            {name ? `What happened, ${name}?` : "What happened on site?"}
+          </h1>
+          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+            Describe a hazard or near-miss and the agent drafts a safety report for you to review —
+            or pick a mode to open the live camera.
+          </p>
+        </div>
+
+        <HomeComposer />
+
+        <p className="mt-4 text-center text-[11px] text-muted-foreground">
+          Nothing is filed automatically — every report is yours to review, edit, and approve.
         </p>
+
+        <WhatHappened />
+        <RecentDrafts />
       </div>
-
-      <HomeComposer />
-
-      <p className="mt-4 text-center text-[11px] text-muted-foreground">
-        Nothing is filed automatically — every report is yours to review, edit, and approve.
-      </p>
-
-      <WhatHappened />
-      <RecentDrafts />
-    </div>
+    </AppLayout>
   );
 }
 

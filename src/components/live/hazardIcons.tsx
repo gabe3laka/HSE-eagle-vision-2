@@ -19,3 +19,10 @@ export const HAZARD_ICONS: Record<HazardType, LucideIcon> = {
   forklift_proximity: Truck,
   fall_risk: TriangleAlert,
 };
+
+/** Safe accessor: never returns undefined for an unknown/off-enum hazard_type
+ *  (e.g. data drift from an older worker) — falls back to the generic alert
+ *  glyph so a render can never crash on `HAZARD_ICONS[type]`. */
+export function hazardIcon(hazardType: HazardType | string): LucideIcon {
+  return HAZARD_ICONS[hazardType as HazardType] ?? TriangleAlert;
+}
