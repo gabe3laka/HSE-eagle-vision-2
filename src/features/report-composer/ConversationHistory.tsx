@@ -77,7 +77,7 @@ export function ConversationHistory({
               <button
                 type="button"
                 onClick={() => void open(c.id)}
-                className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                className={`hover-lift pressable flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm ${
                   activeConversationId === c.id
                     ? "border-primary/40 bg-primary/10"
                     : "border-border bg-card/60 hover:bg-secondary/60"

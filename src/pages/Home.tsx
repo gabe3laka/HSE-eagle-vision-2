@@ -40,7 +40,7 @@ function WhatHappened() {
       {pending.length > 0 && (
         <Link
           to="/incidents"
-          className="flex items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 transition-colors hover:bg-warning/15"
+          className="hover-lift pressable flex items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 hover:bg-warning/15"
         >
           <span className="flex items-center gap-2.5 text-sm">
             <ClipboardCheck className="h-4 w-4 text-warning" aria-hidden />
@@ -69,7 +69,7 @@ function WhatHappened() {
               return (
                 <div
                   key={inc.id}
-                  className={`flex items-center gap-3 rounded-lg border border-border bg-card/60 px-3 py-2.5 text-sm ${severityStripeClass(inc.severity)}`}
+                  className={`hover-lift flex items-center gap-3 rounded-lg border border-border bg-card/60 px-3 py-2.5 text-sm ${severityStripeClass(inc.severity)}`}
                 >
                   <span className="rounded-md border border-border bg-secondary/60 p-1.5 text-muted-foreground">
                     <Icon className="h-3.5 w-3.5" aria-hidden />
@@ -96,37 +96,52 @@ function AuthedHome() {
 
   return (
     <AppLayout>
-      <div className="mx-auto flex min-h-[70vh] w-full max-w-2xl flex-col justify-center px-1 py-6">
-        <div className="mb-6 text-center">
-          <span className="brand-mark mx-auto mb-4 flex h-11 w-11 items-center justify-center">
+      <div className="mesh-hero mx-auto flex min-h-[70vh] w-full max-w-2xl flex-col justify-center px-1 py-6">
+        <div className="animate-fade-in-up mb-6 text-center">
+          <span className="brand-mark mx-auto mb-5 flex h-11 w-11 items-center justify-center">
             <ShieldCheck className="h-5 w-5" />
           </span>
-          <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
-            {name ? `What happened, ${name}?` : "What happened on site?"}
+          <h1 className="display-hero">
+            {name ? (
+              <>
+                What happened, <span className="text-gradient-brand">{name}</span>?
+              </>
+            ) : (
+              <>
+                What happened on <span className="text-gradient-brand">site</span>?
+              </>
+            )}
           </h1>
-          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+          <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
             Describe a hazard or near-miss and the agent drafts a safety report for you to review —
             or pick a mode to open the live camera.
           </p>
         </div>
 
-        <HomeComposer
-          activeConversationId={activeConversationId}
-          onConversationChange={setActiveConversationId}
-        />
+        <div className="animate-fade-in-up" style={{ animationDelay: "70ms" }}>
+          <HomeComposer
+            activeConversationId={activeConversationId}
+            onConversationChange={setActiveConversationId}
+          />
+        </div>
 
-        <p className="mt-4 text-center text-[11px] text-muted-foreground">
+        <p
+          className="animate-fade-in-up mt-4 text-center text-[11px] text-muted-foreground"
+          style={{ animationDelay: "140ms" }}
+        >
           Nothing is filed automatically — every report is yours to review, edit, and approve.
         </p>
 
-        <ConversationHistory
-          activeConversationId={activeConversationId}
-          onSelect={setActiveConversationId}
-          onNew={() => setActiveConversationId(null)}
-        />
+        <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
+          <ConversationHistory
+            activeConversationId={activeConversationId}
+            onSelect={setActiveConversationId}
+            onNew={() => setActiveConversationId(null)}
+          />
 
-        <WhatHappened />
-        <RecentDrafts />
+          <WhatHappened />
+          <RecentDrafts />
+        </div>
       </div>
     </AppLayout>
   );
@@ -180,18 +195,18 @@ function PublicHome() {
           <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={toAuth}>
             Sign in
           </Button>
-          <Button size="sm" className="rounded-lg" onClick={toAuth}>
+          <Button size="sm" className="btn-sheen pressable rounded-lg" onClick={toAuth}>
             Get started
           </Button>
         </div>
       </header>
 
       {/* Hero + gated composer */}
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-4 py-10">
-        <div className="mb-7 text-center">
+      <main className="mesh-hero mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-4 py-10">
+        <div className="animate-fade-in-up mb-7 text-center">
           <p className="console-eyebrow mb-3 text-primary">Safety intelligence for any site</p>
-          <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
-            What happened on site?
+          <h1 className="display-hero">
+            What happened on <span className="text-gradient-brand">site</span>?
           </h1>
           <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground sm:text-base">
             SafeLens turns any camera into live risk intelligence — and a photo or a sentence into a
@@ -199,32 +214,41 @@ function PublicHome() {
           </p>
         </div>
 
-        <HomeComposer
-          onRequireAuth={toAuth}
-          activeConversationId={activeConversationId}
-          onConversationChange={setActiveConversationId}
-        />
-        <p className="mt-3 text-center text-[11px] text-muted-foreground">
+        <div className="animate-fade-in-up" style={{ animationDelay: "70ms" }}>
+          <HomeComposer
+            onRequireAuth={toAuth}
+            activeConversationId={activeConversationId}
+            onConversationChange={setActiveConversationId}
+          />
+        </div>
+        <p
+          className="animate-fade-in-up mt-3 text-center text-[11px] text-muted-foreground"
+          style={{ animationDelay: "140ms" }}
+        >
           {isAnonymous
             ? `${credits} free draft${credits === 1 ? "" : "s"} left · your conversations are saved — create an account to keep them and unlock live monitoring.`
             : "Describe a hazard to draft a report — no sign-in needed to start. Live monitoring needs an account."}
         </p>
 
-        <ConversationHistory
-          activeConversationId={activeConversationId}
-          onSelect={setActiveConversationId}
-          onNew={() => setActiveConversationId(null)}
-        />
+        <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
+          <ConversationHistory
+            activeConversationId={activeConversationId}
+            onSelect={setActiveConversationId}
+            onNew={() => setActiveConversationId(null)}
+          />
 
-        {/* Three-point product summary (folded in from the old /landing) */}
-        <div className="mt-12 grid gap-4 sm:grid-cols-3">
-          {PUBLIC_POINTS.map((p) => (
-            <div key={p.title} className="rounded-xl border border-border bg-card/60 p-4">
-              <p.icon className="h-5 w-5 text-primary" />
-              <h3 className="mt-2.5 text-sm font-semibold">{p.title}</h3>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{p.text}</p>
-            </div>
-          ))}
+          {/* Three-point product summary (folded in from the old /landing) */}
+          <div className="mt-12 grid gap-4 sm:grid-cols-3">
+            {PUBLIC_POINTS.map((p) => (
+              <div key={p.title} className="console-panel hover-lift rounded-xl p-5">
+                <span className="glyph-halo mb-3 h-10 w-10">
+                  <p.icon className="h-4.5 w-4.5 text-primary" />
+                </span>
+                <h3 className="mt-2.5 text-sm font-semibold">{p.title}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{p.text}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </main>
 

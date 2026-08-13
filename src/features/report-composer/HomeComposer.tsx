@@ -47,6 +47,9 @@ const PLACEHOLDERS = [
   "Note a blocked exit or missing PPE…",
 ];
 
+/** One-tap starters for an empty composer — they only prefill the text. */
+const SUGGESTIONS = ["Near-miss with a forklift", "Blocked fire exit", "Crew member missing PPE"];
+
 /**
  * The Lovable-style single input surface: multiline text, a photo attach, a
  * (disabled) voice button, a mode selector, and send. Report mode runs the
@@ -169,121 +172,150 @@ export function HomeComposer({
   };
 
   return (
-    <div className="rounded-2xl border border-border bg-card/80 p-3 shadow-[var(--shadow-overlay)] backdrop-blur transition-colors focus-within:border-ring/50 focus-within:ring-2 focus-within:ring-ring/20 supports-[backdrop-filter]:bg-card/60">
-      {/* Attached photo thumbnails */}
-      {media.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {media.map((m, i) => (
-            <div key={i} className="relative">
-              <img
-                src={m.thumb}
-                alt={m.name}
-                className="h-16 w-16 rounded-lg border border-border object-cover"
-              />
-              <button
-                type="button"
-                aria-label={`Remove ${m.name}`}
-                onClick={() => removeAt(i)}
-                className="absolute -right-1.5 -top-1.5 rounded-full bg-background p-0.5 text-muted-foreground shadow ring-1 ring-border hover:text-destructive"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
+    <>
+      <div className="focus-glow rounded-2xl border border-border bg-card/80 p-3 shadow-[var(--shadow-float)] backdrop-blur supports-[backdrop-filter]:bg-card/60">
+        {/* Attached photo thumbnails */}
+        {media.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {media.map((m, i) => (
+              <div key={i} className="relative">
+                <img
+                  src={m.thumb}
+                  alt={m.name}
+                  className="h-16 w-16 rounded-lg border border-border object-cover"
+                />
+                <button
+                  type="button"
+                  aria-label={`Remove ${m.name}`}
+                  onClick={() => removeAt(i)}
+                  className="absolute -right-1.5 -top-1.5 rounded-full bg-background p-0.5 text-muted-foreground shadow ring-1 ring-border hover:text-destructive"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <Textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={
+            mode === "report"
+              ? PLACEHOLDERS[placeholderIdx]
+              : `${activeMode.label}: ${activeMode.hint}`
+          }
+          rows={3}
+          className="min-h-[76px] resize-none border-0 bg-transparent px-2 text-base shadow-none focus-visible:ring-0"
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") void handleSend();
+          }}
+        />
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.length) void addFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="pressable h-9 w-9 rounded-full text-muted-foreground"
+              aria-label="Attach photo"
+              disabled={atLimit || busy}
+              onClick={() => fileRef.current?.click()}
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 rounded-full text-muted-foreground opacity-50"
+              aria-label="Voice memo (coming soon)"
+              title="Voice memo — coming soon"
+              disabled
+            >
+              <Mic className="h-5 w-5" />
+            </Button>
+
+            {/* Mode selector — like Lovable's Build ▾ */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="pressable ml-1 h-9 gap-1 rounded-full px-3 text-xs"
+                >
+                  <activeMode.icon className="h-3.5 w-3.5" />
+                  {activeMode.label}
+                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                {MODES.map((m) => (
+                  <DropdownMenuItem key={m.key} onClick={() => setMode(m.key)} className="gap-2">
+                    <m.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="flex flex-col">
+                      <span className="text-sm font-medium">{m.label}</span>
+                      <span className="text-[11px] text-muted-foreground">{m.hint}</span>
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <Button
+            type="button"
+            size="icon"
+            className="btn-sheen pressable h-9 w-9 rounded-full"
+            aria-label={mode === "report" ? "Draft report" : `Open ${activeMode.label}`}
+            disabled={busy || !canSend}
+            onClick={() => void handleSend()}
+          >
+            {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
+          </Button>
+        </div>
+
+        {/* Live status while the agent works — presentation only, same flow. */}
+        {submitting && (
+          <div className="animate-fade-in mt-2 flex items-center gap-2 border-t border-border pt-2.5 text-xs text-muted-foreground">
+            <span className="relative flex h-2 w-2" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+            </span>
+            Agent is drafting your report…
+          </div>
+        )}
+      </div>
+
+      {/* Suggestion chips — prefill only; the send path is unchanged. */}
+      {mode === "report" && !text.trim() && media.length === 0 && !busy && (
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
+          {SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setText(s)}
+              className="pressable rounded-full border border-border bg-card/60 px-3.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-secondary/60 hover:text-foreground"
+            >
+              {s}
+            </button>
           ))}
         </div>
       )}
-
-      <Textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder={
-          mode === "report"
-            ? PLACEHOLDERS[placeholderIdx]
-            : `${activeMode.label}: ${activeMode.hint}`
-        }
-        rows={3}
-        className="min-h-[76px] resize-none border-0 bg-transparent px-2 text-base shadow-none focus-visible:ring-0"
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") void handleSend();
-        }}
-      />
-
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          if (e.target.files?.length) void addFiles(e.target.files);
-          e.target.value = "";
-        }}
-      />
-
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="h-9 w-9 rounded-full text-muted-foreground"
-            aria-label="Attach photo"
-            disabled={atLimit || busy}
-            onClick={() => fileRef.current?.click()}
-          >
-            <Plus className="h-5 w-5" />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="h-9 w-9 rounded-full text-muted-foreground opacity-50"
-            aria-label="Voice memo (coming soon)"
-            title="Voice memo — coming soon"
-            disabled
-          >
-            <Mic className="h-5 w-5" />
-          </Button>
-
-          {/* Mode selector — like Lovable's Build ▾ */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="ml-1 h-9 gap-1 rounded-full px-3 text-xs"
-              >
-                <activeMode.icon className="h-3.5 w-3.5" />
-                {activeMode.label}
-                <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              {MODES.map((m) => (
-                <DropdownMenuItem key={m.key} onClick={() => setMode(m.key)} className="gap-2">
-                  <m.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex flex-col">
-                    <span className="text-sm font-medium">{m.label}</span>
-                    <span className="text-[11px] text-muted-foreground">{m.hint}</span>
-                  </span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
-        <Button
-          type="button"
-          size="icon"
-          className="h-9 w-9 rounded-full"
-          aria-label={mode === "report" ? "Draft report" : `Open ${activeMode.label}`}
-          disabled={busy || !canSend}
-          onClick={() => void handleSend()}
-        >
-          {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
-        </Button>
-      </div>
-    </div>
+    </>
   );
 }

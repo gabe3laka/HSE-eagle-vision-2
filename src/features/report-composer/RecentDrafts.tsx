@@ -49,7 +49,7 @@ export function RecentDrafts() {
             <Link
               key={d.id}
               to={`/report/${d.id}`}
-              className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card/60 px-3 py-2.5 text-sm transition-colors hover:bg-secondary/60"
+              className="hover-lift pressable group flex items-center justify-between gap-2 rounded-lg border border-border bg-card/60 px-3 py-2.5 text-sm hover:bg-secondary/60"
             >
               <span className="min-w-0">
                 <span className="block truncate font-medium text-foreground">{title}</span>
@@ -62,7 +62,7 @@ export function RecentDrafts() {
                 <Badge variant="outline" className="text-[10px] capitalize">
                   {d.status === "drafting" ? "drafting…" : "review"}
                 </Badge>
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
               </span>
             </Link>
           );
