@@ -230,8 +230,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 }`}
               >
                 <span
-                  className={`flex h-7 w-12 items-center justify-center rounded-md transition-colors ${
-                    isActive ? "bg-secondary text-primary" : ""
+                  className={`flex h-7 w-12 items-center justify-center rounded-md transition-all duration-150 ${
+                    isActive
+                      ? "bg-primary/15 text-primary shadow-[0_0_14px_hsl(var(--accent-teal)/0.28)]"
+                      : ""
                   }`}
                 >
                   <item.icon className="h-5 w-5" />

@@ -48,7 +48,7 @@ export function SessionControls({
             onClick={onStop}
             variant="destructive"
             size="lg"
-            className="min-h-12 flex-1 rounded-xl sm:min-w-[190px] sm:flex-none"
+            className="pressable min-h-12 flex-1 rounded-xl shadow-[0_0_20px_hsl(var(--destructive)/0.3)] sm:min-w-[190px] sm:flex-none"
           >
             <Square className="mr-2 h-4 w-4" /> Stop monitoring
           </Button>
@@ -57,7 +57,7 @@ export function SessionControls({
             onClick={onStart}
             size="lg"
             disabled={!cameraActive}
-            className="min-h-12 flex-1 rounded-xl sm:min-w-[190px] sm:flex-none"
+            className="btn-sheen pressable min-h-12 flex-1 rounded-xl shadow-[0_0_20px_hsl(var(--accent-teal)/0.25)] sm:min-w-[190px] sm:flex-none"
           >
             <Play className="mr-2 h-4 w-4" /> Start monitoring
           </Button>

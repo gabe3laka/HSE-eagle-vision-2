@@ -366,6 +366,7 @@
     width: 2px;
     border-radius: 999px;
     background: hsl(var(--primary));
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.55);
     content: "";
   }
   .sidebar-icon {
@@ -376,6 +377,14 @@
     justify-content: center;
     border-radius: 0.5rem;
     background: transparent;
+    transition:
+      background-color var(--dur-fast) var(--ease-standard),
+      color var(--dur-fast) var(--ease-standard);
+  }
+  /* Active nav icon lights up in the signal accent (pill-in-pill). */
+  .sidebar-link-active .sidebar-icon {
+    background: hsl(var(--primary) / 0.14);
+    color: hsl(var(--primary));
   }
   .mobile-topbar,
   .mobile-tabbar {
@@ -580,12 +589,21 @@
   }
   .live-mode-cyan {
     --mode-tint: hsl(190 90% 55% / 0.75);
+    --mode-ink: hsl(190 90% 60%);
   }
   .live-mode-mint {
     --mode-tint: hsl(152 64% 50% / 0.75);
+    --mode-ink: hsl(152 64% 52%);
   }
   .live-mode-violet {
     --mode-tint: hsl(258 82% 68% / 0.75);
+    --mode-ink: hsl(258 82% 72%);
+  }
+  /* The emblem carries the mode's ink + a soft matching halo. */
+  .live-command-bar .live-mode-emblem {
+    color: var(--mode-ink, hsl(var(--primary)));
+    border-color: color-mix(in srgb, var(--mode-ink, hsl(var(--primary))) 30%, transparent);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--mode-ink, hsl(var(--primary))) 22%, transparent);
   }
   .live-mode-emblem {
     display: flex;
