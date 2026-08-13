@@ -196,9 +196,9 @@ export default function ReportDraftReview({ id }: { id: string }) {
         </Badge>
       </div>
 
-      <div>
-        <h1 className="font-display text-xl font-semibold">Review report</h1>
-        <p className="text-sm text-muted-foreground">
+      <div className="animate-fade-in-up">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Review report</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Edit anything below, then file it into your safety records. Nothing is saved as an
           incident until you approve.
         </p>
@@ -217,7 +217,10 @@ export default function ReportDraftReview({ id }: { id: string }) {
         </div>
       )}
 
-      <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+      <div
+        className="animate-fade-in-up space-y-3 rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-float)]"
+        style={{ animationDelay: "70ms" }}
+      >
         <label className="block space-y-1">
           <span className="text-xs font-medium text-muted-foreground">Title</span>
           <Input
@@ -313,7 +316,11 @@ export default function ReportDraftReview({ id }: { id: string }) {
       </div>
 
       <div className="flex gap-2">
-        <Button className="flex-1" disabled={saving !== null} onClick={() => void approve()}>
+        <Button
+          className="btn-sheen pressable flex-1"
+          disabled={saving !== null}
+          onClick={() => void approve()}
+        >
           {saving === "approve" ? (
             <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
           ) : (

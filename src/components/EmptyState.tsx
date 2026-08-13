@@ -21,18 +21,20 @@ export function EmptyState({
 }: EmptyStateProps) {
   return (
     <div className="console-panel flex flex-col items-center justify-center px-6 py-16 text-center animate-fade-in-up">
-      <div className="mb-5 rounded-2xl border border-border bg-secondary/50 p-5">
-        <Icon className="h-9 w-9 text-muted-foreground" aria-hidden />
+      <div className="glyph-halo mb-8 h-14 w-14">
+        <Icon className="h-6 w-6" aria-hidden />
       </div>
       <h3 className="font-display text-lg font-semibold mb-1.5">{title}</h3>
       <p className="text-sm text-muted-foreground max-w-sm mb-6">{description}</p>
       {actionLabel &&
         (actionHref ? (
-          <Button asChild>
+          <Button asChild className="btn-sheen pressable">
             <Link to={actionHref}>{actionLabel}</Link>
           </Button>
         ) : onAction ? (
-          <Button onClick={onAction}>{actionLabel}</Button>
+          <Button onClick={onAction} className="btn-sheen pressable">
+            {actionLabel}
+          </Button>
         ) : null)}
     </div>
   );

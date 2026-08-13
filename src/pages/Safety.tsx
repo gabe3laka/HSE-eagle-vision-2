@@ -48,7 +48,7 @@ export default function Safety() {
     <div className="space-y-6">
       <header className="page-hero">
         <p className="console-eyebrow">Safety management</p>
-        <h1 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">
+        <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
           Risk &amp; controls
         </h1>
         <p className="mt-2 max-w-xl text-sm text-muted-foreground">
