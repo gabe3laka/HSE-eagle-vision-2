@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { MessageSquare, Plus, Search, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
 import { useConversations, latestDraftIdForConversation } from "./hooks/useConversations";
 
 /**
@@ -21,10 +22,14 @@ export function ConversationHistory({
   onNew: () => void;
 }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
-  const { conversations, isLoading } = useConversations(search);
+  const { conversations, isLoading } = useConversations(search, !!user);
   const [opening, setOpening] = useState<string | null>(null);
 
+  // No session yet (visitor who hasn't sent anything) → no history to show;
+  // the section appears once their first send starts a guest session.
+  if (!user) return null;
   if (!isLoading && conversations.length === 0 && !search) return null;
 
   const open = async (id: string) => {
