@@ -124,7 +124,9 @@ export default function Incidents() {
     <div className="space-y-6">
       <header className="page-hero">
         <p className="console-eyebrow">Safety log</p>
-        <h1 className="mt-1 font-display text-2xl font-semibold sm:text-3xl">Incident review</h1>
+        <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+          Incident review
+        </h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Detections wait here for your judgement — nothing becomes an incident without a human
           approving it.
@@ -151,7 +153,7 @@ export default function Incidents() {
       ) : (
         <>
           {/* ---- Lane 1: pending approval ---- */}
-          <section>
+          <section className="animate-fade-in-up">
             <h2 className="mb-2 flex items-center gap-2 font-display text-sm font-semibold">
               <ClipboardCheck className="h-4 w-4 text-warning" aria-hidden /> Pending approval
             </h2>
@@ -164,14 +166,14 @@ export default function Incidents() {
                 {pending.map((inc) => (
                   <div
                     key={inc.id}
-                    className={`console-panel flex flex-col items-stretch gap-4 p-4 sm:flex-row sm:items-center ${severityStripeClass(inc.severity)}`}
+                    className={`console-panel hover-lift flex flex-col items-stretch gap-4 p-4 sm:flex-row sm:items-center ${severityStripeClass(inc.severity)}`}
                   >
                     <IncidentDate at={inc.occurred_at} />
                     <IncidentBody inc={inc} />
                     <div className="flex gap-2 self-end sm:flex-col sm:self-auto">
                       <Button
                         size="sm"
-                        className="min-h-9 rounded-lg"
+                        className="btn-sheen pressable min-h-9 rounded-lg"
                         onClick={() => void setReviewStatus(inc, "approved")}
                       >
                         <CheckCircle2 className="mr-1.5 h-4 w-4" /> Approve
@@ -179,7 +181,7 @@ export default function Incidents() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="min-h-9 rounded-lg text-muted-foreground hover:text-destructive"
+                        className="pressable min-h-9 rounded-lg text-muted-foreground hover:text-destructive"
                         onClick={() => void setReviewStatus(inc, "dismissed")}
                       >
                         <XCircle className="mr-1.5 h-4 w-4" /> Dismiss
@@ -192,7 +194,7 @@ export default function Incidents() {
           </section>
 
           {/* ---- Lane 2: confirmed incident log ---- */}
-          <section>
+          <section className="animate-fade-in-up" style={{ animationDelay: "80ms" }}>
             <h2 className="mb-2 flex items-center gap-2 font-display text-sm font-semibold">
               <ShieldCheck className="h-4 w-4 text-primary" /> Incident log
             </h2>
@@ -210,7 +212,7 @@ export default function Incidents() {
                   return (
                     <div
                       key={inc.id}
-                      className={`console-panel flex flex-col items-stretch gap-4 p-4 sm:flex-row sm:items-center ${severityStripeClass(inc.severity)} ${
+                      className={`console-panel hover-lift flex flex-col items-stretch gap-4 p-4 sm:flex-row sm:items-center ${severityStripeClass(inc.severity)} ${
                         inc.resolved ? "opacity-60" : ""
                       }`}
                     >
@@ -219,7 +221,7 @@ export default function Incidents() {
                       <Button
                         variant={inc.resolved ? "outline" : "secondary"}
                         size="sm"
-                        className="min-h-9 self-end rounded-lg sm:self-auto"
+                        className="pressable min-h-9 self-end rounded-lg sm:self-auto"
                         onClick={() => void toggleResolved(inc)}
                       >
                         <CheckCircle2 className="mr-1.5 h-4 w-4" />

@@ -141,8 +141,14 @@ export default function AuthPage() {
               <span className="brand-mark lg:hidden">
                 <ShieldCheck className="h-5 w-5 text-primary-foreground" />
               </span>
-              <h1 className="font-display text-3xl font-semibold text-foreground">
-                {isLogin ? "Welcome back" : "Create your account"}
+              <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">
+                {isLogin ? (
+                  <>
+                    Welcome <span className="text-gradient-brand">back</span>
+                  </>
+                ) : (
+                  "Create your account"
+                )}
               </h1>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -186,7 +192,11 @@ export default function AuthPage() {
                 minLength={6}
               />
             </div>
-            <Button type="submit" className="min-h-11 w-full rounded-xl" disabled={loading}>
+            <Button
+              type="submit"
+              className="btn-sheen pressable min-h-11 w-full rounded-xl"
+              disabled={loading}
+            >
               {loading ? "Loading..." : isLogin ? "Sign In" : "Create Account"}
             </Button>
           </form>

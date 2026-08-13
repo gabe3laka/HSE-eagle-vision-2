@@ -12,9 +12,10 @@ import type { AttachedMedia } from "./useMediaAttach";
  */
 
 /** Owned, non-archived threads, most-recent first, with optional title search. */
-export function useConversations(search = "") {
+export function useConversations(search = "", enabled = true) {
   const query = useQuery({
     queryKey: ["conversations"],
+    enabled,
     queryFn: async (): Promise<ConversationRow[]> => {
       const { data, error } = await db
         .from("conversations")

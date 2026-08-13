@@ -133,9 +133,18 @@
   --glass-border: 220 20% 60% / 0.25;
   --glass-shadow: 0 8px 32px rgba(15, 23, 42, 0.08);
 
-  /* Elevation. */
+  /* Elevation — three steps: raised (resting card) < float (hero/hover) < overlay.
+     Cards additionally carry a top "lit edge" hairline (see --edge-highlight). */
   --shadow-raised: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px -10px rgba(15, 23, 42, 0.12);
+  --shadow-float: 0 2px 4px rgba(15, 23, 42, 0.06), 0 16px 40px -12px rgba(15, 23, 42, 0.18);
   --shadow-overlay: 0 24px 60px -12px rgba(15, 23, 42, 0.18);
+  --edge-highlight: 0 0% 100% / 0.7;
+
+  /* Ambient atmosphere — faint teal wash breathing at the top of the canvas. */
+  --ambient-alpha: 0.05;
+
+  /* Brand gradient — teal → cyan, tuned darker in light for AA on white. */
+  --gradient-brand: linear-gradient(135deg, hsl(174 72% 30%) 0%, hsl(201 85% 36%) 100%);
 
   /* Motion — shared across themes. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -202,7 +211,13 @@
   --glass-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
 
   --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -10px rgba(0, 0, 0, 0.55);
+  --shadow-float: 0 2px 4px rgba(0, 0, 0, 0.4), 0 20px 48px -12px rgba(0, 0, 0, 0.65);
   --shadow-overlay: 0 24px 60px -12px rgba(0, 0, 0, 0.7);
+  --edge-highlight: 220 30% 90% / 0.05;
+
+  --ambient-alpha: 0.09;
+
+  --gradient-brand: linear-gradient(135deg, hsl(172 66% 50%) 0%, hsl(197 88% 58%) 100%);
 }
 
 @layer base {
@@ -216,6 +231,14 @@
   }
   body {
     background-color: hsl(var(--background));
+    /* Ambient atmosphere: a faint teal aurora at the top of the canvas. Pure
+       gradient (no filter blur) — costs nothing, kills the "flat void" feel. */
+    background-image: radial-gradient(
+      90rem 44rem at 50% -14rem,
+      hsl(var(--accent-teal) / var(--ambient-alpha)),
+      transparent 62%
+    );
+    background-repeat: no-repeat;
     color: hsl(var(--foreground));
     font-family: var(--font-sans);
     min-width: 320px;
@@ -287,15 +310,14 @@
 
 @layer components {
   /* ---- Shell ---------------------------------------------------------- */
-  .app-shell {
-    background: hsl(var(--background));
+  /* Transparent — the body paints the single ambient ground for the whole app. */
+  .app-shell,
+  .console-canvas {
+    background: transparent;
   }
   .app-sidebar {
     background: hsl(var(--sidebar-background));
     border-right: 1px solid hsl(var(--sidebar-border));
-  }
-  .console-canvas {
-    background: hsl(var(--background));
   }
   .brand-mark {
     display: flex;
@@ -305,9 +327,14 @@
     align-items: center;
     justify-content: center;
     border-radius: 0.6rem;
-    background: hsl(var(--primary));
+    background: var(--gradient-brand);
+    /* primary-foreground flips per theme: white on the darker light-mode
+       gradient, near-black ink on the brighter dark-mode gradient. */
     color: hsl(var(--primary-foreground));
-    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.2);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      0 0 0 1px hsl(var(--accent-teal) / 0.25),
+      0 4px 14px hsl(var(--accent-teal) / 0.3);
   }
   .nav-section-label,
   .console-eyebrow {
@@ -339,6 +366,7 @@
     width: 2px;
     border-radius: 999px;
     background: hsl(var(--primary));
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.55);
     content: "";
   }
   .sidebar-icon {
@@ -349,6 +377,14 @@
     justify-content: center;
     border-radius: 0.5rem;
     background: transparent;
+    transition:
+      background-color var(--dur-fast) var(--ease-standard),
+      color var(--dur-fast) var(--ease-standard);
+  }
+  /* Active nav icon lights up in the signal accent (pill-in-pill). */
+  .sidebar-link-active .sidebar-icon {
+    background: hsl(var(--primary) / 0.14);
+    color: hsl(var(--primary));
   }
   .mobile-topbar,
   .mobile-tabbar {
@@ -365,11 +401,15 @@
   }
 
   /* ---- Surfaces ------------------------------------------------------- */
+  /* Every resting card carries a top "lit edge" hairline + layered shadow —
+     the light falls from above (Apple/Linear depth model). */
   .console-panel {
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius-lg);
     background: hsl(var(--card));
-    box-shadow: var(--shadow-raised);
+    box-shadow:
+      inset 0 1px 0 hsl(var(--edge-highlight)),
+      var(--shadow-raised);
   }
   .console-section {
     border: 1px solid hsl(var(--border));
@@ -383,7 +423,18 @@
     border-radius: var(--radius-lg);
     padding: 1.25rem;
     background: hsl(var(--card));
-    box-shadow: var(--shadow-raised);
+    box-shadow:
+      inset 0 1px 0 hsl(var(--edge-highlight)),
+      var(--shadow-raised);
+  }
+  /* Faint brand tint bleeding from the hero's top edge. */
+  .page-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 5rem;
+    background: linear-gradient(180deg, hsl(var(--accent-teal) / 0.06), transparent);
+    pointer-events: none;
   }
   .metric-card {
     position: relative;
@@ -392,7 +443,54 @@
     border-radius: var(--radius-md);
     padding: 1rem;
     background: hsl(var(--card));
-    box-shadow: var(--shadow-raised);
+    box-shadow:
+      inset 0 1px 0 hsl(var(--edge-highlight)),
+      var(--shadow-raised);
+  }
+
+  /* ---- Front-door hero atmosphere ------------------------------------ */
+  /* Two soft aurora blobs drifting behind the hero. Pure gradients (no
+     filter blur) on one pseudo-element; transform-only animation. */
+  .mesh-hero {
+    position: relative;
+    isolation: isolate;
+  }
+  .mesh-hero::before {
+    content: "";
+    position: absolute;
+    inset: -30% -20%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(38% 42% at 30% 32%, hsl(var(--accent-teal) / 0.13), transparent 70%),
+      radial-gradient(34% 38% at 72% 60%, hsl(201 85% 45% / 0.09), transparent 70%);
+    animation: mesh-drift 26s var(--ease-standard) infinite alternate;
+  }
+
+  /* Display-scale greeting for the front door. */
+  .display-hero {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 5vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    font-weight: 650;
+  }
+
+  /* Concentric-ring halo behind empty-state / feature glyphs. */
+  .glyph-halo {
+    position: relative;
+    display: flex;
+    height: 3.25rem;
+    width: 3.25rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--secondary) / 0.6);
+    color: hsl(var(--muted-foreground));
+    box-shadow:
+      0 0 0 10px hsl(var(--secondary) / 0.35),
+      0 0 0 22px hsl(var(--secondary) / 0.15);
   }
 
   /* Conversational register — centered, airy single column. */
@@ -471,7 +569,41 @@
     border-radius: var(--radius-lg);
     padding: 0.85rem;
     background: hsl(var(--card));
-    box-shadow: var(--shadow-raised);
+    box-shadow:
+      inset 0 1px 0 hsl(var(--edge-highlight)),
+      var(--shadow-raised);
+  }
+  /* Mode-tinted top hairline — the command bar carries its mode's colour. */
+  .live-command-bar::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--mode-tint, hsl(var(--accent-teal) / 0.7)),
+      transparent
+    );
+    pointer-events: none;
+  }
+  .live-mode-cyan {
+    --mode-tint: hsl(190 90% 55% / 0.75);
+    --mode-ink: hsl(190 90% 60%);
+  }
+  .live-mode-mint {
+    --mode-tint: hsl(152 64% 50% / 0.75);
+    --mode-ink: hsl(152 64% 52%);
+  }
+  .live-mode-violet {
+    --mode-tint: hsl(258 82% 68% / 0.75);
+    --mode-ink: hsl(258 82% 72%);
+  }
+  /* The emblem carries the mode's ink + a soft matching halo. */
+  .live-command-bar .live-mode-emblem {
+    color: var(--mode-ink, hsl(var(--primary)));
+    border-color: color-mix(in srgb, var(--mode-ink, hsl(var(--primary))) 30%, transparent);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--mode-ink, hsl(var(--primary))) 22%, transparent);
   }
   .live-mode-emblem {
     display: flex;
@@ -569,6 +701,87 @@
   .font-display {
     font-family: var(--font-display);
   }
+
+  /* ---- Micro-interactions -------------------------------------------- */
+  /* Resting card that answers the cursor: 1px lift, deeper shadow, lit border. */
+  .hover-lift {
+    transition:
+      transform var(--dur-fast) var(--ease-standard),
+      box-shadow var(--dur-fast) var(--ease-standard),
+      border-color var(--dur-fast) var(--ease-standard),
+      background-color var(--dur-fast) var(--ease-standard);
+  }
+  @media (hover: hover) {
+    .hover-lift:hover {
+      transform: translateY(-1px);
+      border-color: hsl(var(--muted-foreground) / 0.35);
+      box-shadow:
+        inset 0 1px 0 hsl(var(--edge-highlight)),
+        var(--shadow-float);
+    }
+  }
+  /* Tactile press — pairs with hover-lift without fighting its transform. */
+  .pressable {
+    transition: transform var(--dur-fast) var(--ease-standard);
+  }
+  .pressable:active {
+    transform: scale(0.98);
+  }
+  .hover-lift.pressable:active {
+    transform: translateY(0) scale(0.98);
+  }
+  /* Hero-object focus: ring + soft brand glow (composer, key inputs). */
+  .focus-glow {
+    transition:
+      border-color var(--dur) var(--ease-standard),
+      box-shadow var(--dur) var(--ease-standard);
+  }
+  .focus-glow:focus-within {
+    border-color: hsl(var(--primary) / 0.55);
+    box-shadow:
+      inset 0 1px 0 hsl(var(--edge-highlight)),
+      0 0 0 3px hsl(var(--primary) / 0.14),
+      0 0 32px hsl(var(--accent-teal) / 0.16),
+      var(--shadow-float);
+  }
+  /* Entrance choreography: children cascade in 45ms beats. */
+  .stagger-children > * {
+    animation: fade-in-up var(--dur-slow) var(--ease-out) both;
+  }
+  .stagger-children > *:nth-child(1) {
+    animation-delay: 0ms;
+  }
+  .stagger-children > *:nth-child(2) {
+    animation-delay: 45ms;
+  }
+  .stagger-children > *:nth-child(3) {
+    animation-delay: 90ms;
+  }
+  .stagger-children > *:nth-child(4) {
+    animation-delay: 135ms;
+  }
+  .stagger-children > *:nth-child(5) {
+    animation-delay: 180ms;
+  }
+  .stagger-children > *:nth-child(6) {
+    animation-delay: 225ms;
+  }
+  .stagger-children > *:nth-child(n + 7) {
+    animation-delay: 270ms;
+  }
+
+  /* Brand gradient text — one word, not whole headlines. */
+  .text-gradient-brand {
+    background: var(--gradient-brand);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  /* Apple-style top sheen for key primary CTAs (apply selectively). */
+  .btn-sheen {
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 46%);
+  }
   .animate-fade-in-up {
     animation: fade-in-up var(--dur-slow) var(--ease-out) both;
   }
@@ -642,6 +855,14 @@
 @keyframes skeleton-shimmer {
   100% {
     transform: translateX(100%);
+  }
+}
+@keyframes mesh-drift {
+  from {
+    transform: translate3d(-2.5%, -1.5%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2.5%, 2%, 0) scale(1.06);
   }
 }
 
