@@ -39,3 +39,4 @@ dist-ssr
 # Playwright artifacts
 test-results/
 playwright-report/
+e2e/screenshots/

@@ -280,7 +280,7 @@ export function HomeComposer({
           <Button
             type="button"
             size="icon"
-            className="btn-sheen pressable h-9 w-9 rounded-full"
+            className="btn-sheen pressable h-11 w-11 rounded-full"
             aria-label={mode === "report" ? "Draft report" : `Open ${activeMode.label}`}
             disabled={busy || !canSend}
             onClick={() => void handleSend()}
