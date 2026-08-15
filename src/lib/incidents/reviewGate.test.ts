@@ -63,6 +63,9 @@ describe("review gate write-side invariants", () => {
     for (const rel of [
       "src/hooks/useDetectionSession.ts",
       "src/features/hse-monitoring/hooks/useHseMonitoring.ts",
+      // The HSE payload is actually BUILT here (mapHseAlertToIncidentRow) —
+      // guard the invariant where the row is constructed, not just inserted.
+      "src/features/hse-monitoring/lib/hseIncidents.ts",
     ]) {
       expect(read(rel)).not.toMatch(/review_status/);
     }
