@@ -53,14 +53,19 @@ demo build keep every debug flag at its committed default — in particular
 `VITE_SHARED_VISION_ENABLED=false`. The voice mic is intentionally disabled
 ("coming soon").
 
-**2. Reset demo data** (optional, destructive — read the header first):
+**2. Reset + seed demo data** (destructive reset — read the headers first).
+The cycle is **reset → seed → demo → reset**:
 
 ```sh
 psql "$DB_URL" -v owner_email='your-demo@account' -f scripts/clear-demo-data.sql
+psql "$DB_URL" -v owner_email='your-demo@account' -f scripts/seed-demo-data.sql
 ```
 
-Clears the demo account's incidents/detections/sessions/drafts/risks; org,
-profile, site maps and calibrations survive.
+Reset clears the demo account's incidents/detections/sessions/drafts/risks
+(org, profile, site maps and calibrations survive). Seed loads realistic GCC
+construction HSE content: 3 approved + 2 pending incidents (approve one live
+on stage), 3 assessed risks, 2 CAPA actions. Both scripts are idempotent and
+refuse to run without `-v owner_email`.
 
 **3. The 3-minute path**
 
