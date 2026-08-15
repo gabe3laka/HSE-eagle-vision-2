@@ -8,13 +8,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToastAction } from "@/components/ui/toast";
-import { SeverityBadge, severityStripeClass, SEVERITY_RANK } from "@/components/ui/severity";
-
-/** Highest severity first, then most recent — critical always rises to the top. */
-function bySeverityThenRecency(a: Incident, b: Incident): number {
-  const rank = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
-  return rank !== 0 ? rank : b.occurred_at > a.occurred_at ? 1 : -1;
-}
+import { SeverityBadge, severityStripeClass } from "@/components/ui/severity";
+import { splitByReviewStatus } from "@/lib/incidents/reviewGate";
 import { supabase } from "@/integrations/supabase/own-client";
 import { toast } from "@/hooks/use-toast";
 import type { IncidentReviewStatus } from "@/integrations/supabase/db";
@@ -76,13 +71,7 @@ export default function Incidents() {
   const { data: incidents, isLoading } = useIncidents();
   const queryClient = useQueryClient();
 
-  const { pending, approved } = useMemo(() => {
-    const list = incidents ?? [];
-    return {
-      pending: list.filter((i) => i.review_status === "pending").sort(bySeverityThenRecency),
-      approved: list.filter((i) => i.review_status === "approved").sort(bySeverityThenRecency),
-    };
-  }, [incidents]);
+  const { pending, approved } = useMemo(() => splitByReviewStatus(incidents ?? []), [incidents]);
 
   const setReviewStatus = async (inc: Incident, review_status: IncidentReviewStatus) => {
     const { error } = await supabase.from("incidents").update({ review_status }).eq("id", inc.id);
