@@ -342,7 +342,8 @@ export function RiskRegisterPanel({
 
       {risks.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
-          No risks yet. Add one from the incident suggestions above, or create a manual record.
+          No risks logged yet — approve an incident and use “Add risk”, use a suggestion above, or
+          create a manual record.
         </p>
       ) : (
         <div className="overflow-x-auto">

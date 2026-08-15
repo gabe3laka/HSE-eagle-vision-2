@@ -1,23 +1,88 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ClipboardCheck, ShieldCheck, XCircle } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, ClipboardPlus, ShieldCheck, XCircle } from "lucide-react";
 import { useIncidents, type Incident } from "@/hooks/useIncidents";
 import { HAZARDS } from "@/lib/detection/hazardCatalog";
 import { hazardIcon } from "@/components/live/hazardIcons";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToastAction } from "@/components/ui/toast";
-import { SeverityBadge, severityStripeClass, SEVERITY_RANK } from "@/components/ui/severity";
-
-/** Highest severity first, then most recent — critical always rises to the top. */
-function bySeverityThenRecency(a: Incident, b: Incident): number {
-  const rank = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
-  return rank !== 0 ? rank : b.occurred_at > a.occurred_at ? 1 : -1;
-}
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { SeverityBadge, severityStripeClass } from "@/components/ui/severity";
+import { splitByReviewStatus } from "@/lib/incidents/reviewGate";
+import { draftRiskFromIncident } from "@/features/report-composer/lib/reasoningClient";
+import { useCreateRisk } from "@/features/safety/hooks/useSafety";
 import { supabase } from "@/integrations/supabase/own-client";
 import { toast } from "@/hooks/use-toast";
 import type { IncidentReviewStatus } from "@/integrations/supabase/db";
+
+/** Confirm dialog for "Add to risk register": the risk entry is pre-filled from
+ *  the approved incident (via the reasoning seam) and stays fully editable —
+ *  nothing lands in the register without the human pressing Add. */
+function AddToRiskDialog({ incident, onClose }: { incident: Incident; onClose: () => void }) {
+  const createRisk = useCreateRisk();
+  const draft = useMemo(() => draftRiskFromIncident(incident), [incident]);
+  const [title, setTitle] = useState(draft.title ?? "");
+  const [description, setDescription] = useState(draft.description ?? "");
+
+  const submit = async () => {
+    try {
+      await createRisk.mutateAsync({ ...draft, title, description });
+      toast({ title: "Added to risk register", description: title });
+      onClose();
+    } catch (e) {
+      toast({
+        title: "Couldn't add risk",
+        description: e instanceof Error ? e.message : "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add to risk register</DialogTitle>
+          <DialogDescription>
+            Pre-filled from the approved incident — edit anything, then confirm. Initial score:
+            likelihood {draft.likelihood} × severity {draft.severity}.
+          </DialogDescription>
+        </DialogHeader>
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">Title</span>
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">Description</span>
+          <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
+        </label>
+        <DialogFooter>
+          <Button variant="ghost" className="pressable" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            className="btn-sheen pressable"
+            disabled={createRisk.isPending || !title.trim()}
+            onClick={() => void submit()}
+          >
+            <ClipboardPlus className="mr-1.5 h-4 w-4" /> Add risk
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /** Compact calendar-style stamp showing the day an incident occurred. */
 function IncidentDate({ at }: { at: string }) {
@@ -75,14 +140,9 @@ function IncidentBody({ inc }: { inc: Incident }) {
 export default function Incidents() {
   const { data: incidents, isLoading } = useIncidents();
   const queryClient = useQueryClient();
+  const [riskFor, setRiskFor] = useState<Incident | null>(null);
 
-  const { pending, approved } = useMemo(() => {
-    const list = incidents ?? [];
-    return {
-      pending: list.filter((i) => i.review_status === "pending").sort(bySeverityThenRecency),
-      approved: list.filter((i) => i.review_status === "approved").sort(bySeverityThenRecency),
-    };
-  }, [incidents]);
+  const { pending, approved } = useMemo(() => splitByReviewStatus(incidents ?? []), [incidents]);
 
   const setReviewStatus = async (inc: Incident, review_status: IncidentReviewStatus) => {
     const { error } = await supabase.from("incidents").update({ review_status }).eq("id", inc.id);
@@ -218,15 +278,25 @@ export default function Incidents() {
                     >
                       <IncidentDate at={inc.occurred_at} />
                       <IncidentBody inc={inc} />
-                      <Button
-                        variant={inc.resolved ? "outline" : "secondary"}
-                        size="sm"
-                        className="pressable min-h-9 self-end rounded-lg sm:self-auto"
-                        onClick={() => void toggleResolved(inc)}
-                      >
-                        <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                        {inc.resolved ? "Resolved" : "Resolve"}
-                      </Button>
+                      <div className="flex gap-2 self-end sm:flex-col sm:self-auto">
+                        <Button
+                          variant={inc.resolved ? "outline" : "secondary"}
+                          size="sm"
+                          className="pressable min-h-9 rounded-lg"
+                          onClick={() => void toggleResolved(inc)}
+                        >
+                          <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                          {inc.resolved ? "Resolved" : "Resolve"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="pressable min-h-9 rounded-lg text-muted-foreground hover:text-foreground"
+                          onClick={() => setRiskFor(inc)}
+                        >
+                          <ClipboardPlus className="mr-1.5 h-4 w-4" /> Add risk
+                        </Button>
+                      </div>
                     </div>
                   );
                 })}
@@ -235,6 +305,8 @@ export default function Incidents() {
           </section>
         </>
       )}
+
+      {riskFor && <AddToRiskDialog incident={riskFor} onClose={() => setRiskFor(null)} />}
     </div>
   );
 }

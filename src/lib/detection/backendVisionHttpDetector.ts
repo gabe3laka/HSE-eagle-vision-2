@@ -394,6 +394,7 @@ function freshStatus(state: BackendStatus["state"]): BackendStatus {
     entityCount: 0,
     poseCount: 0,
     error: null,
+    consecutiveFailures: 0,
     videoWidth: 0,
     videoHeight: 0,
     lastB64Bytes: 0,
@@ -671,6 +672,7 @@ export class BackendVisionHttpDetector implements Detector {
         this.lastPoses = [];
         this.status.state = "error";
         this.status.error = e instanceof Error ? e.message : String(e);
+        this.status.consecutiveFailures = (this.status.consecutiveFailures ?? 0) + 1;
         this.status.lastLatencyMs = performance.now() - t0;
         this.retryAfterMs = performance.now() + TRANSIENT_BACKOFF_MS;
         return;
@@ -698,6 +700,7 @@ export class BackendVisionHttpDetector implements Detector {
         this.lastEntities = [];
         this.lastPoses = [];
         this.status.error = `http_${res.status}`;
+        this.status.consecutiveFailures = (this.status.consecutiveFailures ?? 0) + 1;
         this.status.lastRawResponse = (await safeText(res)).slice(0, 1500);
         return;
       }
@@ -720,6 +723,7 @@ export class BackendVisionHttpDetector implements Detector {
         const loading = resp.error === "model_not_ready" || resp.error === "runpod_queued";
         this.status.state = loading ? "loading" : "error";
         this.status.error = resp.error;
+        this.status.consecutiveFailures = (this.status.consecutiveFailures ?? 0) + 1;
         this.status.model = resp.model ?? this.status.model;
         this.status.detModelId = resp.det_model_id ?? this.status.detModelId ?? null;
         return;
@@ -747,6 +751,7 @@ export class BackendVisionHttpDetector implements Detector {
       this.status.lastInferenceMs =
         typeof resp.inference_ms === "number" ? resp.inference_ms : null;
       this.status.lastSuccessAt = Date.now();
+      this.status.consecutiveFailures = 0; // healthy again
       this.retryAfterMs = 0; // clear any transient backoff on success
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -755,6 +760,7 @@ export class BackendVisionHttpDetector implements Detector {
       this.lastPoses = [];
       this.status.state = "error";
       this.status.error = msg;
+      this.status.consecutiveFailures = (this.status.consecutiveFailures ?? 0) + 1;
     } finally {
       this.inFlight = false;
     }
