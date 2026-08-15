@@ -1481,6 +1481,23 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
         }
       />
 
+      {/* Worker-down resilience: after 3 consecutive /detect failures show a
+          clear, NON-blocking banner. The camera view keeps rendering and the
+          detector keeps retrying with its existing backoff — this is purely
+          informational and disappears on the next successful response. */}
+      {running && ((backendStatus as BackendStatus | null)?.consecutiveFailures ?? 0) >= 3 && (
+        <div
+          role="status"
+          className="animate-fade-in flex items-center gap-2.5 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-warning"
+        >
+          <span className="relative flex h-2 w-2" aria-hidden>
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-warning" />
+          </span>
+          Vision service reconnecting… camera stays live; detections resume automatically.
+        </div>
+      )}
+
       <div
         className={
           planConsoleActive

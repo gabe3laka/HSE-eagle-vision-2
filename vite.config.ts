@@ -20,5 +20,11 @@ export default defineConfig({
     define: {
       __BUILD_TIME__: JSON.stringify(BUILD_TIME),
     },
+    // Vitest reads this at runtime; the wrapper's UserConfig type just doesn't
+    // declare the key, hence the cast. Playwright smoke specs live in e2e/ and
+    // run via `npm run test:e2e` — they are not vitest tests.
+    ...({
+      test: { exclude: ["**/node_modules/**", "**/dist/**", "e2e/**"] },
+    } as object),
   },
 });

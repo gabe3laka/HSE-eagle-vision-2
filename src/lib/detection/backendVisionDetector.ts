@@ -89,6 +89,10 @@ export interface BackendStatus {
   entityCount: number;
   poseCount: number;
   error: string | null;
+  /** Consecutive failed /detect submits since the last success (0 when
+   *  healthy). Lets the UI show a non-blocking "vision reconnecting" banner
+   *  while the camera keeps running. Optional + additive. */
+  consecutiveFailures?: number;
   // YOLO26-era optional metadata. All default null and never break old responses.
   segmentCount?: number | null; // count of returned segments (seg task)
   fallbackUsed?: boolean | null; // worker fell back off the default backend
