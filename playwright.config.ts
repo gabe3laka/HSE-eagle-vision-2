@@ -22,7 +22,21 @@ export default defineConfig({
       ? { executablePath: process.env.E2E_CHROMIUM_PATH }
       : {},
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    // Mobile viewports for the on-stage phone demo. Chromium engine is forced
+    // (the iPhone preset defaults to WebKit, which isn't provisioned in the
+    // sandbox) — viewport/UA/touch still match the devices. Real iOS Safari
+    // still needs a hands-on rehearsal.
+    {
+      name: "iphone-14-pro",
+      use: { ...devices["iPhone 14 Pro"], browserName: "chromium" },
+    },
+    {
+      name: "pixel-7",
+      use: { ...devices["Pixel 7"], browserName: "chromium" },
+    },
+  ],
   webServer: {
     command: "npx vite dev --host 127.0.0.1 --port 8080",
     url: "http://127.0.0.1:8080",

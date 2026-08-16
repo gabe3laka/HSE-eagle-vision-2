@@ -43,47 +43,94 @@ same version the ledger records.
 
 ## Demo runbook
 
-One page to run a clean 3-minute demo.
+Follow top-to-bottom under pressure. Total stage time: ~3 minutes.
 
-**1. Environment** — copy `.env.example` → `.env`; the only values you must
-fill are the Supabase publics (`VITE_SUPABASE_URL`,
-`VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID`). For a clean
-demo build keep every debug flag at its committed default — in particular
-`VITE_HIVE_DEBUG=false`, `VITE_RISK_DEBUG_PANEL=false`,
-`VITE_SHARED_VISION_ENABLED=false`. The voice mic is intentionally disabled
-("coming soon").
+### 1 · Environment (once, before demo day)
 
-**2. Reset demo data** (optional, destructive — read the header first):
+```sh
+cp .env.example .env    # then fill ONLY the Supabase publics:
+# VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY / VITE_SUPABASE_PROJECT_ID
+```
+
+Keep every debug flag at its committed default — the file already pins the
+important ones: `VITE_HIVE_DEBUG=false`, `VITE_RISK_DEBUG_PANEL=false`,
+`VITE_SHARED_VISION_ENABLED=false`. Do not enable anything "just to check"
+on demo day.
+
+### 2 · Data: reset → seed → demo → reset
+
+Both scripts are idempotent, transaction-wrapped, and refuse to run without
+`-v owner_email`. Reset is destructive for that account's operational rows —
+read the header first.
 
 ```sh
 psql "$DB_URL" -v owner_email='your-demo@account' -f scripts/clear-demo-data.sql
+psql "$DB_URL" -v owner_email='your-demo@account' -f scripts/seed-demo-data.sql
 ```
 
-Clears the demo account's incidents/detections/sessions/drafts/risks; org,
-profile, site maps and calibrations survive.
+Seed gives you: 3 approved incidents (log + Safety populated), **2 pending
+incidents to approve live on stage**, 3 assessed risks, 2 CAPA actions.
 
-**3. The 3-minute path**
-
-1. **Home** (`/`) — signed out: hero + composer. Type a hazard ("forklift
-   nearly hit a worker in the loading bay"), send → sign in → the agent
-   drafts.
-2. **Review** (`/report/:id`) — edit anything, **Approve & file**. Nothing is
-   ever filed without this human step.
-3. **Incidents** — the filed report sits in the log; live-detection items wait
-   in **Pending approval** (Approve / Dismiss with undo).
-4. **Add risk** on an approved incident → confirm the pre-filled entry →
-   **Safety** tab shows it in the Risk register (approved incidents only feed
-   Safety).
-5. **Live** — Start monitoring: real-time detection with risk overlays. If the
-   vision worker is unreachable, a non-blocking "Vision service reconnecting…"
-   banner appears and the camera stays live.
-
-**4. Smoke tests** (Playwright, not in CI):
+### 3 · Serve
 
 ```sh
-npm run test:e2e                                  # (a) landing/composer — no creds needed
-E2E_EMAIL=… E2E_PASSWORD=… npm run test:e2e       # + (b) report flow, (c) approve flow
+bun dev                        # dev server (hot reload)
+bun run build && npx vite preview   # production build — closer to real perf
 ```
 
-Sandboxed environments with a pre-provisioned Chromium: add
-`E2E_CHROMIUM_PATH=/path/to/chromium`.
+### 4 · The 3-minute path (with talk track)
+
+1. **Home `/`** — *"Any worker reports a hazard the way they'd text a
+   friend."* Type: `Forklift nearly hit a worker in the loading bay` — add a
+   photo with **+** if you have one. Tap send (the round arrow). **The mic is
+   "coming soon" — do not tap it.**
+2. **AI draft → Review `/report/:id`** — *"The agent structures it: hazard
+   type, severity, corrective action. Nothing files itself — a human approves
+   every record."* Tweak one field to show it's editable → **Approve & file**.
+3. **Incidents** — *"Live camera detections queue here the same way."* Your
+   filed report is in the log; two seeded detections sit in **Pending
+   approval** — approve the forklift one live. (Dismiss has an Undo.)
+4. **Add risk** on an approved incident — *"One tap turns an incident into a
+   managed risk."* Confirm the pre-filled entry.
+5. **Safety** — *"Approved incidents aggregate into ISO-45001-style risk
+   management: register, controls, CAPA."* Show the register row you just
+   created + the seeded CAPA board.
+6. **Live** — *"And this is the eye: real-time hazard detection with risk
+   levels."* Start monitoring, point at the room, show boxes + risk colors.
+
+### 5 · If it breaks
+
+- **"Vision service reconnecting…" banner in Live** — expected when the
+  worker is cold/down. The camera stays on and detection auto-resumes; say
+  *"the vision service is warming up"* and keep talking. Do not restart.
+- **AI draft comes back plain/empty** — the deterministic fallback kicked in
+  (DeepSeek timeout). The review screen still opens; edit it manually and
+  continue — the human-approval story is the point anyway.
+- **Wi-Fi drops** — the app shell keeps rendering; already-loaded tabs
+  (Incidents/Safety with seeded data) still show. Switch to phone hotspot,
+  refresh once.
+- **Cold start feels slow** — first load pulls fonts + models. Pre-warm: open
+  the app and start Live once, 10 minutes before you're on.
+
+### 6 · Pre-demo checklist (copy me)
+
+```
+[ ] .env filled, debug flags at defaults (nothing enabled ad hoc)
+[ ] reset + seed run against the demo account (2 pending incidents visible)
+[ ] signed IN on the demo device; session tested after phone lock/unlock
+[ ] camera permission already granted to the browser on the demo phone
+[ ] Live started once today (worker warm, banner gone)
+[ ] phone: do-not-disturb ON, brightness max, rotation locked
+[ ] backup: laptop signed in with the same account, same seeded data
+[ ] rehearsed the 3-minute path end-to-end on THIS device today
+```
+
+### 7 · Smoke tests (Playwright, not in CI)
+
+```sh
+bun run test:e2e                                   # landing + mobile ergonomics — no creds
+E2E_EMAIL=… E2E_PASSWORD=… bun run test:e2e        # + report flow + approve flow
+```
+
+Projects: desktop Chrome, iPhone 14 Pro, Pixel 7 viewports. Sandboxes with a
+pre-provisioned Chromium: add `E2E_CHROMIUM_PATH=/path/to/chromium`.

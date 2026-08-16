@@ -8,8 +8,13 @@ import type {
 } from "@/integrations/supabase/db";
 
 export function useAllOrganizations() {
+  const { user } = useAuth();
   return useQuery<OrganizationRow[]>({
     queryKey: ["organizations"],
+    // Same gate as useMyMemberships below: signed-out visitors have no org UI
+    // anywhere (OrgContext consumers all render behind auth), so don't fire a
+    // wasted request on the public landing.
+    enabled: !!user?.id,
     queryFn: async () => {
       const { data, error } = await db.from("organizations").select("*").order("name");
       if (error) throw error;
