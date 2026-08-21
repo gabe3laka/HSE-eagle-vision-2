@@ -48,7 +48,11 @@ const PLACEHOLDERS = [
 ];
 
 /** One-tap starters for an empty composer — they only prefill the text. */
-const SUGGESTIONS = ["Near-miss with a forklift", "Blocked fire exit", "Crew member missing PPE"];
+const SUGGESTIONS = [
+  "Near-miss with a forklift",
+  "Blocked fire exit",
+  "What PPE is required for hot works?",
+];
 
 /**
  * The Lovable-style single input surface: multiline text, a photo attach, a
@@ -140,35 +144,67 @@ export function HomeComposer({
       }
     }
 
-    const id = await submit({ text: trimmed, media, conversationId: convId });
-    if (!id) {
+    const result = await submit({ text: trimmed, media, conversationId: convId });
+
+    if (result.type === "failed") {
       toast({
-        title: "Couldn't start the draft",
+        title: "Couldn't process that",
         description: "Please try again.",
         variant: "destructive",
       });
       return;
     }
 
-    // Link the assistant turn to the draft and bump the thread's recency/title.
+    if (result.type === "limit") {
+      // Server-side credit gate (authoritative) — mirror the client-side gate.
+      toast({
+        title: "You've used your free drafts",
+        description: "Create an account to keep going — your conversations are saved.",
+      });
+      onRequireAuth?.();
+      return;
+    }
+
+    void refreshProfile(); // server decremented credits — refresh the counter
+
+    if (result.type === "answer") {
+      // A question, not a report: reply lands in the thread, nothing to review.
+      if (convId) {
+        try {
+          await addMessage({ conversationId: convId, role: "assistant", content: result.answer });
+          await touchConversation(convId, trimmed.slice(0, 60) || undefined);
+        } catch {
+          /* history is non-critical */
+        }
+        queryClient.invalidateQueries({ queryKey: ["messages", convId] });
+        queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      } else {
+        // No thread to show it in (history write failed earlier) — toast it.
+        toast({ title: "Answer", description: result.answer.slice(0, 280) });
+      }
+      setText("");
+      return;
+    }
+
+    // Report drafted → link the assistant turn and open human review.
     if (convId) {
       try {
         await addMessage({
           conversationId: convId,
           role: "assistant",
           content: "Drafted a safety report for review.",
-          reportDraftId: id,
+          reportDraftId: result.id,
         });
         await touchConversation(convId, trimmed.slice(0, 60) || undefined);
       } catch {
         /* non-critical */
       }
+      queryClient.invalidateQueries({ queryKey: ["messages", convId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     }
 
-    void refreshProfile(); // server decremented credits — refresh the counter
     setText("");
-    navigate({ to: "/report/$id", params: { id } });
+    navigate({ to: "/report/$id", params: { id: result.id } });
   };
 
   return (
@@ -296,7 +332,7 @@ export function HomeComposer({
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
             </span>
-            Agent is drafting your report…
+            Agent is working…
           </div>
         )}
       </div>

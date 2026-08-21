@@ -10,6 +10,7 @@ import { hazardIcon } from "@/components/live/hazardIcons";
 import { SeverityBadge, severityStripeClass, SEVERITY_RANK } from "@/components/ui/severity";
 import { HomeComposer } from "@/features/report-composer/HomeComposer";
 import { ConversationHistory } from "@/features/report-composer/ConversationHistory";
+import { ConversationThread } from "@/features/report-composer/ConversationThread";
 import { RecentDrafts } from "@/features/report-composer/RecentDrafts";
 
 /* ------------------------------------------------------------------ */
@@ -132,6 +133,8 @@ function AuthedHome() {
           Nothing is filed automatically — every report is yours to review, edit, and approve.
         </p>
 
+        <ConversationThread conversationId={activeConversationId} />
+
         <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
           <ConversationHistory
             activeConversationId={activeConversationId}
@@ -229,6 +232,8 @@ function PublicHome() {
             ? `${credits} free draft${credits === 1 ? "" : "s"} left · your conversations are saved — create an account to keep them and unlock live monitoring.`
             : "Describe a hazard to draft a report — no sign-in needed to start. Live monitoring needs an account."}
         </p>
+
+        <ConversationThread conversationId={activeConversationId} />
 
         <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
           <ConversationHistory

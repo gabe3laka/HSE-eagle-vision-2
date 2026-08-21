@@ -115,7 +115,7 @@ describe("consecutive /detect failure streak", () => {
 });
 
 describe("composer drafting degradation", () => {
-  it("draftReport returns null on invoke failure (review opens editable)", async () => {
+  it("composerRespond returns kind 'error' on invoke failure (review opens editable)", async () => {
     vi.doMock("@/integrations/supabase/own-client", () => ({
       supabase: {
         functions: {
@@ -125,8 +125,10 @@ describe("composer drafting degradation", () => {
         },
       },
     }));
-    const { draftReport } = await import("../features/report-composer/lib/reasoningClient");
-    await expect(draftReport({ text: "near miss", media: [] })).resolves.toBeNull();
+    const { composerRespond } = await import("../features/report-composer/lib/reasoningClient");
+    await expect(composerRespond({ text: "near miss", media: [] })).resolves.toEqual({
+      kind: "error",
+    });
     vi.doUnmock("@/integrations/supabase/own-client");
   });
 });

@@ -204,6 +204,21 @@ export default function ReportDraftReview({ id }: { id: string }) {
         </p>
       </div>
 
+      {/* The AI's own uncertainty, surfaced instead of ignored: a low-confidence
+          classification is the reviewer's cue to look twice — or discard. */}
+      {form.source === "deepseek" && form.confidence < 0.4 && (
+        <div
+          role="note"
+          className="animate-fade-in flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning"
+        >
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>
+            <b className="font-semibold">Low confidence ({confidencePct}%).</b> This note may not
+            describe a real incident — review carefully, or discard it.
+          </span>
+        </div>
+      )}
+
       {media.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {media.map((m, i) => (
