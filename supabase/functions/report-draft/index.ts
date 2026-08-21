@@ -125,6 +125,26 @@ const CORRECTIVE: Record<HazardType, string> = {
   fall_risk: "Provide edge protection / guardrails or a suitable fall-arrest system and inspect access equipment.",
 };
 
+/** Heuristic: does the note read like a general question rather than a report
+ *  of something that happened? Used ONLY on the deterministic fallback path —
+ *  when DeepSeek is reachable, the model classifies intent itself. */
+function isQuestionLike(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (!t) return false;
+  const incident =
+    /\b(happened|happening|almost|nearly|injured|injury|hurt|hit|fell|falling|blocked|missing|spill|collision|crash|accident|near[ -]miss|unattended|obstructed)\b/;
+  if (incident.test(t)) return false;
+  if (t.endsWith("?")) return true;
+  return /^(what|how|why|when|where|who|which|can|could|should|would|is|are|do|does|did|explain|tell me|define)\b/.test(
+    t,
+  );
+}
+
+const FALLBACK_ANSWER =
+  "I can't reach the assistant to answer questions right now — try again in a " +
+  "moment. Or describe a specific hazard or incident and I'll draft the safety " +
+  "report for you.";
+
 /** Deterministic draft from the raw text — the always-available fallback. */
 function rulesDraft(text: string, mediaCount: number): Draft {
   const { hazard_type, severity, report_type } = ruleClassify(text);
@@ -166,8 +186,11 @@ function coerceDraft(raw: unknown, text: string, mediaCount: number): Draft {
 }
 
 const SYSTEM_PROMPT = `You are a workplace HSE (health, safety & environment) assistant.
-Turn the reporter's note into ONE structured safety report draft as strict JSON.
-Return ONLY a JSON object with these fields:
+FIRST decide the reporter's intent, then return ONLY ONE strict JSON object.
+
+If the note DESCRIBES something that happened, was observed, or is a specific
+hazard on site (an incident, near-miss, unsafe condition) — intent "report":
+- intent: "report"
 - report_type: one of ["near_miss","hazard","incident"]
 - hazard_type: one of ["unsafe_lift","ppe_missing","person_proximity","restricted_zone","blocked_exit","forklift_proximity","fall_risk"]
 - severity: one of ["low","medium","high","critical"]
@@ -176,7 +199,16 @@ Return ONLY a JSON object with these fields:
 - probable_cause: brief likely cause
 - corrective_action: a concrete corrective action
 - confidence: 0..1 number for how well the note maps to the chosen category
-Be conservative; if unsure choose the closest category and a lower confidence. Do not invent facts not implied by the note.`;
+
+If the note is a QUESTION or general request for information (a definition,
+a how-to, a policy query — nothing specific being reported) — intent "question":
+- intent: "question"
+- answer: a concise, practical workplace-safety answer (<= 200 words). Stay in
+  HSE scope; if the question is outside workplace safety, say so briefly and
+  steer back.
+
+Be conservative; when a note genuinely reports something, prefer "report" with
+lower confidence over "question". Do not invent facts not implied by the note.`;
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -216,9 +248,17 @@ serve(async (req: Request) => {
   const apiKey = Deno.env.get("DEEPSEEK_API_KEY");
   const backend = Deno.env.get("REPORT_DRAFT_BACKEND") ?? "deepseek";
 
-  // No key / disabled → deterministic rules draft (loop still works).
+  // Deterministic fallback used whenever DeepSeek is absent/unreachable:
+  // question-shaped notes get an honest "can't answer right now" instead of a
+  // fabricated report; everything else keeps the rules draft (loop still works).
+  const fallback = () =>
+    isQuestionLike(text)
+      ? json({ status: "ok", kind: "answer", answer: FALLBACK_ANSWER, draft: null }, 200)
+      : json({ status: "ok", kind: "report", draft: rulesDraft(text, mediaCount) }, 200);
+
+  // No key / disabled → deterministic fallback.
   if (!apiKey || backend !== "deepseek" || !text) {
-    return json({ status: "ok", draft: rulesDraft(text, mediaCount) }, 200);
+    return fallback();
   }
 
   const baseUrl = (Deno.env.get("DEEPSEEK_BASE_URL") ?? "https://api.deepseek.com").replace(/\/+$/, "");
@@ -253,7 +293,7 @@ serve(async (req: Request) => {
       body: JSON.stringify(reqBody),
     });
     if (!res.ok) {
-      return json({ status: "ok", draft: rulesDraft(text, mediaCount) }, 200);
+      return fallback();
     }
     const data = (await res.json()) as Dict;
     const content = str((((data?.choices as Dict[]) ?? [])[0]?.message as Dict)?.content);
@@ -263,9 +303,17 @@ serve(async (req: Request) => {
     } catch {
       parsed = null;
     }
-    return json({ status: "ok", draft: coerceDraft(parsed, text, mediaCount) }, 200);
+    // Intent routing: a classified question returns a direct answer; anything
+    // else (report, missing/unknown intent, malformed) stays on the report
+    // path so the human-review flow can never be lost to a bad classification.
+    const intent = parsed && typeof parsed === "object" ? str((parsed as Dict).intent) : "";
+    const answer = parsed && typeof parsed === "object" ? str((parsed as Dict).answer).trim() : "";
+    if (intent === "question" && answer) {
+      return json({ status: "ok", kind: "answer", answer, draft: null }, 200);
+    }
+    return json({ status: "ok", kind: "report", draft: coerceDraft(parsed, text, mediaCount) }, 200);
   } catch {
-    return json({ status: "ok", draft: rulesDraft(text, mediaCount) }, 200);
+    return fallback();
   } finally {
     clearTimeout(timer);
   }

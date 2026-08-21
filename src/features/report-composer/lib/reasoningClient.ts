@@ -6,29 +6,51 @@ import type { AttachedMedia } from "../hooks/useMediaAttach";
 import type { ReportDraftPayload } from "../types";
 
 /**
- * THE reasoning seam for report drafting.
+ * THE reasoning seam for the Home composer.
  *
  * Today this calls the app's own reasoning — the `report-draft` Supabase Edge
- * Function (DeepSeek with a deterministic rules fallback). When the worker
- * repo's agentic endpoint is ready, swap the implementation of this ONE
- * function; every call site stays unchanged.
+ * Function (DeepSeek with a deterministic fallback). When the worker repo's
+ * agentic endpoint is ready, swap the implementation of this ONE function;
+ * every call site stays unchanged.
  *
- * Contract: never throws with a useful failure — returns null on any error so
- * callers degrade gracefully (the review screen opens with a fillable draft).
- * This lane is async and human-reviewed; it can never block live monitoring.
+ * The backend classifies intent: a note that REPORTS something yields a
+ * structured draft ("report"); a general question yields a direct HSE answer
+ * ("answer") and must NOT become a report_drafts row. "limit" = an anonymous
+ * guest is out of free credits. "error" = the seam itself failed — callers
+ * preserve the honest degradation (persist the note, open manual review).
+ *
+ * Contract: NEVER throws. This lane is async and human-reviewed; it can never
+ * block live monitoring.
  */
-export async function draftReport(input: {
+export type ComposerResponse =
+  | { kind: "report"; draft: ReportDraftPayload }
+  | { kind: "answer"; answer: string }
+  | { kind: "limit" }
+  | { kind: "error" };
+
+export async function composerRespond(input: {
   text: string;
   transcript?: string | null;
   media: AttachedMedia[];
-}): Promise<ReportDraftPayload | null> {
+}): Promise<ComposerResponse> {
   try {
     const { data } = await supabase.functions.invoke("report-draft", {
       body: { text: input.text, transcript: input.transcript ?? null, media: input.media },
     });
-    return (data as { draft?: ReportDraftPayload } | null)?.draft ?? null;
+    const d = data as {
+      status?: string;
+      kind?: string;
+      answer?: string;
+      draft?: ReportDraftPayload | null;
+    } | null;
+    if (d?.status === "limit") return { kind: "limit" };
+    if (d?.kind === "answer" && typeof d.answer === "string" && d.answer.trim()) {
+      return { kind: "answer", answer: d.answer };
+    }
+    if (d?.draft) return { kind: "report", draft: d.draft };
+    return { kind: "error" };
   } catch {
-    return null;
+    return { kind: "error" };
   }
 }
 

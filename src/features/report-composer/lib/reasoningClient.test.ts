@@ -1,6 +1,53 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { draftRiskFromIncident } from "./reasoningClient";
 import type { IncidentRow } from "@/integrations/supabase/db";
+
+/** composerRespond mapping: the frontend's whole intent routing rides on this
+ *  translation of the edge-function payload, so pin every branch. */
+describe("composerRespond — response mapping", () => {
+  async function withInvoke(payload: unknown) {
+    // Reset FIRST: the suite's static import already cached the real module;
+    // the mock only takes effect on a fresh import.
+    vi.resetModules();
+    vi.doMock("@/integrations/supabase/own-client", () => ({
+      supabase: { functions: { invoke: async () => ({ data: payload, error: null }) } },
+    }));
+    const { composerRespond } = await import("./reasoningClient");
+    const res = await composerRespond({ text: "x", media: [] });
+    vi.doUnmock("@/integrations/supabase/own-client");
+    return res;
+  }
+
+  it("maps kind 'report' with a draft to a report", async () => {
+    const draft = { title: "t", severity: "low" };
+    await expect(withInvoke({ status: "ok", kind: "report", draft })).resolves.toEqual({
+      kind: "report",
+      draft,
+    });
+  });
+
+  it("maps kind 'answer' to an answer and never a report", async () => {
+    await expect(
+      withInvoke({ status: "ok", kind: "answer", answer: "A risk assessment is…", draft: null }),
+    ).resolves.toEqual({ kind: "answer", answer: "A risk assessment is…" });
+  });
+
+  it("maps status 'limit' to limit (guest out of credits — no empty review)", async () => {
+    await expect(withInvoke({ status: "limit", draft: null })).resolves.toEqual({ kind: "limit" });
+  });
+
+  it("stays backward compatible: legacy payload without kind still yields a report", async () => {
+    const draft = { title: "legacy" };
+    await expect(withInvoke({ status: "ok", draft })).resolves.toEqual({ kind: "report", draft });
+  });
+
+  it("maps empty/garbage payloads to error (caller persists the note manually)", async () => {
+    await expect(withInvoke(null)).resolves.toEqual({ kind: "error" });
+    await expect(withInvoke({ status: "ok", kind: "answer", answer: "  " })).resolves.toEqual({
+      kind: "error",
+    });
+  });
+});
 
 function incident(over: Partial<IncidentRow> = {}) {
   return {
