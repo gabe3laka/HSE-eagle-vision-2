@@ -1,16 +1,15 @@
 import { useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { MessageSquare, Plus, Search, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { useConversations, latestDraftIdForConversation } from "./hooks/useConversations";
+import { useConversations } from "./hooks/useConversations";
 
 /**
  * Quiet conversation history for the Home surface (ChatGPT-like). Lists the
  * owner's threads (guest or signed-in — RLS scopes them), with title search and
- * a "New" action. Selecting a thread continues it by reopening its most recent
- * report draft (/report/:id) — reusing the existing review screen, not a new page.
+ * a "New" action. Selecting a thread shows it inline (ConversationThread);
+ * report drafts are linked from their assistant turns inside the thread.
  */
 export function ConversationHistory({
   activeConversationId,
@@ -21,24 +20,16 @@ export function ConversationHistory({
   onSelect: (id: string) => void;
   onNew: () => void;
 }) {
-  const navigate = useNavigate();
   const { user } = useAuth();
   const [search, setSearch] = useState("");
   const { conversations, isLoading } = useConversations(search, !!user);
-  const [opening, setOpening] = useState<string | null>(null);
 
   // No session yet (visitor who hasn't sent anything) → no history to show;
   // the section appears once their first send starts a guest session.
   if (!user) return null;
   if (!isLoading && conversations.length === 0 && !search) return null;
 
-  const open = async (id: string) => {
-    onSelect(id);
-    setOpening(id);
-    const draftId = await latestDraftIdForConversation(id);
-    setOpening(null);
-    if (draftId) navigate({ to: "/report/$id", params: { id: draftId } });
-  };
+  const open = (id: string) => onSelect(id);
 
   return (
     <section className="mt-8">
@@ -81,7 +72,7 @@ export function ConversationHistory({
             <li key={c.id}>
               <button
                 type="button"
-                onClick={() => void open(c.id)}
+                onClick={() => open(c.id)}
                 className={`hover-lift pressable flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm ${
                   activeConversationId === c.id
                     ? "border-primary/40 bg-primary/10"
@@ -92,13 +83,9 @@ export function ConversationHistory({
                 <span className="min-w-0 flex-1 truncate">
                   {c.title || "Untitled conversation"}
                 </span>
-                {opening === c.id ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                ) : (
-                  <span className="shrink-0 text-[10px] tabular text-muted-foreground">
-                    {new Date(c.last_message_at).toLocaleDateString()}
-                  </span>
-                )}
+                <span className="shrink-0 text-[10px] tabular text-muted-foreground">
+                  {new Date(c.last_message_at).toLocaleDateString()}
+                </span>
               </button>
             </li>
           ))}
