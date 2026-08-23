@@ -802,6 +802,22 @@
   }
 }
 
+/* Landing hero instrumentation — grain jitter + marker diamond pulse.
+   Adapted from ThreeUI's UplinkLoader (MIT, © Meng To / Design+Code);
+   see THIRD_PARTY_NOTICES.md. */
+@keyframes hero-grain-shift {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-22px, 14px); }
+  40% { transform: translate(17px, -19px); }
+  60% { transform: translate(-13px, -9px); }
+  80% { transform: translate(9px, 21px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes hero-dia-pulse {
+  0%, 100% { opacity: 0.55; transform: rotate(45deg) scale(0.8); }
+  50% { opacity: 1; transform: rotate(45deg) scale(1); }
+}
+
 @keyframes fade-in-up {
   from {
     opacity: 0;

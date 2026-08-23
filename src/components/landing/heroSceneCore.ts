@@ -29,7 +29,7 @@ export const SCENE_OBJECTS: HeroSceneObject[] = [
     id: "forklift",
     label: "forklift",
     tint: "rgba(251,191,36,0.95)",
-    bbox: { x: 0.42, y: 0.4, w: 0.2, h: 0.31 },
+    bbox: { x: 0.448, y: 0.49, w: 0.13, h: 0.39 },
     level: "RED",
     severity: 4,
     likelihood: 4,
@@ -39,7 +39,7 @@ export const SCENE_OBJECTS: HeroSceneObject[] = [
     id: "worker",
     label: "person",
     tint: "rgba(34,211,238,0.9)",
-    bbox: { x: 0.255, y: 0.385, w: 0.08, h: 0.31 },
+    bbox: { x: 0.383, y: 0.6, w: 0.046, h: 0.25 },
     level: "YELLOW",
     severity: 3,
     likelihood: 2,
@@ -49,7 +49,7 @@ export const SCENE_OBJECTS: HeroSceneObject[] = [
     id: "exit",
     label: "exit route",
     tint: "rgba(125,211,252,0.9)",
-    bbox: { x: 0.775, y: 0.3, w: 0.16, h: 0.44 },
+    bbox: { x: 0.768, y: 0.2, w: 0.135, h: 0.44 },
     level: "ORANGE",
     severity: 4,
     likelihood: 3,
@@ -59,7 +59,7 @@ export const SCENE_OBJECTS: HeroSceneObject[] = [
     id: "pallets",
     label: "pallet stack",
     tint: "rgba(251,191,36,0.7)",
-    bbox: { x: 0.095, y: 0.36, w: 0.125, h: 0.34 },
+    bbox: { x: 0.066, y: 0.535, w: 0.16, h: 0.295 },
     level: "GREEN",
     severity: 2,
     likelihood: 2,
@@ -70,11 +70,18 @@ export const SCENE_OBJECTS: HeroSceneObject[] = [
 /** Floor-marked pedestrian walkway that the forklift is crossing (normalized
  *  points, drawn dashed in the base scene and hatched in the sensor view). */
 export const ZONE_POINTS: ReadonlyArray<{ x: number; y: number }> = [
-  { x: 0.34, y: 0.97 },
-  { x: 0.45, y: 0.6 },
-  { x: 0.585, y: 0.6 },
-  { x: 0.545, y: 0.97 },
+  { x: 0.5025, y: 0.511 }, // near the wall, left edge
+  { x: 0.5419, y: 0.511 }, // near the wall, right edge
+  { x: 0.475, y: 0.985 }, // front right
+  { x: 0.2875, y: 0.985 }, // front left
 ];
+
+/** Slice-fit of the 160×90 scene into a box: scale + centred offsets. */
+export function sliceLayout(w: number, h: number) {
+  const s = Math.max(w / 160, h / 90);
+  return { w, h, s, ox: (w - 160 * s) / 2, oy: (h - 90 * s) / 2 };
+}
+export type Layout = ReturnType<typeof sliceLayout>;
 
 export function riskScore(o: Pick<HeroSceneObject, "severity" | "likelihood">): number {
   return o.severity * o.likelihood;
@@ -111,8 +118,10 @@ const center = (id: string) => {
 /** Left edge → forklift (pause) → blocked exit (pause) → wrap. The pauses are
  *  the demo: they hold the lens over the two tiles that tell the story. */
 export const SWEEP_PATH: SweepPoint[] = [
-  { x: 0.13, y: 0.58, pauseMs: 0 },
-  { ...center("forklift"), pauseMs: 1200 },
+  { x: 0.12, y: 0.62, pauseMs: 0 },
+  // Dwell slightly up-left of the forklift's centre so its RED plate and the
+  // worker's plate both sit inside the glass at the pause.
+  { x: center("forklift").x - 0.03, y: center("forklift").y - 0.055, pauseMs: 1200 },
   { ...center("exit"), y: center("exit").y - 0.07, pauseMs: 1200 },
 ];
 
