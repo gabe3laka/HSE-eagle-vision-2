@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@/lib/router-shim";
 import { Camera, ClipboardCheck, EyeOff, ShieldCheck, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import { HomeComposer } from "@/features/report-composer/HomeComposer";
 import { ConversationHistory } from "@/features/report-composer/ConversationHistory";
 import { ConversationThread } from "@/features/report-composer/ConversationThread";
 import { RecentDrafts } from "@/features/report-composer/RecentDrafts";
+import { HeroScene } from "@/components/landing/HeroScene";
+import { BRAND } from "@/lib/brand";
 
 /* ------------------------------------------------------------------ */
 /* Signed-in home: composer + "what happened" activity                 */
@@ -157,8 +159,8 @@ function AuthedHome() {
 const PUBLIC_POINTS = [
   {
     icon: Camera,
-    title: "Your phone is the camera",
-    text: "Point it at the work area — hazards are flagged in real time, no extra hardware.",
+    title: "That lens runs live",
+    text: "The same overlay, on your phone's camera, at ~2s per frame.",
   },
   {
     icon: Zap,
@@ -167,10 +169,54 @@ const PUBLIC_POINTS = [
   },
   {
     icon: EyeOff,
-    title: "Private by design",
-    text: "Detection runs live; nothing is filed without a human approving it.",
+    title: "Nothing files itself",
+    text: "Every detection lands in a review queue for a human to approve, edit or reject.",
   },
 ];
+
+/** The three cards arrive on scroll (IntersectionObserver + the existing
+ *  animate-fade-in-up, staggered 70ms) instead of just sitting there. */
+function PublicPoints() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [seen, setSeen] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      setSeen(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setSeen(true);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.2 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref} className="mt-12 grid gap-4 sm:grid-cols-3">
+      {PUBLIC_POINTS.map((p, i) => (
+        <div
+          key={p.title}
+          className={`console-panel hover-lift rounded-xl p-5 ${seen ? "animate-fade-in-up" : "opacity-0"}`}
+          style={seen ? { animationDelay: `${i * 70}ms` } : undefined}
+        >
+          <span className="glyph-halo mb-3 h-10 w-10">
+            <p.icon className="h-4.5 w-4.5 text-primary" />
+          </span>
+          <h3 className="mt-2.5 text-sm font-semibold">{p.title}</h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{p.text}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** The public front door — visitor lands directly on the product's input, the
  *  way lovable.dev works: one hero line, the composer (visible but gated), and
@@ -192,7 +238,7 @@ function PublicHome() {
           <span className="brand-mark h-8 w-8">
             <ShieldCheck className="h-4 w-4" />
           </span>
-          SafeLens
+          {BRAND.name}
         </span>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={toAuth}>
@@ -205,16 +251,22 @@ function PublicHome() {
       </header>
 
       {/* Hero + gated composer */}
-      <main className="mesh-hero mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-4 py-10">
-        <div className="animate-fade-in-up mb-7 text-center">
+      <main className="mesh-hero mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-4 py-6 sm:py-10">
+        <div className="animate-fade-in-up mb-6 text-center sm:mb-7">
           <p className="console-eyebrow mb-3 text-primary">Safety intelligence for any site</p>
           <h1 className="display-hero">
             What happened on <span className="text-gradient-brand">site</span>?
           </h1>
           <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground sm:text-base">
-            SafeLens turns any camera into live risk intelligence — and a photo or a sentence into a
-            filed safety report. Describe it below to see how.
+            Point a camera at the work area, or just describe what happened. Drag the lens below to
+            see what the system sees.
           </p>
+        </div>
+
+        {/* The proof, above the fold: sweep the X-Ray lens across an
+            illustrated site scene — no permissions, no sign-up. */}
+        <div className="animate-fade-in-up mb-5" style={{ animationDelay: "40ms" }}>
+          <HeroScene />
         </div>
 
         <div className="animate-fade-in-up" style={{ animationDelay: "70ms" }}>
@@ -243,22 +295,12 @@ function PublicHome() {
           />
 
           {/* Three-point product summary (folded in from the old /landing) */}
-          <div className="mt-12 grid gap-4 sm:grid-cols-3">
-            {PUBLIC_POINTS.map((p) => (
-              <div key={p.title} className="console-panel hover-lift rounded-xl p-5">
-                <span className="glyph-halo mb-3 h-10 w-10">
-                  <p.icon className="h-4.5 w-4.5 text-primary" />
-                </span>
-                <h3 className="mt-2.5 text-sm font-semibold">{p.title}</h3>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{p.text}</p>
-              </div>
-            ))}
-          </div>
+          <PublicPoints />
         </div>
       </main>
 
       <footer className="px-5 py-6 text-center text-[11px] text-muted-foreground">
-        SafeLens · live HSE monitoring & agentic safety reporting
+        {BRAND.name} · {BRAND.tagline.toLowerCase()}
       </footer>
     </div>
   );

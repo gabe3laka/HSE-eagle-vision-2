@@ -13,6 +13,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { OrgProvider } from "@/features/organizations/context/OrgContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { BRAND } from "@/lib/brand";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 
@@ -81,13 +82,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: "SafeLens Vision — Real-time safety monitoring" },
+      { title: `${BRAND.name} — Real-time safety monitoring` },
       {
         name: "description",
-        content: "SafeLens Vision turns any camera into a real-time safety coach.",
+        content: `${BRAND.name} turns any camera into a real-time safety coach.`,
       },
-      { property: "og:title", content: "SafeLens Vision — Real-time safety monitoring" },
-      { name: "twitter:title", content: "SafeLens Vision — Real-time safety monitoring" },
+      { property: "og:title", content: `${BRAND.name} — Real-time safety monitoring` },
+      { name: "twitter:title", content: `${BRAND.name} — Real-time safety monitoring` },
       {
         name: "description",
         content:
