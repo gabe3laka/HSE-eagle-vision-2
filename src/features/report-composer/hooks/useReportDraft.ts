@@ -3,6 +3,7 @@ import { db } from "@/integrations/supabase/db";
 import { supabase } from "@/integrations/supabase/own-client";
 import { useOrg } from "@/features/organizations/context/OrgContext";
 import { composerRespond } from "../lib/reasoningClient";
+import type { LensContext } from "../lib/reasoningClient";
 import type { AttachedMedia } from "./useMediaAttach";
 
 /** What a composer send produced. `report` carries the report_drafts row id for
@@ -41,6 +42,8 @@ export function useReportDraft() {
       media: AttachedMedia[];
       /** Optional thread link — the draft belongs to this conversation. */
       conversationId?: string | null;
+      /** Optional Live X-Ray lens context, forwarded to the reasoning seam. */
+      lensContext?: LensContext | null;
     }): Promise<ComposerResult> => {
       // Resolve the owner from the LIVE session (not React state) so a send
       // immediately after an on-demand anonymous sign-in isn't dropped by a
@@ -53,7 +56,11 @@ export function useReportDraft() {
       setSubmitting(true);
       try {
         // Classify FIRST — a question must never leave a junk draft behind.
-        const res = await composerRespond({ text: input.text, media: input.media });
+        const res = await composerRespond({
+          text: input.text,
+          media: input.media,
+          lensContext: input.lensContext ?? null,
+        });
 
         if (res.kind === "answer") return { type: "answer", answer: res.answer };
         if (res.kind === "limit") return { type: "limit" };

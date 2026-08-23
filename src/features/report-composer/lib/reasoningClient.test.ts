@@ -47,6 +47,37 @@ describe("composerRespond — response mapping", () => {
       kind: "error",
     });
   });
+
+  it("forwards lensContext in the request body verbatim, and null when absent", async () => {
+    vi.resetModules();
+    const invoke = vi.fn(async () => ({ data: { status: "ok", kind: "answer", answer: "ok" } }));
+    vi.doMock("@/integrations/supabase/own-client", () => ({
+      supabase: { functions: { invoke } },
+    }));
+    const { composerRespond } = await import("./reasoningClient");
+
+    const lensContext = {
+      track_id: "t1",
+      label: "forklift",
+      bbox: { x: 0.4, y: 0.4, w: 0.2, h: 0.2 },
+      risk_level: "RED",
+      severity: 4,
+      likelihood: 3,
+      frame_ts: 123,
+    };
+    await composerRespond({ text: "x", media: [], lensContext });
+    expect(invoke).toHaveBeenLastCalledWith(
+      "report-draft",
+      expect.objectContaining({ body: expect.objectContaining({ lensContext }) }),
+    );
+
+    await composerRespond({ text: "x", media: [] });
+    expect(invoke).toHaveBeenLastCalledWith(
+      "report-draft",
+      expect.objectContaining({ body: expect.objectContaining({ lensContext: null }) }),
+    );
+    vi.doUnmock("@/integrations/supabase/own-client");
+  });
 });
 
 function incident(over: Partial<IncidentRow> = {}) {
