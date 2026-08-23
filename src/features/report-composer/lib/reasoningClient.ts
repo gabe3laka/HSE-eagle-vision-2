@@ -28,14 +28,38 @@ export type ComposerResponse =
   | { kind: "limit" }
   | { kind: "error" };
 
+/** What the X-Ray lens saw when the operator sent from the Live dock. Purely
+ *  additive context appended to the prompt payload — the edge function may
+ *  ignore it today. Display data only; scores are NEVER computed client-side. */
+export interface LensContext {
+  track_id?: string;
+  label: string;
+  category?: string;
+  bbox: { x: number; y: number; w: number; h: number };
+  risk_level?: string;
+  severity?: number;
+  likelihood?: number;
+  risk_reason?: string;
+  recommended_action?: string;
+  produced_by?: string;
+  frame_ts: number;
+}
+
 export async function composerRespond(input: {
   text: string;
   transcript?: string | null;
   media: AttachedMedia[];
+  /** Optional Live-lens context (see LensContext). */
+  lensContext?: LensContext | null;
 }): Promise<ComposerResponse> {
   try {
     const { data } = await supabase.functions.invoke("report-draft", {
-      body: { text: input.text, transcript: input.transcript ?? null, media: input.media },
+      body: {
+        text: input.text,
+        transcript: input.transcript ?? null,
+        media: input.media,
+        lensContext: input.lensContext ?? null,
+      },
     });
     const d = data as {
       status?: string;

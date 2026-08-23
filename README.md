@@ -97,6 +97,10 @@ bun run build && npx vite preview   # production build — closer to real perf
    created + the seeded CAPA board.
 6. **Live** — *"And this is the eye: real-time hazard detection with risk
    levels."* Start monitoring, point at the room, show boxes + risk colors.
+   Then touch the video to drop the **X-Ray lens** on the forklift — it
+   reveals the wireframe, the S×L score and the reason; pin it, then tap
+   **Draft incident from lens** in the dock below and approve on the review
+   screen. (Kill switch if it misbehaves: `VITE_XRAY_LENS=false`.)
 
 ### 5 · If it breaks
 
@@ -122,6 +126,7 @@ bun run build && npx vite preview   # production build — closer to real perf
 [ ] Live started once today (worker warm, banner gone)
 [ ] phone: do-not-disturb ON, brightness max, rotation locked
 [ ] backup: laptop signed in with the same account, same seeded data
+[ ] lens drops and pins on THIS phone (touch the Live video, drag, lift)
 [ ] rehearsed the 3-minute path end-to-end on THIS device today
 ```
 

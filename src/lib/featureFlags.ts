@@ -27,6 +27,9 @@ export type RiskFeatureFlag =
   | "VITE_HSE_QWEN_HEARTBEAT_ENABLED"
   | "VITE_HSE_QWEN_HEARTBEAT_FORCE_REASON"
   | "VITE_SHARED_VISION_ENABLED"
+  // X-Ray lens on the Live HSE camera (draggable loupe revealing wireframes +
+  // deterministic S×L risk tiles). Defaults ON; set "false" to kill for a demo.
+  | "VITE_XRAY_LENS"
   // Dev-only Hive diagnostics (projection readiness panel + FOV cones). OFF by
   // default — never shown to operators unless explicitly enabled for a build.
   | "VITE_HIVE_DEBUG"

@@ -50,6 +50,9 @@ import { PlanConsole } from "@/features/build-mode/components/PlanConsole";
 import { useHseMonitoring } from "@/features/hse-monitoring/hooks/useHseMonitoring";
 import { useHseLiveRiskViewModel } from "@/features/hse-monitoring/hooks/useHseLiveRiskViewModel";
 import { EagleVisionHUD } from "@/components/live/EagleVisionHUD";
+import { XRayLens } from "@/components/live/XRayLens";
+import { LiveComposerDock } from "@/components/live/LiveComposerDock";
+import type { LensContext } from "@/features/report-composer/lib/reasoningClient";
 import {
   SceneRiskPanel,
   MonitoringDegradedBanner,
@@ -369,6 +372,10 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
   // map code is a plain string env (not a boolean flag).
   const multisetVpsEnabled = readFlag("VITE_MULTISET_VPS_ENABLED", safeEnv(), false);
   const multisetMapCode = (safeEnv().VITE_MULTISET_MAP_CODE as string | undefined) ?? "";
+  // X-Ray lens: ships ON; one env change (VITE_XRAY_LENS=false) kills it on
+  // demo day. HSE-only, additive over the existing overlays.
+  const xrayEnabled = readFlag("VITE_XRAY_LENS", safeEnv(), true);
+  const [lensContext, setLensContext] = useState<LensContext | null>(null);
   const { bearings, pairPeer, clearPeer } = usePeerBearings();
   // Stable per-tab deviceId read early (same value useSharedVision uses internally).
   const hiveDeviceId = useMemo(() => (hiveEnabled ? getOrCreateDeviceId() : null), [hiveEnabled]);
@@ -1430,33 +1437,50 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
           ) : undefined
         }
         hseOverlay={
-          hseActive && hseFlags.localAlertsEnabled ? (
+          hseActive ? (
             <>
-              <WearableAlertOverlay severity={hse.visibleTopAlert?.severity ?? null} />
-              <EagleVisionHUD
+              {/* Legacy local-alerts HUD keeps its exact gate; the X-Ray lens
+                  below rides on hseActive alone so the default build has it. */}
+              {hseFlags.localAlertsEnabled && (
+                <>
+                  <WearableAlertOverlay severity={hse.visibleTopAlert?.severity ?? null} />
+                  <EagleVisionHUD
+                    tracks={hse.tracks}
+                    poses={backendPoses as BackendPose[]}
+                    topAlert={hse.visibleTopAlert}
+                    status={hse.status}
+                    objectCount={hse.objectCount}
+                    stableCount={hse.stableCount}
+                    reasoningSource={hse.reasoningSource}
+                    mirrored={mirrored}
+                  />
+                  {focusArmed && (
+                    <button
+                      type="button"
+                      className="absolute inset-0 z-30 cursor-crosshair bg-cyan-400/5"
+                      aria-label="Tap an area to focus the scan"
+                      onClick={(e) => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        // visual tap → RAW frame space (the ROI the worker scans)
+                        const vx = (e.clientX - r.left) / r.width;
+                        hse.focusAt(mirrored ? 1 - vx : vx, (e.clientY - r.top) / r.height);
+                        setFocusArmed(false);
+                      }}
+                    />
+                  )}
+                </>
+              )}
+              <XRayLens
                 tracks={hse.tracks}
                 poses={backendPoses as BackendPose[]}
-                topAlert={hse.visibleTopAlert}
-                status={hse.status}
-                objectCount={hse.objectCount}
-                stableCount={hse.stableCount}
-                reasoningSource={hse.reasoningSource}
+                entities={hseRiskViewModel.overlayEntities}
+                zones={zones}
                 mirrored={mirrored}
+                disabled={editingZones || focusArmed}
+                flagEnabled={xrayEnabled}
+                reasoningSource={hse.reasoningSource}
+                onLensContext={setLensContext}
               />
-              {focusArmed && (
-                <button
-                  type="button"
-                  className="absolute inset-0 z-30 cursor-crosshair bg-cyan-400/5"
-                  aria-label="Tap an area to focus the scan"
-                  onClick={(e) => {
-                    const r = e.currentTarget.getBoundingClientRect();
-                    // visual tap → RAW frame space (the ROI the worker scans)
-                    const vx = (e.clientX - r.left) / r.width;
-                    hse.focusAt(mirrored ? 1 - vx : vx, (e.clientY - r.top) / r.height);
-                    setFocusArmed(false);
-                  }}
-                />
-              )}
             </>
           ) : null
         }
@@ -1530,6 +1554,14 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
             cameraCard
           )}
           <div className={planConsoleActive ? undefined : "xl:col-start-1 xl:row-start-2"}>
+            {/* Live chat dock — same reasoning seam as Home; carries the pinned
+                X-Ray lens context. HSE mode only; Build/Plan are untouched. */}
+            {appMode === "hse" && xrayEnabled && (
+              <LiveComposerDock
+                lensContext={lensContext}
+                onClearLensContext={() => setLensContext(null)}
+              />
+            )}
             <SessionControls
               cameraActive={active}
               running={running}
