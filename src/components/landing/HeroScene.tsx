@@ -1,218 +1,50 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+/* The tile dissolve, instrumentation dressing and loupe bezel adapt ThreeUI's
+ * KoiStudies, UplinkLoader and Sketchbook (github.com/MengTo/threeui, MIT,
+ * © Meng To / Design+Code) — see THIRD_PARTY_NOTICES.md. */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { clampLensCenter, sliceLayout, sweepPosition, type Layout } from "./heroSceneCore";
 import {
-  clampLensCenter,
-  riskTileText,
-  SCENE_OBJECTS,
-  sweepPosition,
-  ZONE_POINTS,
-} from "./heroSceneCore";
-import { riskLevelColor } from "@/lib/detection/riskTypes";
+  decayTrail,
+  ENTRY_MS,
+  isCellRevealed,
+  pushTrailPoint,
+  smoothstep,
+  tileSizeFor,
+  type TrailPoint,
+} from "./dissolveCore";
+import { grainTextures } from "./grainTextures";
+import { SensorMarks } from "./SensorMarks";
+import { SceneArt } from "./SceneArt";
 
-/* Scene space: 160×90 units (16:9). `slice` keeps base art and overlays in the
- * SAME cropped coordinate system on every viewport, so alignment is exact. */
-const VB = "0 0 160 90";
-const SX = 160;
-const SY = 90;
-const pt = (p: { x: number; y: number }) => `${p.x * SX},${p.y * SY}`;
-
-/** The illustrated warehouse bay — drawn twice (base + sensor copy) so the
- *  lens reveals a perfectly aligned second view. Muted, low-contrast: it is a
- *  backdrop for the hero, not an illustration showcase. */
-function SceneArt() {
-  return (
-    <svg
-      viewBox={VB}
-      preserveAspectRatio="xMidYMid slice"
-      className="absolute inset-0 h-full w-full"
-      aria-hidden
-    >
-      {/* back wall, teal rim light at the horizon, slate ground */}
-      <rect width="160" height="52" fill="#0c1420" />
-      <rect y="50" width="160" height="2.5" fill="rgba(45,212,191,0.16)" />
-      <rect y="52" width="160" height="38" fill="#141e2c" />
-      <path d="M0 90 L40 52 M160 90 L120 52 M80 52 L80 90" stroke="#1b2736" strokeWidth="0.6" />
-      {/* wall panels + high window strip */}
-      <path d="M20 0 V50 M60 0 V50 M100 0 V50 M140 0 V50" stroke="#111a28" strokeWidth="0.8" />
-      <rect x="8" y="6" width="144" height="7" fill="#12202e" stroke="#1c2c3d" strokeWidth="0.5" />
-      {/* pallet stack (left) */}
-      <g stroke="#0b1220" strokeWidth="0.5">
-        <rect x="16" y="34" width="19" height="9" fill="#33405280" />
-        <rect x="15" y="43" width="21" height="10" fill="#3a475a" />
-        <rect x="15.5" y="53" width="20" height="10" fill="#42506480" />
-        <path d="M15 56 h21 M15 46 h21" stroke="#25324475" strokeWidth="1.2" />
-        <rect x="14" y="61.5" width="23" height="2.4" fill="#4a3b28" />
-      </g>
-      {/* floor-marked pedestrian walkway (the forklift is crossing it) */}
-      <polygon
-        points={ZONE_POINTS.map(pt).join(" ")}
-        fill="rgba(45,212,191,0.03)"
-        stroke="rgba(45,212,191,0.28)"
-        strokeWidth="0.7"
-        strokeDasharray="3 2.2"
-      />
-      {/* worker near the pallets */}
-      <g>
-        <circle cx="47.2" cy="38.5" r="2.6" fill="#94a3b8" />
-        <rect x="44.3" y="41.6" width="5.8" height="9.5" rx="1.6" fill="#f59e0b" opacity="0.7" />
-        <rect x="44.3" y="44" width="5.8" height="2" fill="#cbd5e1" opacity="0.5" />
-        <path
-          d="M45.6 51 L45 62 M48.8 51 L49.6 62"
-          stroke="#64748b"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-      </g>
-      {/* forklift crossing, forks toward the worker */}
-      <g stroke="#0b1220" strokeWidth="0.5">
-        <rect x="74" y="45" width="17" height="11" rx="1.5" fill="#8a6d1f" opacity="0.8" />
-        <rect x="82" y="37.5" width="8" height="8.5" rx="1" fill="#3c4a5e" />
-        <rect x="83.6" y="39" width="4.8" height="4" fill="#141e2c" />
-        <rect x="70.5" y="38" width="2" height="21" fill="#475569" />
-        <path d="M70.5 58 H62.5 M70.5 55 H62.5" stroke="#94a3b8" strokeWidth="1.4" />
-        <circle cx="78" cy="59.5" r="3.4" fill="#1e293b" stroke="#475569" strokeWidth="0.8" />
-        <circle cx="88.5" cy="59.5" r="2.7" fill="#1e293b" stroke="#475569" strokeWidth="0.8" />
-        <rect x="90" y="42" width="2.4" height="3" fill="#fbbf24" opacity="0.5" />
-      </g>
-      {/* exit door (right) with a pallet part-blocking it */}
-      <g>
-        <rect
-          x="128"
-          y="28"
-          width="17"
-          height="36"
-          fill="#0f1a26"
-          stroke="#233448"
-          strokeWidth="0.8"
-        />
-        <rect x="130" y="31" width="13" height="33" fill="#16283a" />
-        <rect x="135.4" y="46" width="1.6" height="4.5" rx="0.8" fill="#64748b" />
-        <rect
-          x="129.5"
-          y="22.5"
-          width="14"
-          height="4.4"
-          rx="0.8"
-          fill="rgba(52,211,153,0.35)"
-          stroke="rgba(52,211,153,0.5)"
-          strokeWidth="0.4"
-        />
-        <rect
-          x="124.5"
-          y="50"
-          width="14"
-          height="9"
-          fill="#3a475a"
-          stroke="#0b1220"
-          strokeWidth="0.5"
-        />
-        <rect x="123.6" y="59" width="15.6" height="2.4" fill="#4a3b28" />
-      </g>
-    </svg>
-  );
-}
-
-/** Sensor-side annotations: hatched zone + corner-tick outlines, in the Live
- *  category tints, plus authored `[LEVEL] S×L` tiles. SVG text keeps the tiles
- *  aligned with the art under the mobile `slice` crop. */
-function SensorMarks() {
-  const ticks = useMemo(
-    () =>
-      SCENE_OBJECTS.map((o) => {
-        const x = o.bbox.x * SX;
-        const y = o.bbox.y * SY;
-        const w = o.bbox.w * SX;
-        const h = o.bbox.h * SY;
-        const L = Math.min(5, Math.min(w, h) * 0.3);
-        const d = [
-          `M${x} ${y + L} V${y} H${x + L}`,
-          `M${x + w - L} ${y} H${x + w} V${y + L}`,
-          `M${x + w} ${y + h - L} V${y + h} H${x + w - L}`,
-          `M${x + L} ${y + h} H${x} V${y + h - L}`,
-        ].join(" ");
-        return { o, x, y, w, d };
-      }),
-    [],
-  );
-  return (
-    <svg
-      viewBox={VB}
-      preserveAspectRatio="xMidYMid slice"
-      className="absolute inset-0 h-full w-full"
-      aria-hidden
-    >
-      <defs>
-        <pattern
-          id="hero-hatch"
-          width="4"
-          height="4"
-          patternTransform="rotate(45)"
-          patternUnits="userSpaceOnUse"
-        >
-          <rect width="4" height="4" fill="rgba(45,212,191,0.06)" />
-          <rect width="1" height="4" fill="rgba(45,212,191,0.35)" />
-        </pattern>
-      </defs>
-      <polygon
-        points={ZONE_POINTS.map(pt).join(" ")}
-        fill="url(#hero-hatch)"
-        stroke="rgba(45,212,191,0.55)"
-        strokeWidth="0.7"
-      />
-      {ticks.map(({ o, d }) => (
-        <path
-          key={o.id}
-          d={d}
-          fill="none"
-          stroke={o.tint}
-          strokeWidth={o.level === "RED" ? 2 : 1.4}
-          vectorEffect="non-scaling-stroke"
-          strokeLinecap="round"
-        />
-      ))}
-      {ticks.map(({ o, x, y, w }, i) => {
-        const label = riskTileText(o);
-        const tw = label.length * 1.58 + 3;
-        const tx = Math.min(Math.max(x + w / 2 - tw / 2, 1), SX - tw - 1);
-        const ty = Math.max(y - (i % 2 ? 10.2 : 5.4), 1.5);
-        return (
-          <g key={`tile-${o.id}`} data-testid="hero-risk-tile">
-            <rect x={tx} y={ty} width={tw} height="4.4" rx="0.9" fill={riskLevelColor(o.level)} />
-            <text
-              x={tx + tw / 2}
-              y={ty + 3.2}
-              textAnchor="middle"
-              fontSize="2.9"
-              textLength={tw - 2.2}
-              lengthAdjust="spacingAndGlyphs"
-              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-              fontWeight="600"
-              fill="#0b1220"
-            >
-              {label}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
+const BACK_W = 480; // fixed canvas backing store (16:9, matches the viewBox)
+const BACK_H = 270;
 
 /**
- * The landing lens: the X-Ray mechanic from Live, standalone — no camera, no
- * backend, no risk engine. A clipped sensor copy of an illustrated scene the
- * visitor sweeps a lens across. Pointer moves update three CSS custom
- * properties inside requestAnimationFrame; React never re-renders per move.
- * Auto-sweeps after 2s idle (skipped under prefers-reduced-motion) until the
- * first pointer input takes control.
+ * The landing lens, rendered as a tile dissolve: an opaque cover canvas shows
+ * the clean scene and destination-out holes resolve the sensor view beneath
+ * it, cell by cell, with a ragged noise edge and a decaying wake. Pointer
+ * moves touch CSS vars + the canvas only; React never re-renders per move.
  */
 export function HeroScene() {
   const rootRef = useRef<HTMLDivElement>(null);
-  /** Normalized lens center + px radius; px derived at apply time. */
-  const geomRef = useRef({ nx: 0.52, ny: 0.55, r: 84 });
-  const rafRef = useRef<number | null>(null);
-  const sweepRafRef = useRef<number | null>(null);
-  const idleTimerRef = useRef<number | null>(null);
+  const baseRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const geomRef = useRef({ nx: 0.51, ny: 0.68, r: 84 });
+  const trailRef = useRef<TrailPoint[]>([]);
+  const coverRef = useRef<HTMLImageElement | null>(null);
+  const coverUrlRef = useRef<string | null>(null);
+  const runningRef = useRef(false);
+  const aliveRef = useRef(true);
+  const lastRef = useRef(0);
+  const entryRef = useRef(0);
   const interactedRef = useRef(false);
+  const idleTimerRef = useRef<number | null>(null);
+  const sweepStartRef = useRef(0);
+  const prevRef = useRef<{ x: number; y: number } | null>(null);
+
+  const [layout, setLayout] = useState<Layout>(() => sliceLayout(672, 378));
+  const [coverReady, setCoverReady] = useState(false);
+  const [grain, setGrain] = useState<{ mul: string; add: string } | null>(null);
 
   const reducedMotion = useMemo(
     () =>
@@ -221,31 +53,122 @@ export function HeroScene() {
     [],
   );
 
-  const apply = useCallback(() => {
+  const applyVars = useCallback(() => {
     const el = rootRef.current;
     if (!el) return;
-    const rect = el.getBoundingClientRect();
     const g = geomRef.current;
-    el.style.setProperty("--lx", `${(g.nx * rect.width).toFixed(1)}px`);
-    el.style.setProperty("--ly", `${(g.ny * rect.height).toFixed(1)}px`);
+    el.style.setProperty("--lx", `${(g.nx * layoutRef.current.w).toFixed(1)}px`);
+    el.style.setProperty("--ly", `${(g.ny * layoutRef.current.h).toFixed(1)}px`);
     el.style.setProperty("--lr", `${g.r}px`);
   }, []);
+  const layoutRef = useRef<Layout>(sliceLayout(672, 378));
 
-  const scheduleApply = useCallback(() => {
-    if (rafRef.current != null) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      apply();
-    });
-  }, [apply]);
+  /** One dissolve pass over the cover canvas. */
+  const paint = useCallback((entry: number) => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    const L = layoutRef.current;
+    if (!canvas || !ctx || L.w === 0) return;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.clearRect(0, 0, BACK_W, BACK_H);
+    const img = coverRef.current;
+    if (img) {
+      ctx.drawImage(
+        img,
+        (L.ox * BACK_W) / L.w,
+        (L.oy * BACK_H) / L.h,
+        (160 * L.s * BACK_W) / L.w,
+        (90 * L.s * BACK_H) / L.h,
+      );
+    }
+    ctx.globalCompositeOperation = "destination-out";
+    const g = geomRef.current;
+    const points: TrailPoint[] = [
+      { x: g.nx * L.w, y: g.ny * L.h, radius: g.r, life: 1 },
+      ...trailRef.current,
+    ];
+    const tile = tileSizeFor(L.w);
+    const cols = Math.ceil(L.w / tile);
+    const rows = Math.ceil(L.h / tile);
+    const bw = (tile * BACK_W) / L.w;
+    const bh = (tile * BACK_H) / L.h;
+    // Only scan cells the trail can possibly reach — not the whole grid.
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of points) {
+      const reach = p.radius + tile;
+      minX = Math.min(minX, p.x - reach);
+      maxX = Math.max(maxX, p.x + reach);
+      minY = Math.min(minY, p.y - reach);
+      maxY = Math.max(maxY, p.y + reach);
+    }
+    const c0 = Math.max(0, Math.floor(minX / tile));
+    const c1 = Math.min(cols - 1, Math.ceil(maxX / tile));
+    const r0 = Math.max(0, Math.floor(minY / tile));
+    const r1 = Math.min(rows - 1, Math.ceil(maxY / tile));
+    ctx.fillStyle = "#000";
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        if (isCellRevealed((c + 0.5) * tile, (r + 0.5) * tile, c, r, tile, points, entry)) {
+          ctx.fillRect(c * bw - 0.3, r * bh - 0.3, bw + 0.6, bh + 0.6);
+        }
+      }
+    }
+  }, []);
 
-  /** First pointer input takes control and stops the demo loop for good. */
+  /** Master loop: auto-sweep + trail decay + dissolve. Idles to zero when the
+   *  wake is gone, the entry is complete and the sweep is off. */
+  const tick = useCallback(
+    (now: number) => {
+      if (!aliveRef.current) {
+        runningRef.current = false;
+        return;
+      }
+      const dt = Math.min(48, Math.max(0, now - lastRef.current));
+      lastRef.current = now;
+      const L = layoutRef.current;
+
+      const sweeping = !interactedRef.current && sweepStartRef.current > 0;
+      if (sweeping) {
+        const pos = sweepPosition(now - sweepStartRef.current);
+        const prev = prevRef.current;
+        const px = pos.x * L.w;
+        const py = pos.y * L.h;
+        if (prev && Math.hypot(px - prev.x, py - prev.y) > 3) {
+          trailRef.current = pushTrailPoint(trailRef.current, prev.x, prev.y, geomRef.current.r);
+        }
+        prevRef.current = { x: px, y: py };
+        geomRef.current.nx = pos.x;
+        geomRef.current.ny = pos.y;
+        applyVars();
+      }
+
+      trailRef.current = decayTrail(trailRef.current, dt);
+      const entryRaw = (now - entryRef.current) / ENTRY_MS;
+      paint(smoothstep(entryRaw));
+
+      if (sweeping || trailRef.current.length > 0 || entryRaw < 1) {
+        requestAnimationFrame(tick);
+      } else {
+        runningRef.current = false;
+      }
+    },
+    [applyVars, paint],
+  );
+
+  const ensureLoop = useCallback(() => {
+    if (runningRef.current || reducedMotion) return;
+    runningRef.current = true;
+    lastRef.current = performance.now();
+    requestAnimationFrame(tick);
+  }, [reducedMotion, tick]);
+
   const takeControl = useCallback(() => {
     interactedRef.current = true;
+    sweepStartRef.current = 0;
     if (idleTimerRef.current != null) window.clearTimeout(idleTimerRef.current);
-    if (sweepRafRef.current != null) cancelAnimationFrame(sweepRafRef.current);
-    idleTimerRef.current = null;
-    sweepRafRef.current = null;
   }, []);
 
   const moveTo = useCallback(
@@ -253,48 +176,93 @@ export function HeroScene() {
       const el = rootRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return;
+      if (!rect.width) return;
       const p = clampLensCenter(clientX - rect.left, clientY - rect.top, {
         w: rect.width,
         h: rect.height,
       });
-      geomRef.current.nx = p.x / rect.width;
-      geomRef.current.ny = p.y / rect.height;
-      scheduleApply();
+      const g = geomRef.current;
+      trailRef.current = pushTrailPoint(
+        trailRef.current,
+        g.nx * rect.width,
+        g.ny * rect.height,
+        g.r,
+      );
+      g.nx = p.x / rect.width;
+      g.ny = p.y / rect.height;
+      applyVars();
+      if (reducedMotion) paint(1);
+      else ensureLoop();
     },
-    [scheduleApply],
+    [applyVars, ensureLoop, paint, reducedMotion],
   );
 
   useEffect(() => {
     const el = rootRef.current;
     if (!el) return;
-    const rect = el.getBoundingClientRect();
-    geomRef.current.r = Math.round(
-      Math.min(118, Math.max(56, Math.min(rect.width, rect.height) * 0.32)),
-    );
-    apply();
-    if (reducedMotion) return; // parked over the forklift, still draggable
+    aliveRef.current = true; // StrictMode re-runs the effect after cleanup
+    setGrain(grainTextures());
 
-    idleTimerRef.current = window.setTimeout(() => {
-      const start = performance.now();
-      const loop = (now: number) => {
-        if (interactedRef.current) return;
-        const pos = sweepPosition(now - start);
-        geomRef.current.nx = pos.x;
-        geomRef.current.ny = pos.y;
-        apply();
-        sweepRafRef.current = requestAnimationFrame(loop);
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      const L = sliceLayout(r.width, r.height);
+      layoutRef.current = L;
+      setLayout(L);
+      geomRef.current.r = Math.round(
+        Math.min(120, Math.max(56, Math.min(r.width, r.height) * 0.34)),
+      );
+      applyVars();
+      if (reducedMotion) paint(1);
+      else ensureLoop();
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+
+    // Build the opaque cover from the clean scene's own SVG — one raster.
+    const svg = baseRef.current?.querySelector("svg");
+    if (svg) {
+      const clone = svg.cloneNode(true) as SVGElement;
+      clone.setAttribute("width", "1600");
+      clone.setAttribute("height", "900");
+      const blob = new Blob([new XMLSerializer().serializeToString(clone)], {
+        type: "image/svg+xml",
+      });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        // NOTE: the blob URL must stay alive — Chromium rasterizes SVG images
+        // lazily at draw time, and a revoked URL draws nothing.
+        coverRef.current = img;
+        coverUrlRef.current = url;
+        setCoverReady(true);
+        entryRef.current = performance.now();
+        if (reducedMotion) paint(1);
+        else ensureLoop();
       };
-      sweepRafRef.current = requestAnimationFrame(loop);
-    }, 2000);
+      img.src = url;
+    }
+
+    if (!reducedMotion) {
+      idleTimerRef.current = window.setTimeout(() => {
+        if (!interactedRef.current) {
+          sweepStartRef.current = performance.now();
+          prevRef.current = null;
+          ensureLoop();
+        }
+      }, 2000);
+    }
 
     return () => {
+      aliveRef.current = false;
+      ro.disconnect();
       if (idleTimerRef.current != null) window.clearTimeout(idleTimerRef.current);
-      if (sweepRafRef.current != null) cancelAnimationFrame(sweepRafRef.current);
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      if (coverUrlRef.current) URL.revokeObjectURL(coverUrlRef.current);
     };
-  }, [apply, reducedMotion]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  const still = reducedMotion;
   return (
     <div>
       <div
@@ -306,7 +274,7 @@ export function HeroScene() {
             boxShadow: "var(--shadow-float)",
             touchAction: "none",
             "--lx": "52%",
-            "--ly": "55%",
+            "--ly": "66%",
             "--lr": "84px",
           } as React.CSSProperties
         }
@@ -316,53 +284,121 @@ export function HeroScene() {
           moveTo(e.clientX, e.clientY);
         }}
         onPointerMove={(e) => {
-          // Mouse follows on hover; touch/pen only while pressed (captured).
           if (e.pointerType !== "mouse" && !e.currentTarget.hasPointerCapture(e.pointerId)) return;
           takeControl();
           moveTo(e.clientX, e.clientY);
         }}
         onPointerUp={(e) => {
-          // Lifting leaves the lens where it was.
           if (e.currentTarget.hasPointerCapture(e.pointerId))
             e.currentTarget.releasePointerCapture(e.pointerId);
         }}
       >
-        <SceneArt />
-
-        {/* Sensor view, revealed only inside the lens circle */}
-        <div
-          data-testid="hero-reveal"
-          className="absolute inset-0"
-          style={{ clipPath: "circle(var(--lr) at var(--lx) var(--ly))" }}
-        >
-          <div className="absolute inset-0" style={{ filter: "saturate(0.45) brightness(0.66)" }}>
+        {/* sensor view — fully painted, revealed only through the dissolve */}
+        <div data-testid="hero-reveal" className="absolute inset-0">
+          <div
+            className="absolute inset-0"
+            style={{ filter: "saturate(0.55) brightness(0.6) contrast(1.06)" }}
+          >
             <SceneArt />
           </div>
+          <div className="absolute inset-0" style={{ background: "rgba(34,211,238,0.05)" }} />
           <div
-            className="absolute inset-0 opacity-35"
+            className="absolute inset-0 opacity-30"
             style={{
               backgroundImage: "radial-gradient(rgba(34,211,238,0.8) 1px, transparent 1px)",
               backgroundSize: "14px 14px",
             }}
           />
-          <SensorMarks />
-          {!reducedMotion && (
-            <div className="animate-scan absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-cyan-300/60 to-transparent" />
+          {grain && (
+            <>
+              <div
+                className="absolute"
+                style={{
+                  inset: -60,
+                  backgroundImage: `url(${grain.mul})`,
+                  backgroundRepeat: "repeat",
+                  backgroundSize: "80px 80px",
+                  mixBlendMode: "overlay",
+                  opacity: 0.34,
+                  animation: still ? undefined : "hero-grain-shift .6s steps(1,end) infinite",
+                }}
+              />
+              <div
+                className="absolute"
+                style={{
+                  inset: -60,
+                  backgroundImage: `url(${grain.add})`,
+                  backgroundRepeat: "repeat",
+                  backgroundSize: "80px 80px",
+                  opacity: 0.03,
+                  animation: still ? undefined : "hero-grain-shift .72s steps(1,end) infinite",
+                }}
+              />
+            </>
           )}
+          <div
+            className="absolute inset-0"
+            style={{
+              opacity: 0.18,
+              background:
+                "repeating-linear-gradient(to bottom, rgba(165,243,252,.05) 0 1px, transparent 1px 3px)",
+            }}
+          />
+          <SensorMarks layout={layout} still={still} />
         </div>
 
-        {/* Bezel — same glow language as the Live lens */}
+        {/* clean scene under the canvas until its raster is ready (no flash) */}
+        <div ref={baseRef} className="absolute inset-0" style={{ opacity: coverReady ? 0 : 1 }}>
+          <SceneArt />
+        </div>
+        <canvas
+          ref={canvasRef}
+          width={BACK_W}
+          height={BACK_H}
+          className="absolute inset-0 h-full w-full"
+          aria-hidden
+        />
+
+        {/* the loupe: a true annulus over the glass (Sketchbook's mask stops) */}
         <div
-          className="pointer-events-none absolute rounded-full border border-cyan-200/40"
+          className="pointer-events-none absolute"
           style={{
             left: "calc(var(--lx) - var(--lr))",
             top: "calc(var(--ly) - var(--lr))",
             width: "calc(var(--lr) * 2)",
             height: "calc(var(--lr) * 2)",
-            boxShadow:
-              "inset 0 0 0 1px rgba(34,211,238,0.18), 0 0 22px rgba(34,211,238,0.22), inset 0 0 18px rgba(34,211,238,0.08)",
           }}
-        />
+        >
+          <div
+            className="absolute inset-0 rounded-full"
+            style={{
+              background:
+                "linear-gradient(146deg, #cfe0ea 0%, #93a9b8 14%, #55707f 32%, #2c3c49 50%, #7d94a4 66%, #c3d6e2 80%, #3f5666 100%)",
+              boxShadow: "inset 0 1px 1px rgba(255,255,255,.8), inset 0 -2px 3px rgba(16,36,48,.5)",
+              WebkitMaskImage:
+                "radial-gradient(circle closest-side at 50% 50%, transparent 0 88.2%, #000 89.8% 100%)",
+              maskImage:
+                "radial-gradient(circle closest-side at 50% 50%, transparent 0 88.2%, #000 89.8% 100%)",
+              filter: "drop-shadow(0 6px 16px rgba(2,8,14,.45))",
+            }}
+          />
+          {/* highlight arc, upper-left of the ring */}
+          <div
+            className="absolute rounded-full"
+            style={{
+              inset: "1.5%",
+              border: "2px solid transparent",
+              borderTopColor: "rgba(255,255,255,.4)",
+              borderLeftColor: "rgba(255,255,255,.18)",
+              transform: "rotate(-12deg)",
+            }}
+          />
+          {/* 1px cyan line where glass meets bezel */}
+          <div
+            className="absolute rounded-full"
+            style={{ inset: "5.4%", border: "1px solid rgba(34,211,238,.4)" }}
+          />
+        </div>
       </div>
       {/* Honesty rule: authored numbers, clearly labelled. */}
       <p className="mt-2 text-center text-[11px] text-muted-foreground">
