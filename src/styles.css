@@ -805,6 +805,14 @@
 /* Landing hero instrumentation — grain jitter + marker diamond pulse.
    Adapted from ThreeUI's UplinkLoader (MIT, © Meng To / Design+Code);
    see THIRD_PARTY_NOTICES.md. */
+/* Landing hero scroll cue — a line that draws in and slides out (Kage idiom,
+   ThreeUI, MIT, © Meng To / Design+Code). */
+@keyframes hero-cue {
+  0% { transform: scaleX(0); }
+  42% { transform: scaleX(1); }
+  100% { transform: scaleX(1) translateX(100%); }
+}
+
 @keyframes hero-grain-shift {
   0% { transform: translate(0, 0); }
   20% { transform: translate(-22px, 14px); }

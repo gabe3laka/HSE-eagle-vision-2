@@ -228,80 +228,172 @@ function PublicHome() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
-      {/* Minimal top bar: brand + sign in */}
-      <header
-        className="flex items-center justify-between px-5 py-4 sm:px-8"
-        style={{ paddingTop: "max(env(safe-area-inset-top), 16px)" }}
-      >
-        <span className="flex items-center gap-2.5 font-display text-[15px] font-semibold tracking-tight">
-          <span className="brand-mark h-8 w-8">
-            <ShieldCheck className="h-4 w-4" />
+    <div className="relative min-h-screen bg-background text-foreground">
+      {/* The living scene IS the page (Kage's fixed-world pattern): the lens
+          sweeps the whole viewport, and everything below scrolls over it. */}
+      <HeroScene />
+
+      {/* Content plane. pointer-events pass through empty areas so the lens
+          tracks there; each interactive block re-enables its own events. */}
+      <div className="pointer-events-none relative z-10">
+        {/* First frame: nav + centred copy + the composer, one viewport tall */}
+        <section className="relative flex min-h-svh flex-col">
+          {/* top scrim holds the nav and headline off the scene (Kage) */}
+          <div
+            aria-hidden
+            className="absolute inset-x-0 top-0 h-[42%]"
+            style={{
+              background:
+                "linear-gradient(180deg, hsl(var(--background) / 0.85), hsl(var(--background) / 0.35) 55%, transparent)",
+            }}
+          />
+
+          {/* Floating dock header — translucent panel with a lit top edge; no
+              backdrop-filter over a canvas that repaints (Sylva's perf note). */}
+          <header
+            className="pointer-events-auto relative z-10 mx-auto mt-4 flex w-[calc(100%-2rem)] max-w-3xl items-center justify-between rounded-2xl border border-white/10 px-4 py-2.5 sm:px-5"
+            style={{
+              paddingTop: "max(env(safe-area-inset-top), 10px)",
+              background:
+                "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0) 42%), hsl(var(--card) / 0.74)",
+              boxShadow: "0 8px 22px rgba(2,6,12,0.3), inset 0 1px rgba(255,255,255,0.06)",
+            }}
+          >
+            <span className="flex items-center gap-2.5 font-display text-[15px] font-semibold tracking-tight">
+              <span className="brand-mark h-8 w-8">
+                <ShieldCheck className="h-4 w-4" />
+              </span>
+              {BRAND.name}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={toAuth}>
+                Sign in
+              </Button>
+              <Button size="sm" className="btn-sheen pressable rounded-lg" onClick={toAuth}>
+                Get started
+              </Button>
+            </div>
+          </header>
+
+          {/* hero copy up top; the scene breathes in the band below it
+              (Kage's top → spacer → foot column) */}
+          <div className="relative z-10 mx-auto w-full max-w-2xl px-4 pt-[6vh]">
+            <div className="animate-fade-in-up text-center">
+              <p className="console-eyebrow mb-3 text-primary">Safety intelligence for any site</p>
+              <h1 className="display-hero" style={{ textShadow: "0 2px 26px rgba(2,6,12,0.9)" }}>
+                What happened on <span className="text-gradient-brand">site</span>?
+              </h1>
+              <p
+                className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground sm:text-base"
+                style={{ textShadow: "0 1px 18px rgba(2,6,12,0.85)" }}
+              >
+                Point a camera at the work area, or just describe what happened. The lens sweeping
+                this page is what the system sees — drag it.
+              </p>
+            </div>
+          </div>
+
+          {/* the spacer IS the demo: the lens dwells on the forklift here */}
+          <div className="min-h-[42vh] flex-1 sm:min-h-[16vh]" />
+
+          {/* hero foot: the composer, centred, riding its own soft scrim */}
+          <div className="relative z-10 mx-auto w-full max-w-2xl px-4 pb-2">
+            <div
+              aria-hidden
+              className="absolute -inset-x-16 -inset-y-8 -z-10"
+              style={{
+                background:
+                  "radial-gradient(88% 84% at 50% 55%, hsl(var(--background) / 0.72), hsl(var(--background) / 0.42) 58%, transparent 82%)",
+              }}
+            />
+            <div
+              className="pointer-events-auto animate-fade-in-up"
+              style={{ animationDelay: "70ms" }}
+            >
+              <HomeComposer
+                onRequireAuth={toAuth}
+                activeConversationId={activeConversationId}
+                onConversationChange={setActiveConversationId}
+              />
+            </div>
+            <p
+              className="animate-fade-in-up mt-3 text-center text-[11px] text-muted-foreground"
+              style={{ animationDelay: "140ms", textShadow: "0 1px 14px rgba(2,6,12,0.9)" }}
+            >
+              {isAnonymous
+                ? `${credits} free draft${credits === 1 ? "" : "s"} left · your conversations are saved — create an account to keep them and unlock live monitoring.`
+                : "Describe a hazard to draft a report — no sign-in needed to start. Live monitoring needs an account."}
+            </p>
+            {/* Honesty rule: the scene is authored, and says so on its face. */}
+            <p
+              className="mt-1.5 text-center text-[11px] text-muted-foreground/80"
+              style={{ textShadow: "0 1px 14px rgba(2,6,12,0.9)" }}
+            >
+              Illustrated example — the same lens runs on your live camera.
+            </p>
+
+            <div className="pointer-events-auto">
+              <ConversationThread conversationId={activeConversationId} />
+            </div>
+          </div>
+
+          {/* floating stats over the scene (Sylva), desktop only */}
+          <dl className="absolute bottom-[22%] left-8 z-10 hidden space-y-5 xl:block">
+            {[
+              ["~2s per frame", "on-device detection"],
+              ["5×5 matrix", "every score human-approved"],
+            ].map(([dd, dt]) => (
+              <div key={dd} style={{ textShadow: "0 2px 16px rgba(2,6,12,0.85)" }}>
+                <dd className="text-sm font-semibold">{dd}</dd>
+                <dt className="text-xs text-muted-foreground">{dt}</dt>
+              </div>
+            ))}
+          </dl>
+
+          {/* ghost wordmark (Sylva) */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -bottom-[0.1em] left-3 z-0 hidden select-none whitespace-nowrap font-display text-[10.5vw] font-semibold leading-none tracking-[0.1em] text-foreground/[0.035] lg:block"
+          >
+            {BRAND.name}
           </span>
-          {BRAND.name}
-        </span>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={toAuth}>
-            Sign in
-          </Button>
-          <Button size="sm" className="btn-sheen pressable rounded-lg" onClick={toAuth}>
-            Get started
-          </Button>
-        </div>
-      </header>
 
-      {/* Hero + gated composer */}
-      <main className="mesh-hero mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-4 py-6 sm:py-10">
-        <div className="animate-fade-in-up mb-6 text-center sm:mb-7">
-          <p className="console-eyebrow mb-3 text-primary">Safety intelligence for any site</p>
-          <h1 className="display-hero">
-            What happened on <span className="text-gradient-brand">site</span>?
-          </h1>
-          <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground sm:text-base">
-            Point a camera at the work area, or just describe what happened. Drag the lens below to
-            see what the system sees.
-          </p>
-        </div>
+          {/* scroll cue (Kage) */}
+          <div className="relative z-10 mb-5 flex items-center justify-center gap-3">
+            <span
+              className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground"
+              style={{ textShadow: "0 1px 12px rgba(2,6,12,0.9)" }}
+            >
+              See how it works
+            </span>
+            <span className="relative h-px w-14 overflow-hidden bg-white/15">
+              <i className="absolute inset-0 origin-left bg-foreground/70 motion-safe:animate-[hero-cue_2.6s_cubic-bezier(0.65,0,0.35,1)_infinite]" />
+            </span>
+          </div>
+        </section>
 
-        {/* The proof, above the fold: sweep the X-Ray lens across an
-            illustrated site scene — no permissions, no sign-up. */}
-        <div className="animate-fade-in-up mb-5" style={{ animationDelay: "40ms" }}>
-          <HeroScene />
-        </div>
-
-        <div className="animate-fade-in-up" style={{ animationDelay: "70ms" }}>
-          <HomeComposer
-            onRequireAuth={toAuth}
-            activeConversationId={activeConversationId}
-            onConversationChange={setActiveConversationId}
-          />
-        </div>
-        <p
-          className="animate-fade-in-up mt-3 text-center text-[11px] text-muted-foreground"
-          style={{ animationDelay: "140ms" }}
+        {/* Below the fold: history + the three cards, scrolling over the fixed
+            scene on a scrim that fades in (Kage's section treatment). */}
+        <section
+          className="pointer-events-auto relative"
+          style={{
+            background:
+              "linear-gradient(180deg, transparent, hsl(var(--background) / 0.9) 140px, hsl(var(--background)) 320px)",
+          }}
         >
-          {isAnonymous
-            ? `${credits} free draft${credits === 1 ? "" : "s"} left · your conversations are saved — create an account to keep them and unlock live monitoring.`
-            : "Describe a hazard to draft a report — no sign-in needed to start. Live monitoring needs an account."}
-        </p>
-
-        <ConversationThread conversationId={activeConversationId} />
-
-        <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
-          <ConversationHistory
-            activeConversationId={activeConversationId}
-            onSelect={setActiveConversationId}
-            onNew={() => setActiveConversationId(null)}
-          />
-
-          {/* Three-point product summary (folded in from the old /landing) */}
-          <PublicPoints />
-        </div>
-      </main>
-
-      <footer className="px-5 py-6 text-center text-[11px] text-muted-foreground">
-        {BRAND.name} · {BRAND.tagline.toLowerCase()}
-      </footer>
+          <div className="mx-auto w-full max-w-2xl px-4 pb-4 pt-24">
+            <ConversationHistory
+              activeConversationId={activeConversationId}
+              onSelect={setActiveConversationId}
+              onNew={() => setActiveConversationId(null)}
+            />
+            <PublicPoints />
+          </div>
+          <footer className="px-5 py-6 text-center text-[11px] text-muted-foreground">
+            {BRAND.name} · {BRAND.tagline.toLowerCase()}
+          </footer>
+        </section>
+      </div>
     </div>
   );
 }

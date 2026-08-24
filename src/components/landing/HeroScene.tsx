@@ -2,7 +2,14 @@
  * KoiStudies, UplinkLoader and Sketchbook (github.com/MengTo/threeui, MIT,
  * © Meng To / Design+Code) — see THIRD_PARTY_NOTICES.md. */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { clampLensCenter, sliceLayout, sweepPosition, type Layout } from "./heroSceneCore";
+import {
+  artToBox,
+  clampLensCenter,
+  sliceLayout,
+  SWEEP_PATH,
+  sweepPosition,
+  type Layout,
+} from "./heroSceneCore";
 import {
   decayTrail,
   ENTRY_MS,
@@ -134,14 +141,15 @@ export function HeroScene() {
       if (sweeping) {
         const pos = sweepPosition(now - sweepStartRef.current);
         const prev = prevRef.current;
-        const px = pos.x * L.w;
-        const py = pos.y * L.h;
-        if (prev && Math.hypot(px - prev.x, py - prev.y) > 3) {
+        // The sweep is authored in ART space; map it through the slice crop
+        // so the dwells land on the forklift on any viewport shape.
+        const bp = artToBox(pos.x, pos.y, L);
+        if (prev && Math.hypot(bp.x - prev.x, bp.y - prev.y) > 3) {
           trailRef.current = pushTrailPoint(trailRef.current, prev.x, prev.y, geomRef.current.r);
         }
-        prevRef.current = { x: px, y: py };
-        geomRef.current.nx = pos.x;
-        geomRef.current.ny = pos.y;
+        prevRef.current = { x: bp.x, y: bp.y };
+        geomRef.current.nx = bp.x / L.w;
+        geomRef.current.ny = bp.y / L.h;
         applyVars();
       }
 
@@ -209,8 +217,13 @@ export function HeroScene() {
       layoutRef.current = L;
       setLayout(L);
       geomRef.current.r = Math.round(
-        Math.min(120, Math.max(56, Math.min(r.width, r.height) * 0.34)),
+        Math.min(200, Math.max(72, Math.min(L.s * 19, Math.min(r.width, r.height) * 0.34))),
       );
+      if (!interactedRef.current) {
+        const park = artToBox(SWEEP_PATH[1].x, SWEEP_PATH[1].y, L);
+        geomRef.current.nx = park.x / L.w;
+        geomRef.current.ny = park.y / L.h;
+      }
       applyVars();
       if (reducedMotion) paint(1);
       else ensureLoop();
@@ -268,11 +281,10 @@ export function HeroScene() {
       <div
         ref={rootRef}
         data-testid="hero-scene"
-        className="relative aspect-[4/3] w-full select-none overflow-hidden rounded-2xl border border-border sm:aspect-video"
+        className="fixed inset-0 z-0 select-none overflow-hidden"
         style={
           {
-            boxShadow: "var(--shadow-float)",
-            touchAction: "none",
+            touchAction: "pan-y",
             "--lx": "52%",
             "--ly": "66%",
             "--lr": "84px",
@@ -400,10 +412,6 @@ export function HeroScene() {
           />
         </div>
       </div>
-      {/* Honesty rule: authored numbers, clearly labelled. */}
-      <p className="mt-2 text-center text-[11px] text-muted-foreground">
-        Illustrated example — the same lens runs on your live camera.
-      </p>
     </div>
   );
 }
