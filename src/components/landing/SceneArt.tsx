@@ -92,32 +92,32 @@ export function SceneArt() {
           <feGaussianBlur stdDeviation="1.6" />
         </filter>
         <linearGradient id="hero-floor" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#0f1725" />
-          <stop offset="1" stopColor="#1a2536" />
+          <stop offset="0" stopColor="#141e30" />
+          <stop offset="1" stopColor="#22304a" />
         </linearGradient>
         <radialGradient id="hero-pool" cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0" stopColor="rgba(251,211,141,0.20)" />
-          <stop offset="0.22" stopColor="rgba(244,193,116,0.13)" />
-          <stop offset="0.45" stopColor="rgba(226,168,92,0.06)" />
+          <stop offset="0" stopColor="rgba(251,211,141,0.30)" />
+          <stop offset="0.22" stopColor="rgba(244,193,116,0.19)" />
+          <stop offset="0.45" stopColor="rgba(226,168,92,0.09)" />
           <stop offset="0.7" stopColor="rgba(203,142,68,0.02)" />
           <stop offset="1" stopColor="rgba(203,142,68,0)" />
         </radialGradient>
         <radialGradient id="hero-vig" cx="0.5" cy="0.46" r="0.72">
           <stop offset="0.55" stopColor="rgba(0,0,0,0)" />
-          <stop offset="1" stopColor="rgba(0,0,0,0.44)" />
+          <stop offset="1" stopColor="rgba(0,0,0,0.34)" />
         </radialGradient>
       </defs>
 
       {/* ceiling + back wall */}
-      <rect width="160" height="46" fill="#0a1220" />
-      <rect y="8" width="160" height="38" fill="#0c1524" />
+      <rect width="160" height="46" fill="#0d1626" />
+      <rect y="8" width="160" height="38" fill="#111c30" />
       <path
         d="M20 8.6 V46 M56 8.6 V46 M96 8.6 V46 M134 8.6 V46"
         stroke="#0a111d"
         strokeWidth="0.8"
       />
       {/* trusses filling the dead upper third, converging to the same VP */}
-      <g stroke="#182335" strokeWidth="0.7" fill="none">
+      <g stroke="#1e2c44" strokeWidth="0.7" fill="none">
         {[-6, 26, 58, 122, 154].map((x) => (
           <path
             key={x}
@@ -128,9 +128,27 @@ export function SceneArt() {
         <path d="M-6 0 L26 8.8 L58 0 L96 8.8 L122 0 L154 8.8" strokeWidth="0.4" opacity="0.5" />
       </g>
 
+      {/* mid-ground storage racking (left) — balances the empty upper half */}
+      <g>
+        <rect x={3} y={13} width={1.1} height={33} fill="#2a3850" />
+        <rect x={21} y={13} width={1.1} height={33} fill="#273450" />
+        <rect x={39} y={13} width={1.1} height={33} fill="#233049" />
+        <rect x={3} y={19.4} width={37} height={1.2} fill="#31405c" />
+        <rect x={3} y={31.4} width={37} height={1.2} fill="#2c3a55" />
+        <rect x={3} y={43.4} width={37} height={1.2} fill="#273350" />
+        <rect x={6} y={21.8} width={9} height={9.6} fill="#2e3c56" />
+        <rect x={16.5} y={23.4} width={7.5} height={8} fill="#293650" />
+        <rect x={26} y={22.4} width={10} height={9} fill="#33425e" />
+        <rect x={7} y={34.6} width={11} height={8.8} fill="#2b3853" />
+        <rect x={24} y={35.6} width={8} height={7.8} fill="#303e5a" />
+        <rect x={6} y={14.2} width={8} height={5.2} fill="#293650" />
+        <rect x={25} y={14.8} width={9} height={4.6} fill="#2e3c56" />
+        <path d="M3 19.4 h37 M3 31.4 h37" stroke="rgba(45,212,191,0.14)" strokeWidth="0.35" />
+      </g>
+
       {/* floor with joints receding to the VP */}
       <rect y="46" width="160" height="44" fill="url(#hero-floor)" />
-      <g stroke="#0d1522" strokeWidth="0.5">
+      <g stroke="#101a2b" strokeWidth="0.5">
         {[-30, 8, 46, 120, 158, 196].map((xb) => (
           <path key={xb} d={`M${VPX} ${VPY} L${xb} 90`} strokeDasharray="none" opacity="0.9" />
         ))}
@@ -197,7 +215,7 @@ export function SceneArt() {
         side="#1f2839"
       />
       <path d="M12 68 h22 M12.6 60.3 h20.6" stroke="#1b2434" strokeWidth="0.9" />
-      <path d="M13.4 48.6 h18.4" stroke="rgba(45,212,191,0.4)" strokeWidth="0.45" />
+      <path d="M22.5 46.4 h18.6" stroke="rgba(45,212,191,0.22)" strokeWidth="0.45" />
 
       {/* ── exit door on the back wall + the pallet blocking it ── */}
       <rect x={127.5} y={23.5} width={16.5} height={22.5} fill="#1b2939" />
@@ -228,7 +246,7 @@ export function SceneArt() {
         side="#241d12"
       />
       <path d="M124.5 49.4 h15.5" stroke="#22304a" strokeWidth="0.7" />
-      <path d="M124.5 44.6 h15.5" stroke="rgba(45,212,191,0.42)" strokeWidth="0.45" />
+      <path d="M120.3 43.4 h13.2" stroke="rgba(45,212,191,0.3)" strokeWidth="0.45" />
 
       {/* ── worker, standing inside the marked walkway ── */}
       <Shadow cx={65} cy={76.6} rx={6} ry={1.7} o={0.55} />
@@ -244,7 +262,12 @@ export function SceneArt() {
       />
       <rect x={62} y={61} width={6} height={2.6} fill="#c9a13f" />
       <rect x={62} y={65.6} width={6} height={1.5} fill="#cbd5e1" opacity={0.65} />
-      <path d="M62 61.2 q3 -1.4 6 0" stroke="rgba(45,212,191,0.5)" strokeWidth="0.5" fill="none" />
+      <path
+        d="M62 61.2 q3 -1.4 6 0"
+        stroke="rgba(251,211,141,0.55)"
+        strokeWidth="0.5"
+        fill="none"
+      />
       <circle cx={65} cy={57.2} r={2.6} fill="#94a3b8" />
       <path d="M62.7 56.4 a2.6 2.6 0 0 1 4.6 0" fill="#b7c4d4" />
 
@@ -266,7 +289,7 @@ export function SceneArt() {
         stroke="#576b85"
         strokeWidth="0.7"
       />
-      <path d="M72.4 44.8 h3.4" stroke="rgba(45,212,191,0.55)" strokeWidth="0.55" />
+      <path d="M72.4 44.8 h3.4" stroke="rgba(45,212,191,0.5)" strokeWidth="0.55" />
       {/* body: hood + counterweight, three values */}
       <Box
         x0={76.4}
@@ -278,14 +301,29 @@ export function SceneArt() {
         top="#c08a2e"
         side="#5d3f0e"
       />
-      <path d="M76.4 62.4 l15.1 0 l0 -1.6 q-7 -1.8 -15.1 0 z" fill="#a06f1d" />
-      <path d="M89.3 62.4 q2.6 5 1.6 11.8 l0.6 0 l0 -11.8 z" fill="#6e4a10" />
+      <path d="M76.4 62.4 l15.1 0 l0 -1.6 q-7 -1.8 -15.1 0 z" fill="#b07e26" />
+      <path d="M89.3 62.4 q2.6 5 1.6 11.8 l0.6 0 l0 -11.8 z" fill="#7a5514" />
       {/* overhead guard + seat */}
-      <rect x={77.4} y={50.6} width={1.2} height={11.8} fill="#3a4a60" />
-      <rect x={85.8} y={50.6} width={1.2} height={11.8} fill="#2c394e" />
-      <path d="M76.6 50.6 l9.8 0 l1.4 -0.4 l0 -1.3 l-12.4 0 l0 1.3 z" fill="#4a5c76" />
-      <path d="M76.6 48.9 h12.4" stroke="rgba(45,212,191,0.5)" strokeWidth="0.5" />
-      <rect x={80.6} y={56.8} width={4.2} height={4} rx={0.9} fill="#1d2635" />
+      <rect x={77.6} y={50.6} width={0.9} height={11.8} fill="#42536c" />
+      <rect x={86} y={50.6} width={0.9} height={11.8} fill="#324158" />
+      <path d="M76.6 50.6 l9.8 0 l1.4 -0.4 l0 -1.3 l-12.4 0 l0 1.3 z" fill="#546782" />
+      <path d="M76.6 48.9 h12.4" stroke="rgba(251,211,141,0.5)" strokeWidth="0.5" />
+      {/* operator: the forklift is manned */}
+      <rect x={83.4} y={57.4} width={3.2} height={5} rx={1} fill="#22304a" />
+      <path
+        d="M80.4 56.4 q0 -1.3 1.2 -1.5 l2.4 0 q1.2 0.2 1.2 1.5 l-0.3 6 l-4.2 0 z"
+        fill="#c9a13f"
+      />
+      <rect x={80.4} y={57.8} width={4.4} height={1.1} fill="#cbd5e1" opacity={0.6} />
+      <circle cx={82.5} cy={53.4} r={1.7} fill="#94a3b8" />
+      <path d="M80.9 52.9 a1.7 1.7 0 0 1 3.2 0" fill="#b7c4d4" />
+      <path
+        d="M80.6 57.6 q-2.2 0.8 -3.4 0.2"
+        stroke="#b58f33"
+        strokeWidth="1"
+        fill="none"
+        strokeLinecap="round"
+      />
       <rect x={87.6} y={47.4} width={1.9} height={2.2} rx={0.5} fill="#d9a13c" opacity={0.85} />
       {/* wheels */}
       <circle cx={78.2} cy={75.8} r={3.9} fill="#141b26" />
