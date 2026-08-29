@@ -83,6 +83,15 @@ export function sliceLayout(w: number, h: number) {
 }
 export type Layout = ReturnType<typeof sliceLayout>;
 
+/** Map an ART-normalized point (0..1 of the 160×90 scene) to box pixels under
+ *  the slice fit. On a card the two spaces nearly coincide; on a full-bleed
+ *  portrait backdrop the art is cropped hard and they diverge — the sweep is
+ *  authored in art space and must land on the forklift, not on 48% of the
+ *  viewport. */
+export function artToBox(nx: number, ny: number, L: Layout): { x: number; y: number } {
+  return { x: L.ox + nx * 160 * L.s, y: L.oy + ny * 90 * L.s };
+}
+
 export function riskScore(o: Pick<HeroSceneObject, "severity" | "likelihood">): number {
   return o.severity * o.likelihood;
 }
@@ -119,9 +128,10 @@ const center = (id: string) => {
  *  the demo: they hold the lens over the two tiles that tell the story. */
 export const SWEEP_PATH: SweepPoint[] = [
   { x: 0.12, y: 0.62, pauseMs: 0 },
-  // Dwell slightly up-left of the forklift's centre so its RED plate and the
-  // worker's plate both sit inside the glass at the pause.
-  { x: center("forklift").x - 0.03, y: center("forklift").y - 0.055, pauseMs: 1200 },
+  // Dwell up-left of the forklift's centre so the RED plate, the operator and
+  // the worker all sit inside the glass at the pause — on a phone's tighter
+  // crop as well as on desktop.
+  { x: center("forklift").x - 0.03, y: center("forklift").y - 0.1, pauseMs: 1200 },
   { ...center("exit"), y: center("exit").y - 0.07, pauseMs: 1200 },
 ];
 

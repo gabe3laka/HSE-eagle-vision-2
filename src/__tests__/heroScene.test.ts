@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  artToBox,
   clampLensCenter,
   riskScore,
   riskTileText,
@@ -48,6 +49,24 @@ describe("hero scene authored data stays honest and plausible", () => {
       expect(p.y).toBeGreaterThanOrEqual(0);
       expect(p.y).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe("artToBox — sweep points land on the art under any crop", () => {
+  it("is near-identity when the box matches the art's 16:9", () => {
+    const L = { w: 640, h: 360, s: 4, ox: 0, oy: 0 };
+    expect(artToBox(0.5, 0.5, L)).toEqual({ x: 320, y: 180 });
+  });
+
+  it("maps through the horizontal crop of a portrait backdrop", () => {
+    // 380×800 viewport: s = max(380/160, 800/90) = 8.89, art wider than box.
+    const s = Math.max(380 / 160, 800 / 90);
+    const L = { w: 380, h: 800, s, ox: (380 - 160 * s) / 2, oy: (800 - 90 * s) / 2 };
+    const p = artToBox(0.5, 0.5, L);
+    expect(p.x).toBeCloseTo(190, 5); // centred art point stays centred
+    expect(p.y).toBeCloseTo(400, 5);
+    const left = artToBox(0.1, 0.5, L);
+    expect(left.x).toBeLessThan(0); // cropped-off art maps outside the box
   });
 });
 
