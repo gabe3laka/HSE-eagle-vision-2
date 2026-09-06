@@ -31,7 +31,12 @@ declare const __BUILD_TIME__: string | undefined;
 //     backend pose wrist keypoints when MediaPipe hands are unavailable.
 //     Default false: MediaPipe hands only, no fake-wrist dots from backend
 //     pose hallucinations.
+//   VITE_SITE_SCAN_ENABLED — in-app Site/Object scan route + nav entry
+//     (default false). VITE_SCAN_API_URL — worker origin for /capture/*
+//     (reuse the vision worker origin); absent => stub worker.
 interface ImportMetaEnv {
+  readonly VITE_SITE_SCAN_ENABLED?: string;
+  readonly VITE_SCAN_API_URL?: string;
   readonly VITE_VISION_HTTP_DETECT_URL?: string;
   readonly VITE_VISION_STREAM_WS_URL?: string;
   readonly VITE_EDGECRAFT_HTTP_DETECT_URL?: string;

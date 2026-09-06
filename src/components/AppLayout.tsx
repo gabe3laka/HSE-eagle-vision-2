@@ -10,11 +10,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Radio,
+  ScanLine,
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useOrg } from "@/features/organizations/context/OrgContext";
+import { isSiteScanEnabled } from "@/features/site-scan/config";
 
 // The coherent workflow: Home (report + what happened) → Live (detect) →
 // Incidents (approve) → Safety (aggregate). Settings sits below.
@@ -25,7 +27,11 @@ const mainNav = [
   { path: "/overview", label: "Safety", icon: ShieldCheck },
 ];
 
-const bottomNav = [{ path: "/settings", label: "Settings", icon: Settings }];
+// Site/Object scan (S.I.M.S) — additive, flag-gated entry (VITE_SITE_SCAN_ENABLED).
+// Hidden at the committed default so demo builds are unchanged.
+const scanNav = isSiteScanEnabled() ? [{ path: "/scan", label: "Scan", icon: ScanLine }] : [];
+
+const bottomNav = [...scanNav, { path: "/settings", label: "Settings", icon: Settings }];
 
 const mobileNav = [...mainNav, ...bottomNav];
 

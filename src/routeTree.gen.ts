@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ScanRouteImport } from './routes/scan'
 import { Route as OverviewRouteImport } from './routes/overview'
 import { Route as LiveRouteImport } from './routes/live'
 import { Route as LandingRouteImport } from './routes/landing'
@@ -23,6 +24,11 @@ import { Route as ReportIdRouteImport } from './routes/report.$id'
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScanRoute = ScanRouteImport.update({
+  id: '/scan',
+  path: '/scan',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OverviewRoute = OverviewRouteImport.update({
@@ -80,6 +86,7 @@ export interface FileRoutesByFullPath {
   '/landing': typeof LandingRoute
   '/live': typeof LiveRoute
   '/overview': typeof OverviewRoute
+  '/scan': typeof ScanRoute
   '/settings': typeof SettingsRoute
   '/report/$id': typeof ReportIdRoute
 }
@@ -92,6 +99,7 @@ export interface FileRoutesByTo {
   '/landing': typeof LandingRoute
   '/live': typeof LiveRoute
   '/overview': typeof OverviewRoute
+  '/scan': typeof ScanRoute
   '/settings': typeof SettingsRoute
   '/report/$id': typeof ReportIdRoute
 }
@@ -105,6 +113,7 @@ export interface FileRoutesById {
   '/landing': typeof LandingRoute
   '/live': typeof LiveRoute
   '/overview': typeof OverviewRoute
+  '/scan': typeof ScanRoute
   '/settings': typeof SettingsRoute
   '/report/$id': typeof ReportIdRoute
 }
@@ -119,6 +128,7 @@ export interface FileRouteTypes {
     | '/landing'
     | '/live'
     | '/overview'
+    | '/scan'
     | '/settings'
     | '/report/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -131,6 +141,7 @@ export interface FileRouteTypes {
     | '/landing'
     | '/live'
     | '/overview'
+    | '/scan'
     | '/settings'
     | '/report/$id'
   id:
@@ -143,6 +154,7 @@ export interface FileRouteTypes {
     | '/landing'
     | '/live'
     | '/overview'
+    | '/scan'
     | '/settings'
     | '/report/$id'
   fileRoutesById: FileRoutesById
@@ -156,6 +168,7 @@ export interface RootRouteChildren {
   LandingRoute: typeof LandingRoute
   LiveRoute: typeof LiveRoute
   OverviewRoute: typeof OverviewRoute
+  ScanRoute: typeof ScanRoute
   SettingsRoute: typeof SettingsRoute
   ReportIdRoute: typeof ReportIdRoute
 }
@@ -167,6 +180,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scan': {
+      id: '/scan'
+      path: '/scan'
+      fullPath: '/scan'
+      preLoaderRoute: typeof ScanRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/overview': {
@@ -244,6 +264,7 @@ const rootRouteChildren: RootRouteChildren = {
   LandingRoute: LandingRoute,
   LiveRoute: LiveRoute,
   OverviewRoute: OverviewRoute,
+  ScanRoute: ScanRoute,
   SettingsRoute: SettingsRoute,
   ReportIdRoute: ReportIdRoute,
 }
