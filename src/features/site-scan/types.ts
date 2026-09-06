@@ -96,12 +96,14 @@ export interface ScanSessionInfo {
   maxFrames: number;
 }
 
-/** `scan_sessions` row (typed-loose via the `db` shim, same as blueprints). */
+/** `scan_sessions` row (typed-loose via the `db` shim, same as blueprints).
+ *  `ingested` = the operator uploaded the artifact to MultiSet and entered the
+ *  returned map_code / object anchor id (manual-ingestion mode). */
 export interface ScanSessionRow {
   id: string;
   owner_id: string;
   type: ScanMode;
-  status: "done" | "error";
+  status: "done" | "error" | "ingested";
   frame_count: number;
   mat_detected: boolean;
   artifact_url: string | null;

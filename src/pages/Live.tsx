@@ -114,7 +114,9 @@ import {
   getOrCreateDeviceId,
 } from "@/features/shared-vision/hooks/useSharedVision";
 import { useLocalPeerCalibrations } from "@/features/shared-vision/hooks/useLocalPeerCalibrations";
-import { useOrgCameraDevices } from "@/features/shared-vision/hooks/useSiteMaps";
+import { useOrgCameraDevices, useSiteMaps } from "@/features/shared-vision/hooks/useSiteMaps";
+import { SharedVisionMap } from "@/features/shared-vision/components/SharedVisionMap";
+import { collectMapHazards } from "@/features/shared-vision/lib/mapHazards";
 import { useProjectedRemotePeers } from "@/features/shared-vision/hooks/useProjectedRemotePeers";
 import { useCameraStability } from "@/features/shared-vision/hooks/useCameraStability";
 import { useDeviceOrientation } from "@/features/shared-vision/hooks/useDeviceOrientation";
@@ -128,6 +130,8 @@ import { ManualMapCalibrationPanel } from "@/features/shared-vision/components/M
 import { HiveProjectionReadinessPanel } from "@/features/shared-vision/components/HiveProjectionReadinessPanel";
 import { buildProjectionReadiness } from "@/features/shared-vision/hooks/useProjectionReadiness";
 import { MultisetVpsProofPanel } from "@/features/shared-vision/vps/MultisetVpsProofPanel";
+import { useVpsLocalization } from "@/features/shared-vision/vps/useVpsLocalization";
+import type { VpsTierInputs } from "@/features/shared-vision/lib/vpsProjection";
 import type {
   BlueprintWorkflowMode,
   BuildGesture,
@@ -372,6 +376,12 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
   // map code is a plain string env (not a boolean flag).
   const multisetVpsEnabled = readFlag("VITE_MULTISET_VPS_ENABLED", safeEnv(), false);
   const multisetMapCode = (safeEnv().VITE_MULTISET_MAP_CODE as string | undefined) ?? "";
+  // Live hazard dots on the site map (roadmap: "live blueprint with hazards in
+  // real time"). Read-only over projected entities' world points; OFF by
+  // default and additive — the editor and site_maps schema are untouched.
+  const mapLiveHazards = hiveEnabled && readFlag("VITE_MAP_LIVE_HAZARDS", safeEnv(), false);
+  const { data: liveHazardMaps = [] } = useSiteMaps(mapLiveHazards ? selectedOrgId : null);
+  const liveHazardMap = liveHazardMaps[0] ?? null;
   // X-Ray lens: ships ON; one env change (VITE_XRAY_LENS=false) kills it on
   // demo day. HSE-only, additive over the existing overlays.
   const xrayEnabled = readFlag("VITE_XRAY_LENS", safeEnv(), true);
@@ -441,6 +451,38 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
     localAlertsEnabled: hseFlags.localAlertsEnabled,
   });
 
+  // VPS shared-pose projection (vps_map tier). Additive + double-gated:
+  // VITE_MULTISET_VPS_ENABLED is the master switch, VITE_VPS_PROJECTION_ENABLED
+  // turns the localize-then-track loop + tier on. The hook NEVER queries per
+  // frame (Lite tier: 10k calls/month) — see useVpsLocalization.
+  const vpsProjectionEnabled =
+    multisetVpsEnabled && readFlag("VITE_VPS_PROJECTION_ENABLED", safeEnv(), false);
+  const vpsLoc = useVpsLocalization({
+    enabled: vpsProjectionEnabled && hseActive,
+    mapCode: multisetMapCode,
+    videoRef,
+    headingDeg: heading.headingDeg,
+  });
+  const vpsTier = useMemo<VpsTierInputs | undefined>(() => {
+    if (!vpsProjectionEnabled || !vpsLoc.pose) return undefined;
+    const w = (backendStatus as BackendStatus | null)?.lastCaptureW ?? null;
+    const h = (backendStatus as BackendStatus | null)?.lastCaptureH ?? null;
+    return {
+      local: {
+        position: vpsLoc.pose.position,
+        rotation: vpsLoc.pose.rotation,
+        confidence: vpsLoc.confidence,
+        mapCode: vpsLoc.pose.mapCode ?? multisetMapCode,
+        // The dead-reckoned estimate is recomputed ~1 Hz by the hook, so it is
+        // always "fresh"; its trustworthiness is carried by the decayed
+        // confidence, which the tier gate checks separately.
+        ageRefMs: Date.now(),
+      },
+      localHfovDeg: LOCAL_HFOV_DEG,
+      localAspect: w && h && w > 0 ? h / w : 0.75,
+    };
+  }, [vpsProjectionEnabled, vpsLoc, multisetMapCode, backendStatus]);
+
   // HSE Live Risk View Model — single selector for what the HSE UI shows
   // (priority list, scene panel, overlay entities/poses, reasoner badge). Only
   // built in HSE mode so Build/Plan are byte-for-byte unchanged.
@@ -478,6 +520,9 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
       hfovDeg: LOCAL_HFOV_DEG,
     },
     session,
+    // v2: ride the live VPS pose along (scalars only) so peers can run the
+    // vps_map tier. null (flag off / not localized) keeps frames v1-shaped.
+    vpsPose: vpsLoc.broadcastPose,
   });
 
   // Receiver-side projection: compute each peer's projectedEntities locally from
@@ -500,10 +545,18 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
       localHeadingSource: heading.source,
       localFovDeg: LOCAL_HFOV_DEG,
     },
+    // vps_map — the top tier. undefined (flag off / not localized) leaves every
+    // existing tier exactly as it was.
+    vps: vpsTier,
   });
   const projectedPeerList = useMemo(
     () => [...projectedRemotePeers.values()],
     [projectedRemotePeers],
+  );
+  // Decaying hazard dots (map meters) for the flag-gated live map layer.
+  const mapHazards = useMemo(
+    () => (mapLiveHazards ? collectMapHazards(projectedPeerList, Date.now()) : []),
+    [mapLiveHazards, projectedPeerList],
   );
 
   // Dev-only Hive projection diagnostics (Step 4). Gated behind VITE_HIVE_DEBUG
@@ -1683,9 +1736,33 @@ export default function Live({ initialMode = "hse" }: { initialMode?: AppMode } 
                 {showMultisetProofPanel && (
                   <MultisetVpsProofPanel videoRef={videoRef} mapCode={multisetMapCode} />
                 )}
+                {/* Live blueprint: hazard dots over the site map (flag-gated). */}
+                {mapLiveHazards && liveHazardMap && (
+                  <SharedVisionMap
+                    map={liveHazardMap}
+                    devices={orgDevices}
+                    highlightDeviceId={hiveDeviceId ?? undefined}
+                    hazards={mapHazards}
+                  />
+                )}
                 {/* Raw Hive projection diagnostics: VITE_HIVE_DEBUG only. */}
                 {projectionReadiness && (
-                  <HiveProjectionReadinessPanel readiness={projectionReadiness} />
+                  <HiveProjectionReadinessPanel
+                    readiness={projectionReadiness}
+                    vps={
+                      vpsProjectionEnabled
+                        ? {
+                            trackingState: vpsLoc.trackingState,
+                            confidence: vpsLoc.confidence,
+                            queriesThisSession: vpsLoc.queriesThisSession,
+                            lastQueryAt: vpsLoc.lastQueryAt,
+                            mapCode: multisetMapCode,
+                            intrinsicsSource: vpsLoc.intrinsicsSource,
+                            lastError: vpsLoc.lastError,
+                          }
+                        : null
+                    }
+                  />
                 )}
               </>
             )}

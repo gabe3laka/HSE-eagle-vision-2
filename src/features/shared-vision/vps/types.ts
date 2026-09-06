@@ -45,6 +45,8 @@ export interface VpsIntrinsics {
   hfovDeg: number;
   /** True when fx/fy were estimated from FOV rather than device-calibrated. */
   estimated: boolean;
+  /** Which path produced fx/fy — surfaced in the HUD/debug panel. */
+  source?: "device_table" | "fov_estimate";
 }
 
 /** Result of a single MultiSet map-query round-trip (drives the Stage-0 panel). */

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/own-client";
-import type { SvFrameMessage, SvRemoteRiskMessage, SvMessage, RemotePeerState } from "../types";
+import type {
+  SvFrameMessage,
+  SvRemoteRiskMessage,
+  SvMessage,
+  RemotePeerState,
+  SvVpsPose,
+} from "../types";
 import type { BackendEntity, BackendPose } from "@/lib/detection/types";
 import type { SceneRisk, RiskSummary } from "@/lib/detection/riskTypes";
 import type { ParsedDetectRisk } from "@/lib/detection/backendVisionHttpDetector";
@@ -67,6 +73,9 @@ export interface UseSharedVisionOptions {
     hfovDeg?: number | null;
   };
   session?: { access_token: string } | null;
+  /** Optional (v2): this device's live VPS pose — scalars only, broadcast so
+   *  peers can run the vps_map tier. null/omitted → frames stay v1-shaped. */
+  vpsPose?: SvVpsPose | null;
 }
 
 /** An org-mate currently present in the hive room (from Realtime presence). */
@@ -142,6 +151,7 @@ export function useSharedVision({
   backendStatus,
   capture,
   session,
+  vpsPose,
 }: UseSharedVisionOptions): UseSharedVisionResult {
   const deviceId = useRef(getOrCreateDeviceId());
   const sessionEpoch = useRef(crypto.randomUUID());
@@ -211,6 +221,9 @@ export function useSharedVision({
           poses: payload.poses ?? [],
           sceneRisks: payload.sceneRisks,
           riskSummary: payload.riskSummary,
+          // v2 peers only; stamped with the RECEIVER clock so freshness gates
+          // never trust the sender's clock. v1 peers → null (tier inert).
+          vpsPose: payload.vpsPose ? { ...payload.vpsPose, receivedAt: Date.now() } : null,
           // projectedEntities is always computed locally by the receiver from
           // LocalPeerCalibration — never from the broadcast payload.
           // Phase 1: no calibration → always []. Populated in Phase 1B+ when
@@ -413,7 +426,8 @@ export function useSharedVision({
 
     const msg: SvFrameMessage = {
       kind: "sv_frame",
-      v: 1,
+      // v2 when a VPS pose rides along; readers tolerate both.
+      v: vpsPose ? 2 : 1,
       orgId,
       sharedSessionId: room,
       deviceId: deviceId.current,
@@ -436,6 +450,7 @@ export function useSharedVision({
       poses: backendPoses,
       sceneRisks: backendRisk?.sceneRisks ?? [],
       riskSummary: backendRisk?.riskSummary ?? null,
+      vpsPose: vpsPose ?? null,
     };
 
     lastSentAtRef.current = now;

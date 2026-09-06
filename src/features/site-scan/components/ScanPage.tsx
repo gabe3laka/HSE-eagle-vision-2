@@ -27,7 +27,8 @@ import {
 } from "../config";
 import { useScanSensors } from "../hooks/useScanSensors";
 import { useScanSession } from "../hooks/useScanSession";
-import { useRecentScans, useScanJobs } from "../hooks/useScanJobs";
+import { useScanJobs } from "../hooks/useScanJobs";
+import { ScanSessionsList } from "./ScanSessionsList";
 import type { ScanJobResult, ScanPhase } from "../types";
 
 const MAT_CHECKLIST = [
@@ -65,7 +66,6 @@ function ScanFlow() {
   const sensors = useScanSensors(phase === "mat_check" || phase === "capturing");
   const scan = useScanSession(camera.videoRef, sensors);
   const jobs = useScanJobs();
-  const recent = useRecentScans();
   const apiUrl = useMemo(() => readScanApiUrl(), []);
 
   // Job status → phase.
@@ -229,25 +229,7 @@ function ScanFlow() {
         />
       )}
 
-      {recent.data && recent.data.length > 0 && (
-        <section className="rounded-xl border border-border p-4">
-          <h2 className="text-sm font-medium">Recent scans</h2>
-          <ul className="mt-2 space-y-1 text-xs">
-            {recent.data.map((r) => (
-              <li key={r.id} className="flex items-center justify-between gap-2">
-                <span className="truncate">
-                  {r.type} · {r.frame_count} frames · {r.mat_detected ? "metric" : "unscaled"}
-                  {r.map_code ? ` · ${r.map_code}` : ""}
-                  {r.object_anchor_id ? ` · ${r.object_anchor_id}` : ""}
-                </span>
-                <span className={r.status === "done" ? "text-emerald-500" : "text-destructive"}>
-                  {r.status}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <ScanSessionsList />
     </div>
   );
 }

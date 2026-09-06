@@ -8,7 +8,7 @@ export type CalibrationStatus =
   | "calibrated"
   | "stale"
   | "failed";
-export type ProjectionMethod = "none" | "manual_map" | "homography_4pt" | "marker";
+export type ProjectionMethod = "none" | "manual_map" | "homography_4pt" | "marker" | "vps_map";
 
 /** A remote detection projected into the RECEIVER's local image plane (0..1).
  *  Receiver-computed only — never on the broadcast wire. */
@@ -77,7 +77,11 @@ export type ProjectionReason =
   /** Compass hive-mind: placed purely by world bearing from the sender's live
    *  heading + FOV (no map, no calibration, no parallax). Direction is solid,
    *  position approximate — never carries a distance label. */
-  | "compass_bearing";
+  | "compass_bearing"
+  /** VPS shared-pose tier: both devices localized against the SAME MultiSet
+   *  map, so the peer's ground ray and the local camera share one metric
+   *  frame. The top tier — above homography — but still receiver-computed. */
+  | "vps_map";
 
 /** Receiver-side projected entity. Never broadcast by default.
  *  Computed locally by each receiver from RemoteHiveEntity + LocalPeerCalibration. */
@@ -112,12 +116,27 @@ export interface CaptureTransform {
   screenOrientationDeg: number;
 }
 
+/** The sender's live VPS pose, broadcast so receivers can run the vps_map
+ *  projection tier. Scalars only — never imagery. Optional + v2: old readers
+ *  ignore it, old senders never send it. */
+export interface SvVpsPose {
+  position: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number; w: number };
+  confidence: number;
+  mapCode: string;
+  /** Sender clock (ms) when the pose was produced — display only; freshness
+   *  gates use the RECEIVER clock at ingest (clock skew is real). */
+  timestampMs: number;
+}
+
 /** Heartbeat ~3/s (300ms gate). No raw video/image/base64 — metadata only.
  *  entities[] are sender-space only. poses[] optional — empty when worker
- *  did not run pose tasks. Hive must work without poses. */
+ *  did not run pose tasks. Hive must work without poses.
+ *  v2 adds the optional vpsPose + the "vps_map" coordinate space; readers stay
+ *  tolerant of v1 peers that never send either. */
 export interface SvFrameMessage {
   kind: "sv_frame";
-  v: 1;
+  v: 1 | 2;
   orgId: string;
   sharedSessionId: string;
   /** Stable per-tab/device UUID from localStorage hse_device_id. Self-filter key. */
@@ -157,9 +176,11 @@ export interface SvFrameMessage {
   };
   projection: {
     localizable: boolean;
-    coordinateSpace: "remote_image" | "site_map" | "ground_plane" | "world";
+    coordinateSpace: "remote_image" | "site_map" | "ground_plane" | "world" | "vps_map";
     confidence: number | null;
   };
+  /** Optional (v2) — the sender's live VPS pose in its MultiSet map frame. */
+  vpsPose?: SvVpsPose | null;
   /** Always present. YOLO detection boxes — the reliable working path. */
   entities: RemoteHiveEntity[];
   /** Optional. Only present when the worker ran pose tasks. Do not require this. */
@@ -248,6 +269,10 @@ export interface RemotePeerState {
    *  Empty in Phase 1 (no calibration). Populated in Phase 1B+ when a valid
    *  transform exists for this peer. */
   projectedEntities: ProjectedRemoteEntity[];
+  /** The peer's broadcast VPS pose (v2 frames), stamped with the RECEIVER
+   *  clock at ingest so freshness gates never trust the sender's clock.
+   *  null for v1 peers — every existing tier keeps working without it. */
+  vpsPose?: (SvVpsPose & { receivedAt: number }) | null;
 }
 
 /** A camera's placement on a site map (Phase 1B manual map). */

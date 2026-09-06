@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { RemotePeerState, LocalPeerCalibration } from "../types";
 import { computeProjectedPeers, type HiveMindReceiver } from "../lib/projection";
+import type { VpsTierInputs } from "../lib/vpsProjection";
 
 /**
  * Receiver-side projection selector.
@@ -32,12 +33,21 @@ export function useProjectedRemotePeers(params: {
   /** Compass hive-mind fallback inputs (receiver's live heading + FOV). When
    *  omitted, only the calibrated tiers run. */
   hiveMind?: HiveMindReceiver;
+  /** VPS shared-pose tier inputs (top tier). Omitted → tiers run as today. */
+  vps?: VpsTierInputs;
 }): Map<string, RemotePeerState> {
-  const { remotePeers, localCalibration, hseActive, blockedPeerIds, hiveMind } = params;
+  const { remotePeers, localCalibration, hseActive, blockedPeerIds, hiveMind, vps } = params;
 
   return useMemo(
     () =>
-      computeProjectedPeers({ remotePeers, localCalibration, hseActive, blockedPeerIds, hiveMind }),
-    [remotePeers, localCalibration, hseActive, blockedPeerIds, hiveMind],
+      computeProjectedPeers({
+        remotePeers,
+        localCalibration,
+        hseActive,
+        blockedPeerIds,
+        hiveMind,
+        vps,
+      }),
+    [remotePeers, localCalibration, hseActive, blockedPeerIds, hiveMind, vps],
   );
 }

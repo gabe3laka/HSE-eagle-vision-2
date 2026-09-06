@@ -41,7 +41,13 @@ export type RiskFeatureFlag =
   // MultiSet VPS shared-pose provider (Hive, HSE-only). OFF by default. Gates the
   // Stage-0 REST proof panel and (later) sv_pose broadcast + VPS floor-ray tier.
   // NOTE: VITE_MULTISET_MAP_CODE is a string, read from env directly (not here).
-  | "VITE_MULTISET_VPS_ENABLED";
+  | "VITE_MULTISET_VPS_ENABLED"
+  // VPS shared-pose projection tier (vps_map, above homography). OFF by default;
+  // requires VITE_MULTISET_VPS_ENABLED too. VITE_VPS_REQUERY_MS is numeric, read
+  // from env directly in the vps hook (not here).
+  | "VITE_VPS_PROJECTION_ENABLED"
+  // Live hazard dots on the shared-vision site map. OFF by default.
+  | "VITE_MAP_LIVE_HAZARDS";
 
 /** PURE: read a single boolean flag from an env bag. Returns `true` for the
  *  string "true", `false` for the string "false", and `defaultValue` otherwise
