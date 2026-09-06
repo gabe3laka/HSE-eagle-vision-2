@@ -157,3 +157,82 @@ export function useRecentScans(limit = 8) {
     },
   });
 }
+
+// ── Manual-ingestion loop (MULTISET_INGEST_MODE=manual) ──────────────────────
+// The worker returns an artifact URL and leaves map_code / object_anchor_id
+// null; the operator uploads to MultiSet and enters the returned id here.
+
+/** PURE: id-shape validation. Site scans take MultiSet map codes; object scans
+ *  take an anchor id (any non-empty trimmed string MultiSet hands back). */
+export function isValidMapCode(value: string): boolean {
+  return /^MAP_[A-Za-z0-9]+$/.test(value.trim());
+}
+export function isValidAnchorId(value: string): boolean {
+  return value.trim().length > 0;
+}
+export function isValidIngestionId(mode: ScanMode, value: string): boolean {
+  return mode === "site" ? isValidMapCode(value) : isValidAnchorId(value);
+}
+
+/** PURE: may the operator enter an ingestion id on this row?
+ *  Only a finished scan that still lacks its id — and an object scan without
+ *  the mat is NOT metric, so it can never become an object anchor. */
+export function canEnterIngestionId(
+  row: Pick<ScanSessionRow, "type" | "status" | "mat_detected" | "map_code" | "object_anchor_id">,
+): boolean {
+  if (row.status !== "done") return false;
+  if (row.type === "object") return row.mat_detected && row.object_anchor_id === null;
+  return row.map_code === null;
+}
+
+/** PURE: the column patch a valid id produces (status transitions to
+ *  'ingested' — the CHECK constraint in the scan_sessions migration allows it). */
+export function ingestionPatch(
+  mode: ScanMode,
+  id: string,
+): { status: "ingested"; map_code?: string; object_anchor_id?: string } {
+  const trimmed = id.trim();
+  return mode === "site"
+    ? { status: "ingested", map_code: trimmed }
+    : { status: "ingested", object_anchor_id: trimmed };
+}
+
+/** Write the operator-entered MultiSet id back onto a scan_sessions row.
+ *  Validates shape and THROWS on any failure — a failed write must surface in
+ *  the UI, never silently no-op. RLS scopes the update to the owner. */
+export async function setIngestionId(
+  rowId: string,
+  mode: ScanMode,
+  id: string,
+): Promise<{ status: "ingested"; map_code?: string; object_anchor_id?: string }> {
+  if (!isValidIngestionId(mode, id)) {
+    throw new Error(mode === "site" ? "invalid_map_code" : "invalid_anchor_id");
+  }
+  const patch = ingestionPatch(mode, id);
+  const { error } = await db.from("scan_sessions").update(patch).eq("id", rowId);
+  if (error) throw new Error(error.message ?? "update_failed");
+  return patch;
+}
+
+/** List the signed-in owner's scan sessions, newest first (RLS-scoped). */
+export async function listSessions(limit = 20): Promise<ScanSessionRow[]> {
+  const { data, error } = await db
+    .from("scan_sessions")
+    .select(
+      "id, owner_id, type, status, frame_count, mat_detected, artifact_url, map_code, object_anchor_id, error, worker_job_id, created_at",
+    )
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message ?? "list_failed");
+  return (data ?? []) as ScanSessionRow[];
+}
+
+/** Mutation wrapper for the sessions list: writes the id, refreshes the list. */
+export function useSetIngestionId() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { rowId: string; mode: ScanMode; id: string }) =>
+      setIngestionId(input.rowId, input.mode, input.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["scan_sessions"] }),
+  });
+}

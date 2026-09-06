@@ -1,9 +1,15 @@
 import type { SiteMap, CameraPlacement } from "../hooks/useSiteMaps";
+import type { MapHazard } from "../lib/mapHazards";
+import { riskLevelColor } from "@/lib/detection/riskTypes";
+import type { RiskLevel } from "@/lib/detection/riskTypes";
 
 interface Props {
   map: SiteMap;
   devices: CameraPlacement[];
   highlightDeviceId?: string;
+  /** Optional flag-gated live layer: hazard dots in map meters, decaying with
+   *  age. Purely additive — omitted, the map renders exactly as before. */
+  hazards?: MapHazard[];
 }
 
 /**
@@ -13,7 +19,7 @@ interface Props {
  * The highlighted device (this camera) is shown in magenta; peers in blue.
  * This is a read-only spatial reference — it does not do live projection.
  */
-export function SharedVisionMap({ map, devices, highlightDeviceId }: Props) {
+export function SharedVisionMap({ map, devices, highlightDeviceId, hazards }: Props) {
   const mapW = map.width_m ?? 20;
   const mapH = map.height_m ?? 15;
 
@@ -82,6 +88,27 @@ export function SharedVisionMap({ map, devices, highlightDeviceId }: Props) {
                 {d.camera_label}
               </text>
             </g>
+          );
+        })}
+
+        {/* Live hazards (VITE_MAP_LIVE_HAZARDS): risk-coloured, confidence-sized,
+            fading out toward MAP_HAZARD_TTL_MS. */}
+        {hazards?.map((h) => {
+          const pos = toSvg(h.x_m, h.y_m);
+          if (pos.x < 0 || pos.x > VIEW_W || pos.y < 0 || pos.y > VIEW_H) return null;
+          const color = riskLevelColor((h.riskLevel ?? undefined) as RiskLevel | undefined);
+          const r = 3 + h.confidence * 4;
+          return (
+            <circle
+              key={h.id}
+              cx={pos.x}
+              cy={pos.y}
+              r={r}
+              fill={color}
+              opacity={Math.max(0.12, 1 - h.age01)}
+              stroke="rgba(0,0,0,0.4)"
+              strokeWidth={0.5}
+            />
           );
         })}
 

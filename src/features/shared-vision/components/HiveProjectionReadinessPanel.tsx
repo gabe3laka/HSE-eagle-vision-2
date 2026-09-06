@@ -21,7 +21,25 @@ function Row({ row }: { row: ReadinessRow }) {
   );
 }
 
-export function HiveProjectionReadinessPanel({ readiness }: { readiness: ProjectionReadiness }) {
+/** Optional VPS localization snapshot for the debug rows. The query counter is
+ *  the runaway-loop tripwire — MultiSet Lite is 10k calls/month. */
+export interface VpsDebugInfo {
+  trackingState: string;
+  confidence: number;
+  queriesThisSession: number;
+  lastQueryAt: number | null;
+  mapCode: string;
+  intrinsicsSource: string | null;
+  lastError: string | null;
+}
+
+export function HiveProjectionReadinessPanel({
+  readiness,
+  vps,
+}: {
+  readiness: ProjectionReadiness;
+  vps?: VpsDebugInfo | null;
+}) {
   return (
     <div className="space-y-3 rounded-lg border border-dashed border-amber-700/50 bg-amber-950/10 p-3">
       <div className="flex items-center gap-2">
@@ -51,6 +69,40 @@ export function HiveProjectionReadinessPanel({ readiness }: { readiness: Project
 
       {readiness.peers.length === 0 && (
         <p className="text-[11px] text-muted-foreground">No peers in session.</p>
+      )}
+
+      {vps && (
+        <div className="rounded border border-border/60 p-2">
+          <p className="mb-1 text-[11px] font-semibold">VPS localization</p>
+          <Row
+            row={{
+              label: "tracking",
+              value: `${vps.trackingState} · ${vps.confidence.toFixed(2)}`,
+              ok: vps.confidence > 0,
+            }}
+          />
+          <Row
+            row={{
+              label: "queries this session",
+              value: String(vps.queriesThisSession),
+              ok: vps.queriesThisSession < 200 ? true : false,
+            }}
+          />
+          <Row
+            row={{
+              label: "last query",
+              value: vps.lastQueryAt
+                ? `${Math.round((Date.now() - vps.lastQueryAt) / 1000)}s ago`
+                : "never",
+              ok: null,
+            }}
+          />
+          <Row row={{ label: "map", value: vps.mapCode || "—", ok: vps.mapCode ? true : false }} />
+          <Row row={{ label: "intrinsics", value: vps.intrinsicsSource ?? "—", ok: null }} />
+          {vps.lastError && (
+            <Row row={{ label: "last error", value: vps.lastError.slice(0, 60), ok: false }} />
+          )}
+        </div>
       )}
     </div>
   );

@@ -6,7 +6,7 @@
 -- blueprints. Additive: no existing table/enum/policy is touched.
 --
 --   type            'site' | 'object'
---   status          'done' | 'error'
+--   status          'done' | 'error' | 'ingested' (manual MultiSet id entered)
 --   frame_count     keyframes the worker reconstructed from
 --   mat_detected    true when the ChArUco Scan Mat fixed metric scale/gravity
 --   artifact_url    metric PLY/GLB download for MultiSet ingestion
@@ -21,7 +21,7 @@ create table if not exists public.scan_sessions (
   type text not null
     check (type = any (array['site'::text, 'object'::text])),
   status text not null default 'done'
-    check (status = any (array['done'::text, 'error'::text])),
+    check (status = any (array['done'::text, 'error'::text, 'ingested'::text])),
   frame_count integer not null default 0 check (frame_count >= 0),
   mat_detected boolean not null default false,
   artifact_url text,

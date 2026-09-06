@@ -9,6 +9,7 @@ import type {
   MapCameraPlacement,
 } from "../types";
 import { applyHomographyPoint } from "./homography";
+import { buildVpsProjectedEntity, canUseVpsTier, type VpsTierInputs } from "./vpsProjection";
 import { worldDistanceM, distanceLabel, type WorldPt } from "./distance";
 import { entityWorldBearingDeg, projectByBearing, isHiveMindEligible } from "./objectBearing";
 
@@ -476,8 +477,13 @@ export function computeProjectedPeers(params: {
    *  the peer's detections by world bearing instead. Tier order is enforced here:
    *  homography/manual-map win; hive-mind only fills the gap. */
   hiveMind?: HiveMindReceiver;
+  /** Optional VPS shared-pose tier inputs. When BOTH ends hold a fresh,
+   *  confident pose against the SAME map, vps_map outranks every other tier —
+   *  homography and compass demote to the fallback for unscanned sites. A peer
+   *  with no vpsPose (or a receiver with none) is entirely unaffected. */
+  vps?: VpsTierInputs;
 }): Map<string, RemotePeerState> {
-  const { remotePeers, localCalibration, hseActive, blockedPeerIds, hiveMind } = params;
+  const { remotePeers, localCalibration, hseActive, blockedPeerIds, hiveMind, vps } = params;
   const out = new Map<string, RemotePeerState>();
   for (const [deviceId, peer] of remotePeers) {
     if (blockedPeerIds?.has(deviceId)) {
@@ -487,6 +493,31 @@ export function computeProjectedPeers(params: {
       continue;
     }
     const calibration = localCalibration.get(deviceId) ?? null;
+
+    // Tier 0 (top) — vps_map. Receiver-computed from broadcast poses; the
+    // same peer-freshness guard as the compass tier (this path also bypasses
+    // canRenderProjectedRemoteEntity), plus the VPS pose gates.
+    if (
+      vps &&
+      hseActive &&
+      !peer.isStale &&
+      Date.now() - peer.lastSeenAt <= PEER_STALE_TTL_MS &&
+      canUseVpsTier(vps.local, peer.vpsPose, Date.now())
+    ) {
+      const vpsProjected: ProjectedRemoteEntity[] = [];
+      for (const entity of peer.entities) {
+        const projected = buildVpsProjectedEntity(entity, peer, peer.vpsPose!, vps, Date.now());
+        if (projected && isInsideViewport(projected.projectedLocal)) {
+          vpsProjected.push(projected);
+        }
+      }
+      if (vpsProjected.length > 0) {
+        out.set(deviceId, { ...peer, projectedEntities: vpsProjected });
+        continue;
+      }
+      // No entity survived (all off-view) → fall through to the lower tiers.
+    }
+
     let projectedEntities = buildProjectedRemoteEntities({ peer, calibration, hseActive });
 
     // Compass hive-mind fallback — ONLY when no calibrated projection exists for
